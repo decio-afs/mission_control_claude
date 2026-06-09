@@ -16,7 +16,7 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (13 tabs after the 2026-06-09 consolidation)
+## Current State (10 tabs after the 2026-06-09 Run #2 consolidation)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
@@ -26,23 +26,23 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 | 00 | `/command`     | Hermes Command (Cyberpunk) | LIVE | Primary ops console: agents, tasks, cron, spawn/dispatch. |
 | 01 | `/network`     | Ghost Network              | LIVE | Sprite-room agent topology (unique viz). |
 | 02 | `/agent-hub`   | Agent Hub                  | LIVE | Agent CRUD registry + agent-activity tab + spawn-on-task. |
-| 03 | `/war-room`    | War Room                   | LIVE | Metrics gauges + task-status + agent-load + **TASKS/SIGNAL feed toggle** (Signal Intel merged in). |
-| 04 | `/operations`  | Operations Center          | LIVE | Kanban CRUD + cron run + task decompose. |
+| 03 | `/war-room`    | War Room                   | LIVE | Metrics gauges + task-status + agent-load + **TASKS/SIGNAL feed toggle**. |
+| 04 | `/operations`  | Operations Center          | LIVE | Kanban CRUD + cron list/run/**create** + task decompose. |
 | 05 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | Chat round-trips to Hermes. |
-| 06 | `/intelligence`| Intel Deck                 | DEMO | Static `legionData.ts` trend signal. |
-| 07 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
-| 08 | `/briefing`    | Briefing Terminal          | LIVE | `useBriefingStore` (briefing + sentinel digest). |
-| 09 | `/builder`     | Workflow Builder           | DEMO | Static node graph. |
-| 10 | `/archives`    | Archives                   | DEMO | Static mission history. |
-| 11 | `/broadcast`   | Broadcast Uplink           | DEMO | Static channel stats. |
-| 12 | `/leads`       | Lead Tracker               | LIVE | `useLeadStore`. |
+| 06 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
+| 07 | `/briefing`    | Briefing Terminal          | LIVE | `useBriefingStore` (briefing + sentinel digest). |
+| 08 | `/leads`       | Lead Tracker               | LIVE | `useLeadStore`. |
+| 09 | `/design-lab`  | Design Lab                 | DEMO | **Consolidated showcase** — internal sub-tabs: Intel Deck / Workflow Builder / Archives / Broadcast Uplink. |
 
-- **Removed this run:** `Signal Intelligence` (`/signal-intelligence`) — its live
-  `useActivityStore` feed was folded into War Room's bottom panel. The old route now
-  redirects to `/war-room`. Page file deleted.
-- **Remaining DEMO/static tabs (4):** Intel Deck, Workflow Builder, Archives, Broadcast Uplink.
-  These are the lowest-value clutter for a real Hermes ops dashboard.
+- **Consolidated this run (Run #2):** the 4 standalone DEMO tabs (Intel Deck, Workflow
+  Builder, Archives, Broadcast Uplink) → ONE `Design Lab` tab (`src/pages/DesignLab.tsx`)
+  with internal sub-tab nav. Old routes redirect to `/design-lab?tab=<id>`. 13 → 10 tabs.
+  No page files deleted — the 4 demo components are now children of `DesignLab`.
+- **Removed in Run #1:** `Signal Intelligence` (folded into War Room; `/signal-intelligence`
+  → `/war-room`; page deleted).
+- **Only DEMO/static content left:** lives entirely inside Design Lab now. The other 9 tabs are LIVE.
 - **Global ⌘K / Ctrl+K command palette** mounted in `Layout.tsx` (`src/components/CommandPalette.tsx`).
+  Picks up `nav.ts` automatically; deep-links to Design Lab work via the query-param redirect.
 
 ---
 
@@ -64,27 +64,70 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 ## Next Steps / TODO (the next run executes these)
 
 ### Consolidation
-- [ ] Collapse the 4 static DEMO tabs (Intel Deck, Workflow Builder, Archives, Broadcast Uplink) into a
-      single **"Design Lab"** tab with internal sub-tab navigation. Keep `DemoBadge`. Update `nav.ts`,
-      `App.tsx` routes (redirect old paths), and the CommandPalette will pick up the new module automatically.
-- [ ] Consider trimming the cron widget duplicated between Command and Operations (leave Operations as the home).
+- [ ] **Command vs Operations cron duplication** — Command (`src/pages/Cyberpunk.tsx`) still has an
+      inline cron list/run widget that now overlaps Operations' fuller cron CRUD (list/run/create).
+      Trim Command's cron widget down to a read-only summary that *links* to Operations, leaving
+      Operations as the single cron home. Do NOT remove Command's spawn/dispatch — only the cron block.
+- [ ] **Agent Hub "Activity" tab vs War Room SIGNAL feed** — both surface agent activity. Verify whether
+      Agent Hub's Activity tab (`useGhostStore.agentActivity`) adds anything over War Room's live
+      `/api/hermes/activity` SIGNAL feed; if redundant, drop the Agent Hub Activity tab and point to War Room.
 
 ### UI / Display Fixes
-- [ ] War Room top row is a 6-up grid of fixed `h-[118px]` panels — verify it doesn't clip on the
-      smallest Electron window width; tighten the `lg:grid-cols-6` breakpoint if cramped.
-- [ ] Audit Content Factory / Lead Tracker / Briefing for overflow + design-system consistency (not yet reviewed this loop).
-- [ ] Sidebar nav now has 13 items + roster + footer; confirm it scrolls cleanly at short viewport heights.
+- [ ] **Cyberpunk / Hermes Command** page not yet audited this loop — it's the largest page (16.5K) and the
+      primary console. Check for overflow, cramped widgets, and design-system drift on small Electron widths.
+- [ ] **Ghost Network** (22.3K) and **ChatTerminal** (23.2K) are the two biggest pages and have never been
+      UI-audited in this loop — review them for overflow/scroll/responsive issues next.
+- [ ] **Operations Center** is now a 2-col grid with two modals (decompose + cron) — on the smallest window
+      width confirm the `lg:grid-cols-[360px_1fr]` left column doesn't squeeze the kanban cards.
 
-### Next Feature (must differ from everything in Run History)
-- [ ] Build a **Cron Creation UI** in Operations: add a `POST /api/hermes/cron` endpoint to `hermes-bridge.py`
-      (shell `hermes cron add …`), mirror a `createHermesCron` type in `api.ts`, and a small create form.
-      (Bridge currently only lists/runs cron — creating is the obvious missing CRUD verb.)
-- [ ] Alternative candidates (pick ONE, not already done): live log streaming, agent drill-down panel,
-      bridge health diagnostics panel, task dependency view, completed-task desktop notifications.
+### Next Feature (must differ from everything in Run History — Run #1: Command Palette; Run #2: Cron Creation UI)
+- [ ] Build a **Bridge Health Diagnostics panel** (new tab or a modal off the topbar): ping each bridge
+      endpoint (`/api/hermes/status`, `/agents`, `/tasks`, `/cron`, `/activity`, `/content/pipeline`,
+      `/sentinel/digest`), show per-endpoint latency + last-success time + HTTP status, and surface the
+      Hermes CLI version. Add a lightweight `GET /api/hermes/health` aggregator to `hermes-bridge.py`.
+- [ ] Alternative candidates (pick ONE, not already done): live log streaming (SSE/poll tail of a Hermes
+      run), agent drill-down panel (click an agent → its tasks/skills/recent activity), task dependency
+      view, completed-task desktop notifications, keyboard shortcuts cheat-sheet overlay.
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-09 — Run #2 (branch `auto/evolve-designlab-cron`)
+
+**Tab audit findings.** Re-enumerated all 13 tabs from `nav.ts`/`App.tsx`/`Layout.tsx`. Confirmed the
+Run #1 split of LIVE (9) vs DEMO (4). The 4 DEMO tabs (Intel Deck, Workflow Builder, Archives, Broadcast
+Uplink) render purely from static `legionData.ts` / hardcoded arrays with a `DemoBadge` and have no Hermes
+source — they were the clearest remaining top-level clutter (the Redundancy Matrix flagged exactly this).
+Remaining live-tab overlaps noted for next run: Command's inline cron widget vs Operations' cron CRUD, and
+Agent Hub's Activity tab vs War Room's SIGNAL feed (queued in Next Steps, not touched this run).
+
+**Consolidated.** Collapsed the 4 DEMO tabs into ONE **Design Lab** tab (13 → 10). New `src/pages/DesignLab.tsx`
+hosts the four existing demo components behind internal sub-tabs driven by a `?tab=` search param (so
+`useSearchParams` keeps deep-links + the command palette working). `nav.ts` now lists a single `designlab`
+module (`/design-lab`, num 09) and renumbers the live tabs 00–08. `App.tsx` renders `<DesignLab/>` at
+`/design-lab` and redirects the 4 legacy paths (`/intelligence`,`/builder`,`/archives`,`/broadcast`) to
+`/design-lab?tab=<id>`. No page files deleted — zero design work lost. Verified live: sidebar shows 10 tabs,
+sub-tab switching works, and `#/archives` correctly redirects to `#/design-lab?tab=archives` with the
+Archives sub-tab highlighted.
+
+**UI fixes.** Fixed the **Briefing Terminal "TODAY'S DIRECTIVES" panel overflow** — the directives list had
+no scroll container, so a long directive list overflowed the panel (and the whole grid never scrolled on
+short viewports). Added `overflow-y-auto` + `h-full` to the directives list, `min-h-0` to its Panel, and
+`overflow-y-auto` to the page's outer grid (fixes mobile/`grid-cols-1` stacking too). Verified the scroller
+mounts.
+
+**New feature — Cron Creation UI (Operations).** Closes the missing cron CRUD verb (bridge previously only
+listed/ran jobs). Added `POST /api/hermes/cron` to `hermes-bridge.py` (shells `hermes cron create <schedule>
+[prompt] --name --deliver --repeat --skill …`, returns the message + freshly-parsed job list), a
+`CreateCronRequest` type + `createHermesCron()` in `src/lib/api.ts`, and a **"+ NEW" button** in the
+Operations "SCHEDULED JOBS" panel header that opens a modal (schedule / name / prompt fields, error display,
+optimistic list refresh from the response). **How to access:** Operations tab → SCHEDULED JOBS panel →
+`+ NEW`. Verified the modal opens with the schedule input present (did not submit — that's a live write).
+
+**Verify.** `npm run build` ✓ (tsc + vite, 107 modules), `npm run lint` ✓ (0 issues),
+`python -m py_compile hermes-bridge.py` ✓, and a live Vite preview pass (no console errors; routes,
+redirects, Design Lab sub-tabs, Briefing scroller, and the cron modal all confirmed).
 
 ### 2026-06-09 — Run #1 (branch `auto/evolve-cmdk-consolidation`)
 
