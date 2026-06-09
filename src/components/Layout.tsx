@@ -31,6 +31,10 @@ export default function Layout() {
   // Lazy initializer reads persisted tweaks once — no setState-in-effect needed.
   const [tweaks] = useState(loadTweaks);
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Desktop sidebar collapse (slides the nav off to the left), persisted.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('mc-nav-collapsed') === '1'; } catch { return false; }
+  });
   const [diagOpen, setDiagOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const location = useLocation();
@@ -76,6 +80,10 @@ export default function Layout() {
     localStorage.setItem('mc-tweaks', JSON.stringify(tweaks));
   }, [tweaks]);
 
+  useEffect(() => {
+    try { localStorage.setItem('mc-nav-collapsed', collapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [collapsed]);
+
   const scanClass = tweaks.scanlines === 'off' ? '' : tweaks.scanlines === 'hard' ? 'scan-hard' : 'scan-soft';
 
   return (
@@ -100,7 +108,7 @@ export default function Layout() {
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-[220px] shrink-0 border-r border-white/10 bg-[#050505] flex flex-col transition-transform duration-300 lg:relative lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 w-[220px] shrink-0 border-r border-white/10 bg-[#050505] flex flex-col transition-all duration-300 lg:relative ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-0 lg:-translate-x-full lg:border-r-0 lg:overflow-hidden' : 'lg:w-[220px] lg:translate-x-0'}`}>
         {/* Logo */}
         <div className="h-[50px] px-3 flex items-center gap-2 border-b border-white/10 shrink-0">
           <div className="w-7 h-7 relative" style={{ background: `linear-gradient(135deg, ${accent}, #ff795e)`, clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}>
@@ -112,6 +120,7 @@ export default function Layout() {
             <div className="text-[8px] font-mono text-[#545454] tracking-[0.3em]">GHOST-LEGION</div>
           </div>
           <button onClick={() => setMobileOpen(false)} className="lg:hidden ml-auto text-[#545454] hover:text-white text-xs">✕</button>
+          <button onClick={() => setCollapsed(true)} title="Collapse navigation" className="hidden lg:block ml-auto text-[#545454] hover:text-white text-sm leading-none">‹</button>
         </div>
 
         {/* Nav */}
@@ -179,6 +188,7 @@ export default function Layout() {
         {/* TopBar */}
         <header className="h-[40px] shrink-0 border-b border-white/10 bg-[#050505] flex items-center px-4 gap-6 text-[10px] font-mono">
           <button onClick={() => setMobileOpen(true)} className="lg:hidden text-[#b8b8b8] hover:text-white mr-2">☰</button>
+          <button onClick={() => setCollapsed((c) => !c)} title={collapsed ? 'Show navigation' : 'Hide navigation'} className="hidden lg:inline-flex items-center text-[#b8b8b8] hover:text-white mr-1">☰</button>
           <div className="flex items-center gap-2">
             <span className={`w-1.5 h-1.5 rounded-full ${vitals.hermesOnline ? 'bg-emerald-400' : 'bg-red-400'}`} style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
             <span className="text-[#b8b8b8] tracking-[0.2em]">HERMES {vitals.hermesOnline ? 'ONLINE' : 'OFFLINE'}</span>

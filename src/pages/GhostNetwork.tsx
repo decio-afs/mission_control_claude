@@ -177,9 +177,9 @@ export default function GhostNetwork() {
       const resp = await sendHermesChat({ message: text });
       const out = (resp.response || '(no response)').trim();
       out.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 10).forEach((ln, i) =>
-        pushLine({ ag: 'JARVIS', kind: 'jarvis', text: ln, jarvis: true, ts: Date.now() + i }));
+        pushLine({ ag: 'ARCAN', kind: 'jarvis', text: ln, jarvis: true, ts: Date.now() + i }));
     } catch (e) {
-      pushLine({ ag: 'JARVIS', kind: 'warn', text: `directive failed · ${errMessage(e)}`, jarvis: false });
+      pushLine({ ag: 'ARCAN', kind: 'warn', text: `directive failed · ${errMessage(e)}`, jarvis: false });
     } finally {
       setSending(false);
     }
@@ -324,7 +324,7 @@ export default function GhostNetwork() {
         {/* CENTER STAGE */}
         <section className="col stage">
           <div className="stage-head">
-            <div className="stage-title"><b>AGENT MESH</b><span>// {coreNode ? coreNode.name : 'hermes'} core · {total} nodes</span></div>
+            <div className="stage-title"><b>AGENT MESH</b><span>// {coreNode ? coreNode.name : 'arcan'} core · {total} nodes</span></div>
             <div className="stage-stats">
               <div className="chip"><span className="dot" /><span className="k">AGENTS</span><b>{onlineCount}/{total}</b></div>
               <div className="chip"><span className="dot cyan" /><span className="k">RUNNING</span><b>{running}</b></div>
@@ -373,7 +373,7 @@ export default function GhostNetwork() {
                   <div className="core-stat cs-top">{running} RUNNING</div>
                   <div className="core-stat cs-bl">{queue} QUEUED</div>
                   <div className="core-stat cs-br">{onlineCount}/{total} ACTIVE</div>
-                  <div className="core-label"><b>{coreNode ? coreNode.name.toUpperCase() : 'HERMES'}</b><span>ORCHESTRATOR · {coreActive ? 'ACTIVE' : 'STANDBY'}</span></div>
+                  <div className="core-label"><b>{coreNode ? coreNode.name.toUpperCase() : 'ARCAN'}</b><span>ORCHESTRATOR · {coreActive ? 'ACTIVE' : 'STANDBY'}</span></div>
                 </div>
               </div>
             </div>
@@ -477,7 +477,7 @@ export default function GhostNetwork() {
 
       {/* COMMAND BAR — real directives to the orchestrator */}
       <footer className="commandbar">
-        <div className="cmd-pre"><span className="pr">JARVIS</span><span>▷</span></div>
+        <div className="cmd-pre"><span className="pr">ARCAN</span><span>▷</span></div>
         <input
           className="cmd-input" type="text" autoComplete="off" spellCheck={false}
           value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
