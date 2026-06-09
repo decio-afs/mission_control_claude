@@ -5,14 +5,11 @@ import GhostNetwork from './pages/GhostNetwork';
 import AgentHub from './pages/AgentHub';
 import WarRoom from './pages/WarRoom';
 import OperationsCenter from './pages/OperationsCenter';
-import IntelligenceDeck from './pages/IntelligenceDeck';
 import ContentFactory from './pages/ContentFactory';
 import BriefingTerminal from './pages/BriefingTerminal';
-import WorkflowBuilder from './pages/WorkflowBuilder';
-import Archives from './pages/Archives';
-import BroadcastUplink from './pages/BroadcastUplink';
 import ChatTerminal from './pages/ChatTerminal';
 import LeadTracker from './pages/LeadTracker';
+import DesignLab from './pages/DesignLab';
 
 function App() {
   return (
@@ -27,15 +24,16 @@ function App() {
           <Route path="war-room" element={<WarRoom />} />
           <Route path="operations" element={<OperationsCenter />} />
           <Route path="leads" element={<LeadTracker />} />
-          {/* Design showcase modules (static demo data) */}
-          <Route path="intelligence" element={<IntelligenceDeck />} />
           <Route path="factory" element={<ContentFactory />} />
           <Route path="briefing" element={<BriefingTerminal />} />
-          <Route path="builder" element={<WorkflowBuilder />} />
-          <Route path="archives" element={<Archives />} />
-          <Route path="broadcast" element={<BroadcastUplink />} />
           <Route path="chat" element={<ChatTerminal />} />
+          {/* Design showcase modules (static demo data), consolidated under one tab */}
+          <Route path="design-lab" element={<DesignLab />} />
           {/* Legacy redirects */}
+          <Route path="intelligence" element={<Navigate to="/design-lab?tab=intel" replace />} />
+          <Route path="builder" element={<Navigate to="/design-lab?tab=builder" replace />} />
+          <Route path="archives" element={<Navigate to="/design-lab?tab=archives" replace />} />
+          <Route path="broadcast" element={<Navigate to="/design-lab?tab=broadcast" replace />} />
           <Route path="signal-intelligence" element={<Navigate to="/war-room" replace />} />
           <Route path="cyberpunk" element={<Navigate to="/command" replace />} />
           <Route path="*" element={<Navigate to="/command" replace />} />
