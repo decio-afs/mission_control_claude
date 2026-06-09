@@ -16,6 +16,15 @@ const DEV_URL = process.env.MC_DEV_URL || '';
 let bridgeProc = null;
 let win = null;
 
+// Bridge supervision: if the bridge dies while the app is still running, the
+// dashboard loses its only backend. Auto-restart it (with exponential backoff)
+// unless we're intentionally quitting. A run that stays up a while resets the
+// counter, so only a genuine crash-loop trips the give-up guard.
+let isQuitting = false;
+let restartTimer = null;
+let restarts = 0;
+const MAX_RAPID_RESTARTS = 5;
+
 function startBridge() {
   const py = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
   console.log(`[mc] starting Hermes bridge: ${py} hermes-bridge.py (port ${BRIDGE_PORT})`);
@@ -24,8 +33,24 @@ function startBridge() {
     env: { ...process.env, BRIDGE_PORT },
     stdio: 'inherit',
   });
+  const startedAt = Date.now();
   bridgeProc.on('error', (e) => console.error('[mc] bridge failed to start:', e.message));
-  bridgeProc.on('exit', (code) => console.log('[mc] bridge exited with code', code));
+  bridgeProc.on('exit', (code, signal) => {
+    console.log('[mc] bridge exited with', code === null ? `signal ${signal}` : `code ${code}`);
+    bridgeProc = null;
+    if (isQuitting) return; // expected teardown on quit — do not restart
+
+    // A bridge that had been healthy for a while then died is not a crash loop.
+    if (Date.now() - startedAt > 20000) restarts = 0;
+    if (restarts >= MAX_RAPID_RESTARTS) {
+      console.error('[mc] bridge keeps exiting; auto-restart disabled — relaunch the app.');
+      return;
+    }
+    restarts += 1;
+    const delay = Math.min(8000, 500 * 2 ** (restarts - 1));
+    console.log(`[mc] auto-restarting bridge in ${delay}ms (attempt ${restarts}/${MAX_RAPID_RESTARTS})`);
+    restartTimer = setTimeout(() => { if (!isQuitting) startBridge(); }, delay);
+  });
 }
 
 function waitForBridge(retries = 40) {
@@ -100,6 +125,8 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function shutdown() {
+  isQuitting = true;
+  if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
   if (bridgeProc && !bridgeProc.killed) {
     try { bridgeProc.kill(); } catch { /* already gone */ }
     bridgeProc = null;
