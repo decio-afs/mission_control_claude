@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { MODULES } from '../lib/nav';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskStore } from '../stores/useTaskStore';
+import { useAgentDrilldownStore } from '../stores/useAgentDrilldownStore';
 import { Label, Pill } from './cyberpunk/ui';
 
 type Kind = 'module' | 'agent' | 'task' | 'action';
@@ -61,6 +62,7 @@ export default function CommandPalette() {
 
   const { nodes } = useGhostStore();
   const { tasks } = useTaskStore();
+  const openDrilldown = useAgentDrilldownStore((s) => s.open);
 
   const close = () => { setOpen(false); setQuery(''); setActive(0); };
 
@@ -146,6 +148,12 @@ export default function CommandPalette() {
   const choose = (item: Item | undefined) => {
     if (!item) return;
     close();
+    // Agents open the shared drill-down slide-over in place (same surface the
+    // Agent Hub / Command / Nexus rosters use) rather than just navigating.
+    if (item.kind === 'agent') {
+      openDrilldown(item.title);
+      return;
+    }
     navigate(item.path);
   };
 

@@ -7,6 +7,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useId } from 'react';
 import { useGhostStore, type GhostNode } from '../stores/useGhostStore';
 import { useActivityStore } from '../stores/useActivityStore';
+import { useAgentDrilldownStore } from '../stores/useAgentDrilldownStore';
 import { sendHermesChat, errMessage } from '../lib/api';
 import './ghostNexus.css';
 
@@ -92,6 +93,7 @@ const cssVars = (o: Record<string, string>) => o as React.CSSProperties;
 export default function GhostNetwork() {
   const { nodes, fetchTopology } = useGhostStore();
   const { activities, startPolling, stopPolling } = useActivityStore();
+  const openDrilldown = useAgentDrilldownStore((s) => s.open);
 
   const [layout, setLayout] = useState<'orbital' | 'grid'>('orbital');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -433,6 +435,7 @@ export default function GhostNetwork() {
                 <div className="dh">
                   <div className="di" style={cssVars({ '--c': selected.color })}><svg viewBox="0 0 24 24"><path d={selected.glyph} /></svg></div>
                   <div className="dt"><b>{selected.name}</b><span>{selected.role.toUpperCase()} · {selected.squad}</span></div>
+                  <button className="dclose" onClick={() => openDrilldown(selected.name)} title="Open full agent drill-down">▦ INSPECT</button>
                   <button className="dclose" onClick={() => setSelectedId(null)}>▢ CLOSE</button>
                 </div>
                 <div className="dtask">
