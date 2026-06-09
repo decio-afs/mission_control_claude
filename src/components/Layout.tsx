@@ -1,119 +1,221 @@
-import { NavLink, Outlet } from 'react-router-dom';
-import { Network, Activity, Calendar, LineChart, Cpu, FileText, Radio, Menu, X } from 'lucide-react';
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
-import { useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useGhostStore } from '../stores/useGhostStore';
+import { useSystemStore } from '../stores/useSystemStore';
+import { useTaskStore } from '../stores/useTaskStore';
+import { MODULES } from '../lib/nav';
+import CommandPalette from './CommandPalette';
 
-// Utility for tailwind classes merging
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+// const ACCENT_OPTIONS: Record<string, string> = {
+//   coral:  '#f64e6e',
+//   amber:  '#f59e0b',
+//   emerald:'#10b981',
+//   sky:    '#38bdf8',
+//   violet: '#a855f7',
+// };
+
+const DEFAULT_TWEAKS = { accent: '#f64e6e', density: 'cozy', scanlines: 'soft', motion: 'high' };
+
+function loadTweaks(): typeof DEFAULT_TWEAKS {
+  try {
+    const saved = localStorage.getItem('mc-tweaks');
+    if (saved) return { ...DEFAULT_TWEAKS, ...JSON.parse(saved) };
+  } catch { /* ignore bad cache */ }
+  return DEFAULT_TWEAKS;
 }
 
-const navItems = [
-  { path: '/network', icon: Network, label: 'Ghost Network' },
-  { path: '/war-room', icon: Activity, label: 'War Room' },
-  { path: '/operations', icon: Calendar, label: 'Operations Center' },
-  { path: '/intelligence', icon: LineChart, label: 'Intelligence Deck' },
-  { path: '/factory', icon: Cpu, label: 'Content Factory' },
-  { path: '/briefing', icon: FileText, label: 'Briefing Terminal' },
-  { path: '/broadcast', icon: Radio, label: 'Broadcast Uplink' },
-];
-
 export default function Layout() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Lazy initializer reads persisted tweaks once — no setState-in-effect needed.
+  const [tweaks] = useState(loadTweaks);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const location = useLocation();
+  const activeModule = MODULES.find(m => location.pathname.startsWith(m.path))?.id || 'command';
+
+  const { nodes, fetchTopology } = useGhostStore();
+  const { vitals, fetchHermesStatus } = useSystemStore();
+  const { summary, fetchTasks } = useTaskStore();
+
+  // Keep the shell (topbar, roster, status) live on every route.
+  useEffect(() => {
+    const poll = () => {
+      void fetchHermesStatus();
+      void fetchTopology();
+      void fetchTasks();
+    };
+    poll();
+    const id = setInterval(poll, 7000);
+    return () => clearInterval(id);
+  }, [fetchHermesStatus, fetchTopology, fetchTasks]);
+
+  // Tick the ZULU clock once a second so it stays live between the 7s data polls.
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const { error: ghostError } = useGhostStore();
+  const { error: taskError } = useTaskStore();
+  const { error: systemError } = useSystemStore();
+
+  const accent = tweaks.accent;
+  const agents = nodes.filter(n => n.type !== 'squad');
+  const isOnline = (n: typeof nodes[number]) => n.status === 'active' || n.status === 'online';
+  const onlineCount = agents.filter(isOnline).length;
+  const busyCount = agents.filter(n => (n.tasks_running ?? 0) > 0).length;
+  const runnersOnline = agents.filter(n => n.type === 'runner' && isOnline(n)).length;
+  const runnersTotal = agents.filter(n => n.type === 'runner').length;
+  const fixersOnline = agents.filter(n => n.type === 'fixer' && isOnline(n)).length;
+  const fixersTotal = agents.filter(n => n.type === 'fixer').length;
+
+  useEffect(() => {
+    localStorage.setItem('mc-tweaks', JSON.stringify(tweaks));
+  }, [tweaks]);
+
+  const scanClass = tweaks.scanlines === 'off' ? '' : tweaks.scanlines === 'hard' ? 'scan-hard' : 'scan-soft';
 
   return (
-    <div className="flex h-screen w-full bg-bg-deep text-text-primary overflow-hidden font-sans">
-      
-      {/* Mobile Sidebar Overlay */}
-      {mobileMenuOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm"
-          onClick={() => setMobileMenuOpen(false)}
-        />
+    <div className={`h-screen w-screen flex bg-[#050505] text-white overflow-hidden ${tweaks.density === 'compact' ? 'density-compact' : ''}`}>
+      <style>{`
+        :root { --accent: ${accent}; }
+        .mc-panel { background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; }
+        .density-compact .mc-panel { background: #080808; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes blink { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+        .scan-soft::after { content:''; position:absolute; inset:0; pointer-events:none; z-index:50;
+          background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, transparent 1px, transparent 2px, rgba(0,0,0,0.08) 3px); mix-blend-mode: overlay; }
+        .scan-hard::after { content:''; position:absolute; inset:0; pointer-events:none; z-index:50;
+          background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0px, transparent 1px, transparent 2px, rgba(0,0,0,0.15) 3px); mix-blend-mode: overlay; }
+      `}</style>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
       )}
 
       {/* Sidebar */}
-      <aside className={cn(
-        "fixed inset-y-0 left-0 z-50 w-64 bg-bg-card border-r border-border-subtle flex flex-col transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 shadow-2xl lg:shadow-none",
-        mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-      )}>
-        <div className="h-16 flex items-center justify-between px-6 border-b border-border-subtle shrink-0">
-          <div className="flex items-center gap-3 text-transparent bg-clip-text bg-gradient-to-r from-brand-start to-brand-end">
-            <img src="/daos_emblem.png" alt="Mission Control" className="w-8 h-8 rounded-full shadow-[0_0_10px_rgba(246,78,110,0.4)]" />
-            <h1 className="text-lg font-black tracking-tighter uppercase whitespace-nowrap">Mission Control</h1>
+      <aside className={`fixed inset-y-0 left-0 z-50 w-[220px] shrink-0 border-r border-white/10 bg-[#050505] flex flex-col transition-transform duration-300 lg:relative lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        {/* Logo */}
+        <div className="h-[50px] px-3 flex items-center gap-2 border-b border-white/10 shrink-0">
+          <div className="w-7 h-7 relative" style={{ background: `linear-gradient(135deg, ${accent}, #ff795e)`, clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}>
+            <div className="absolute inset-[3px]" style={{ background: '#050505', clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }} />
+            <div className="absolute inset-0 flex items-center justify-center text-[9px] font-mono font-bold" style={{ color: accent }}>G01</div>
           </div>
-          <button onClick={() => setMobileMenuOpen(false)} className="lg:hidden text-text-secondary hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex flex-col">
+            <div className="text-[11px] font-black tracking-[0.18em] text-white leading-tight">MISSION CTL</div>
+            <div className="text-[8px] font-mono text-[#545454] tracking-[0.3em]">GHOST-LEGION</div>
+          </div>
+          <button onClick={() => setMobileOpen(false)} className="lg:hidden ml-auto text-[#545454] hover:text-white text-xs">✕</button>
         </div>
-        
-        <nav className="flex-1 py-4 flex flex-col gap-1 px-3 overflow-y-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon;
+
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto py-2">
+          {MODULES.map((m) => {
+            const is = activeModule === m.id;
             return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                onClick={() => setMobileMenuOpen(false)}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-3 px-3 py-3 transition-all duration-200 group text-sm font-bold uppercase tracking-wider rounded-lg lg:rounded-none lg:py-2.5",
-                    isActive 
-                      ? "bg-[#f64e6e]/10 text-brand-end lg:shadow-[inset_2px_0_0_0_#f64e6e] max-lg:border max-lg:border-[#f64e6e]/30" 
-                      : "text-text-secondary hover:bg-border-subtle-subtle/50 hover:text-white"
-                  )
-                }
-              >
-                <Icon className="w-4 h-4" />
-                {item.label}
+              <NavLink key={m.id} to={m.path} onClick={() => setMobileOpen(false)}
+                className={`w-full text-left px-3 py-2 flex items-center gap-2 border-l-2 transition-all group ${is ? 'bg-white/[0.03]' : 'border-transparent hover:bg-white/[0.02]'}`}
+                style={{ borderLeftColor: is ? accent : 'transparent' }}>
+                <span className="text-[9px] font-mono text-[#363636] w-5">{m.num}</span>
+                <span className={`text-[11px] font-bold tracking-[0.12em] uppercase ${is ? 'text-white' : 'text-[#b8b8b8] group-hover:text-white'}`}>
+                  {m.label}
+                </span>
+                {is && <span className="ml-auto text-[10px]" style={{ color: accent }}>▸</span>}
               </NavLink>
             );
           })}
         </nav>
 
-        <div className="p-4 border-t border-border-subtle text-xs text-text-secondary text-center mt-auto font-mono shrink-0">
-          Director Interface v1.0
-          <br/>
-          System: <span className="text-emerald-400 font-bold">ONLINE</span>
+        {/* Legion roster strip */}
+        <div className="border-t border-white/10 p-3 shrink-0">
+          <div className="font-mono text-[10px] tracking-[0.2em] uppercase font-bold text-[#545454] mb-2">LEGION STATUS</div>
+          <div className="grid grid-cols-5 gap-1 mb-2">
+            {agents.slice(0, 25).map(a => {
+              const squadColor = a.squad ? {
+                CORE: '#f64e6e', SEC: '#ef4444', INTEL: '#a855f7', INFRA: '#10b981', CONT: '#f59e0b', DEV: '#38bdf8'
+              }[a.squad] || '#1a1a1a' : '#1a1a1a';
+              const isOnline = a.status === 'active' || a.status === 'online';
+              const isBusy = (a.tasks_running ?? 0) > 0;
+              return (
+                <div key={a.id} className="w-full aspect-square relative" title={a.name}
+                  style={{
+                    background: isOnline ? (isBusy ? accent : squadColor) : '#1a1a1a',
+                    opacity: isOnline ? (isBusy ? 1 : 0.5) : 0.3,
+                  }} />
+              );
+            })}
+            {agents.length === 0 && Array.from({ length: 25 }).map((_, i) => (
+              <div key={i} className="w-full aspect-square relative" style={{ background: '#1a1a1a', opacity: 0.3 }} />
+            ))}
+          </div>
+          <div className="flex justify-between text-[9px] font-mono text-[#545454]">
+            <span><span className="text-emerald-400">●</span> {onlineCount}</span>
+            <span><span style={{ color: accent }}>●</span> {busyCount} busy</span>
+            <span>{agents.length} total</span>
+          </div>
+        </div>
+
+        <div className="border-t border-white/10 px-3 py-2 shrink-0 text-[9px] font-mono text-[#363636] leading-relaxed">
+          hermes bridge<br/>
+          {vitals.hermesVersion}<br/>
+          <span className={vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}>● BRIDGE :8767</span>
+          {(systemError || ghostError || taskError) && (
+            <div className="mt-1 text-red-400 truncate">
+              {systemError && `⚠ ${systemError}`}
+              {ghostError && ` ⚠ ${ghostError}`}
+              {taskError && ` ⚠ ${taskError}`}
+            </div>
+          )}
         </div>
       </aside>
 
-      {/* Main Container */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* Top Status Bar */}
-        <header className="h-16 shrink-0 bg-bg-deep border-b border-border-subtle flex justify-between items-center px-4 md:px-6">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 -ml-2 text-text-secondary hover:text-white rounded-md hover:bg-white/5"
+      <div className="flex-1 flex flex-col min-w-0 relative">
+        {/* TopBar */}
+        <header className="h-[40px] shrink-0 border-b border-white/10 bg-[#050505] flex items-center px-4 gap-6 text-[10px] font-mono">
+          <button onClick={() => setMobileOpen(true)} className="lg:hidden text-[#b8b8b8] hover:text-white mr-2">☰</button>
+          <div className="flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 rounded-full ${vitals.hermesOnline ? 'bg-emerald-400' : 'bg-red-400'}`} style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
+            <span className="text-[#b8b8b8] tracking-[0.2em]">HERMES {vitals.hermesOnline ? 'ONLINE' : 'OFFLINE'}</span>
+          </div>
+          <div className="h-4 w-px bg-white/10 hidden sm:block" />
+          <div className="hidden sm:flex items-center gap-4 text-[#545454]">
+            <span>RUNNERS <span className="text-white tabular-nums">{runnersOnline}/{runnersTotal}</span></span>
+            <span>FIXERS <span className="text-emerald-400 tabular-nums">{fixersOnline}/{fixersTotal}</span></span>
+            <span>QUEUE <span className="text-white tabular-nums">{summary?.pending ?? 0}</span></span>
+            <span>LAT <span className="text-emerald-400 tabular-nums">{vitals.connectionLatencyMs}ms</span></span>
+            <span>TASKS <span style={{ color: accent }}>{summary?.total ?? 0}</span></span>
+          </div>
+          <div className="ml-auto flex items-center gap-3">
+            <button
+              onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}
+              title="Command palette (Ctrl/⌘ K)"
+              className="hidden sm:flex items-center gap-1 text-[#545454] hover:text-white border border-white/10 hover:border-white/30 rounded-sm px-1.5 py-0.5 transition-colors"
             >
-              <Menu className="w-5 h-5" />
+              <span className="text-[10px]">⌘K</span>
             </button>
-            <div className="hidden sm:flex items-center gap-4 text-xs font-bold uppercase tracking-widest text-text-secondary">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                Gateway Connected
-              </div>
-              <div className="w-px h-4 bg-border-subtle-subtle"></div>
-              <div>Active Runners: 3/17</div>
-              <div className="w-px h-4 bg-border-subtle-subtle"></div>
-              <div className="flex gap-2">Latency: <span className="text-emerald-400">24ms</span></div>
-            </div>
-            
-            {/* Mobile simplified status */}
-            <div className="sm:hidden flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-text-secondary">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Gateway Online
-            </div>
+            <span className="text-[#545454] hidden sm:inline">ZULU</span>
+            <span className="text-white tabular-nums text-[12px] tracking-[0.15em]">
+              {now.toISOString().slice(11, 19)}
+            </span>
+            <span className="text-[#545454] hidden sm:inline">· {now.toISOString().slice(0, 10).replace(/-/g, '.')}</span>
           </div>
         </header>
 
-        {/* Page Content */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-bg-deep">
+        <main className="flex-1 relative overflow-hidden">
           <Outlet />
+          {scanClass && (
+            <div className={`pointer-events-none absolute inset-0 z-50 ${scanClass}`} style={{
+              backgroundImage: `repeating-linear-gradient(0deg, rgba(255,255,255,${tweaks.scanlines === 'hard' ? 0.05 : 0.02}) 0px, transparent 1px, transparent 2px, rgba(0,0,0,${tweaks.scanlines === 'hard' ? 0.15 : 0.08}) 3px)`,
+              mixBlendMode: 'overlay',
+            }} />
+          )}
         </main>
       </div>
+
+      {/* Global ⌘K / Ctrl+K command palette — available on every route. */}
+      <CommandPalette />
     </div>
   );
 }
