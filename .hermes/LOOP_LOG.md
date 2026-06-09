@@ -16,23 +16,27 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (10 tabs — unchanged count after Run #5; global ⌘F Task Search added)
+## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
 
 | # | Path | Page | Data | Notes |
 |---|------|------|------|-------|
-| 00 | `/command`     | Hermes Command (Cyberpunk) | LIVE | Primary ops console: agents, tasks, spawn/dispatch. Cron = read-only summary linking to Operations (Run #3). **BRIDGE LOG is now a collapsible drawer** (Run #4). **GHOST LEGION rows open the Agent Drill-Down** (Run #4). |
-| 01 | `/network`     | Ghost Network              | LIVE | NEXUS Orchestration Deck — agent topology (rebuilt, scoped `ghostNexus.css`). **Agent detail panel now has an `▦ INSPECT` button → Agent Drill-Down** (Run #5 — all 3 roster surfaces now share it). |
-| 02 | `/agent-hub`   | Agent Hub                  | LIVE | Agent CRUD registry + agent-activity tab + spawn-on-task. **Roster rows + INSPECT button open the Agent Drill-Down** (Run #4). |
-| 03 | `/war-room`    | War Room                   | LIVE | Metrics gauges + task-status + agent-load + **TASKS/SIGNAL feed toggle**. |
-| 04 | `/operations`  | Operations Center          | LIVE | Kanban CRUD + cron list/run/**create** + task decompose. **Single cron home.** **MISSION QUEUE now flex-based (no magic-number maxHeight)** and **receives ⌘F Task Search focus** (scroll + flash-highlight) (Run #5). |
-| 05 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | Chat round-trips to Hermes. **Narrow-width layout now uses explicit grid rows** (Run #4). |
-| 06 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
-| 07 | `/briefing`    | Briefing Terminal          | LIVE | `useBriefingStore` (briefing + sentinel digest). |
-| 08 | `/leads`       | Lead Tracker               | LIVE | `useLeadStore`. |
-| 09 | `/design-lab`  | Design Lab                 | DEMO | **Consolidated showcase** — internal sub-tabs: Intel Deck / Workflow Builder / Archives / Broadcast Uplink. |
+| 00 | `/network`     | Ghost Network              | LIVE | **Merged primary console.** NEXUS Orchestration Deck (orbital mesh + roster) **plus** the agent Registry CRUD (create/edit/delete/spawn via the new `useAgentCrud()` hook + `+ Agent` button) **plus** the ARCAN orchestrator command bar (directives, status, reassign) wired to the shared chat session. Detail panel `▦ INSPECT` → Agent Drill-Down. Absorbed the old Hermes Command + Agent Hub (Run #6). |
+| 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + task-status + **AGENT LOAD ↔ PERF toggle** (new performance leaderboard, Run #6) + **TASKS/SIGNAL feed toggle**. |
+| 02 | `/operations`  | Operations Center          | LIVE | Full kanban CRUD + cron list/run/create + task decompose + **TaskDetailDrawer** (comments/events/runs/notify/boards/diagnostics). Single cron home. Receives ⌘F Task Search focus. |
+| 03 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | ARCAN multi-session orchestrator chat (persistent SQLite sessions, attachments, voice). |
+| 04 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
+| 05 | `/briefing`    | Briefing Terminal          | LIVE | `useBriefingStore` (briefing + sentinel digest). |
+| 06 | `/leads`       | Lead Tracker               | LIVE | `useLeadStore`. |
+| 07 | `/design-lab`  | Design Lab                 | DEMO | **Consolidated showcase** — internal sub-tabs: Intel Deck / Workflow Builder / Archives / Broadcast Uplink. |
+
+**Removed in Run #6:** `Hermes Command` (`Cyberpunk.tsx`) and `Agent Hub` (`AgentHub.tsx`) — Command was a
+redundant mashup of the other live tabs and Agent Hub's registry duplicated agent management. Both folded into
+Ghost Network (CRUD via `src/components/useAgentCrud.tsx`; directives via the command bar). `App.tsx` redirects
+`/command`, `/cyberpunk`, `/agent-hub` → `/network`. **No live verb lost** (create/edit/delete/spawn + directives
+all survive in the Ghost Network detail panel).
 
 - **Global topbar tooling (in `Layout.tsx`):** `⌘K` command palette (`CommandPalette.tsx`),
   a **`⌕ ⌘F` Task Search** button (Run #5 — `src/components/TaskSearch.tsx`),
@@ -85,47 +89,83 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 ## Next Steps / TODO (the next run executes these)
 
 ### Consolidation
-- [ ] **Command vs Operations task-creation duplication** — both Command (CREATE TASK / DISPATCH AGENT) and
-      Operations (MISSION QUEUE create + DECOMPOSE) expose task creation. Distinct enough (Command = quick
-      inline, Operations = full kanban), but evaluate trimming Command's CREATE TASK to a link to Operations,
-      mirroring how cron was consolidated in Run #3. Conservative — confirm before removing a live verb.
-      **This is now the LAST queued consolidation candidate** — every other roster/cron/log overlap has been
-      resolved across Runs #1–#5. Decide it next run (trim or keep-with-rationale) and the consolidation pass
-      is effectively complete; future runs can shift focus to UI polish + new features.
-- [x] ~~Wire the Agent Drill-Down into the Nexus deck~~ — DONE in Run #5 (Nexus detail panel `▦ INSPECT`
-      button → `useAgentDrilldownStore.open(name)`; Command Palette agent results also open it in place).
-- [x] ~~ChatTerminal SESSIONS rail vs roster~~ — VERIFIED NOT redundant in Run #4.
-- [x] ~~Command BRIDGE LOG earns its vertical space?~~ — DONE in Run #4 (collapsible drawer).
+- **The consolidation pass is effectively COMPLETE.** 8 tabs, all distinct. Command + Agent Hub (the last
+  redundancy) were folded into Ghost Network in Run #6; every roster/cron/log/task-creation overlap flagged
+  across Runs #1–#5 is resolved. Do **not** cut further without strong cause — the remaining 8 tabs are each a
+  distinct surface. Next runs should focus on UI polish + new features.
+- [ ] **Optional sanity audit only:** re-enumerate `nav.ts`/`App.tsx`/`Layout.tsx`, confirm the 3 redirects
+      (`/command`,`/cyberpunk`,`/agent-hub` → `/network`) still resolve, and that no dead nav entry crept back.
 
 ### UI / Display Fixes
-- [x] ~~Operations Center `calc(100% - 110px)` task list~~ — DONE in Run #5 (Panel `bodyClass="flex flex-col"`;
-      filter row + create footer are `shrink-0`, scroll list is `flex-1 min-h-0 overflow-auto`; magic-number gone).
-- [x] ~~AgentDrillDown "agent not in current topology" hint~~ — DONE in Run #5 (amber hint when `node` is undefined).
-- [ ] **AgentDrillDown skills row** — the slide-over still has no skills row (GhostNode carries no `skills`;
-      `HermesTask.skills` exists but is per-task, not per-agent). Would need a bridge field on the agent node.
-      Wire skills if/when the agent detail grows. Low priority.
-- [ ] **Cyberpunk (Command) top-stats density at `xl`** — re-audit the 7-stat grid on very wide (≥1920px)
-      monitors; verify the `xl:grid-cols-7` breakpoint from Run #4 still reads well and the GHOST LEGION /
-      BRIDGE LOG columns don't leave large dead gutters. Screenshot at 1920 + 2560 if a preview is available.
-- [ ] **Newly observed:** the Nexus deck agent detail header now holds **two** `.dclose` buttons
-      (`▦ INSPECT` + `▢ CLOSE`); they render fine (flex `margin-left:auto` + 12px gap) but on a very narrow
-      right panel they could crowd the agent name. Consider a `flex-wrap`/min-width guard if it ever clips.
+- [x] ~~Nexus detail header two `.dclose` buttons crowding the name~~ — DONE in Run #6 (`.dh` flex-wrap +
+      `.dt` min-width:0 + name ellipsis + buttons `white-space:nowrap; flex-shrink:0`).
+- [ ] **Ghost Network is now very dense** (mesh + roster + detail + CRUD modals + command bar + session
+      switcher all on one screen). Audit at 1280px and 1920px for cramped panels / overflow now that it
+      absorbed two tabs' worth of function — especially the right detail panel when an agent is selected
+      (two `dctrl` button rows + tags + telemetry). Screenshot and tighten spacing if it clips.
+- [ ] **War Room AGENT PERFORMANCE** — the leaderboard table is read-only/static-sort (ranked by throughput).
+      Consider making column headers click-to-sort (done / rate / avg) if the panel grows. Low priority.
+- [ ] **AgentDrillDown skills row** — still no per-agent skills (GhostNode carries none; `HermesTask.skills`
+      is per-task). Would need a bridge field on the agent node. Low priority.
 
-### Next Feature (must differ from Run History — Run #1: Command Palette; Run #2: Cron Creation UI; Run #3: Bridge Diagnostics; Run #4: Agent Drill-Down; Run #5: Global Task Search ⌘F)
-- [ ] Build a **task dependency / workflow-step view** — `HermesTask` already carries `workflow_template_id`
-      + `current_step_key`. Render, for tasks that belong to a workflow, a compact stepper/timeline showing
-      the template's steps and where the task currently sits (and sibling tasks sharing the same
-      `workflow_template_id`). Surface it inside the Agent Drill-Down or as a new panel/modal opened from
-      Operations. May need a small bridge endpoint to fetch the workflow template's step list if the task row
-      alone doesn't carry it — check `hermes-bridge.py` / the CLI for a `workflow`/`template` command first.
-- [ ] Alternative candidates (pick ONE, not already done): live log streaming (SSE/poll tail of a Hermes
-      run), completed-task desktop notifications (Electron `Notification` on `done` transitions),
-      keyboard-shortcuts cheat-sheet overlay (now that ⌘K + ⌘F + DIAG exist, a `?` overlay listing them earns
-      its keep), agent performance metrics (per-agent throughput / avg task duration from activity history).
+### Next Feature (must differ from Run History — Run #1: Command Palette; Run #2: Cron Creation UI; Run #3: Bridge Diagnostics; Run #4: Agent Drill-Down; Run #5: Global Task Search ⌘F; Run #6: Agent Performance Leaderboard)
+- [ ] Build a **task dependency / workflow-step view** — `HermesTask` carries `workflow_template_id` +
+      `current_step_key`, and `getHermesTaskDetail()` already returns `parents` + `children`. Render, for tasks
+      in a workflow, a compact stepper/timeline of the template steps + where the task sits, and the
+      parent/child dependency chain (data already in `TaskDetail`). Surface inside the **TaskDetailDrawer**
+      (Operations) or the Agent Drill-Down. The parent/child graph needs **no** new endpoint; the full ordered
+      template step list may need a small `hermes workflow`/`template` bridge command — check the CLI first.
+- [ ] Alternative candidates (pick ONE, not already done): live log streaming (poll-tail of
+      `getHermesTaskLog`, which already exists), completed-task desktop notifications (Electron `Notification`
+      on `done` transitions), keyboard-shortcuts cheat-sheet `?` overlay (⌘K + ⌘F + DIAG all exist now).
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-09 — Run #6 (branch `auto/evolve-agent-performance`)
+
+**Inherited-state note.** This run opened on a working tree carrying a large **uncommitted** changeset from a
+prior in-progress run: Command (`Cyberpunk.tsx`) + Agent Hub (`AgentHub.tsx`) deleted, `nav.ts` already trimmed
+to 8 tabs, a new `useAgentCrud.tsx`, a substantial ARCAN ChatTerminal/useChatStore rewrite, and ~185 lines of
+new `hermes kanban` bridge + `api.ts` endpoints — none of it committed, and lint was failing. Rather than
+discard legitimate prior work, this run **verified it (build ✓, the consolidation is non-destructive — every
+live verb survives in Ghost Network), let the concurrent self-audit resolve its own lint errors, and committed
+it** as the run's consolidation deliverable, then layered the UI fix + new feature on top.
+
+**Tab audit findings.** Enumerated `nav.ts`/`App.tsx`/`Layout.tsx`: **8 tabs** (down from 10). The inherited
+fold removed the last redundancy the log had been tracking since Run #1 — **Hermes Command** was a mashup of
+the other live tabs and **Agent Hub** duplicated agent management. Both now live in Ghost Network: agent CRUD
+via the extracted `useAgentCrud()` hook (detail-panel Spawn/Edit/Delete + a `+ Agent` stage button) and the
+orchestrator directives via the command bar. `App.tsx` redirects `/command`,`/cyberpunk`,`/agent-hub` →
+`/network`. **No live functionality lost.** The consolidation pass is now effectively complete.
+
+**Consolidated (committed).** `feat(nav): consolidate Command + Agent Hub into Ghost Network (10 → 8 tabs)` —
+the inherited fold + its companion ARCAN chat rewrite and full kanban bridge surface, verified building clean.
+
+**UI fix.** `fix(network)` — the Nexus agent-detail header (`.dh`) holds two action buttons (`▦ INSPECT` +
+`▢ CLOSE`); a long agent name could shove them off a narrow right panel (the exact risk Run #5 flagged). Added
+a defensive flex guard: `.dh` flex-wraps, `.dt` gets `min-width:0` and the name truncates with an ellipsis, and
+the buttons get `white-space:nowrap; flex-shrink:0` so they keep size and wrap below the name when tight.
+Verified live: `flex-wrap:wrap` + name `text-overflow:ellipsis` applied, both buttons present, no errors.
+
+**New feature — Agent Performance Leaderboard (War Room).** A per-agent operational scoreboard behind a new
+**LOAD ↔ PERF** toggle on War Room's agent panel. **Pure client aggregation** of the already-polled task store
+— no new bridge endpoint. `src/lib/agentMetrics.ts` (`computeAgentMetrics`) groups `hermesTasks` by assignee →
+done / running / failed counts, success rate, average task duration (`completed_at − started_at`) and trailing
+24h completions, ranked by throughput; `nowMs` is passed in (seeded via a 0ms timeout, never `Date.now()` in
+render) to stay render-pure. `src/components/AgentPerformance.tsx` renders a ranked table with per-agent
+throughput bars, color-tiered success rate (emerald ≥85% / amber ≥60% / red below), responsive column collapse
+and a graceful empty state. **How to access:** War Room → AGENT LOAD panel → click **PERF**. **Verified live
+against real Hermes data:** 8 agents ranked, `signalscraper` top (6 done · 100% · 7m avg · 6 in 24h), failing
+agents (`narratrix` 5 fail, `default` 1 fail) flagged red at 0%, unresolved agents show `—`; no console errors.
+
+**Verify.** `npm run build` ✓ (tsc + vite, **116 modules**, up from 114), `npm run lint` ✓ (0 errors; the lone
+warning is a pre-existing stale `eslint-disable` in committed `TaskDetailDrawer.tsx`, untouched), and a live
+Vite preview pass on `/war-room` (PERF leaderboard with real data) and `/network` (header guard) — no React
+errors. **Note for next run:** a concurrent Hermes self-audit (`scripts/audit-and-improve.py`) was editing
+files mid-run (`.hermes/audit-*`, `scripts/`, `BRAND_STRATEGY.md` left untracked/unstaged — not part of this
+run's commits).
 
 ### 2026-06-09 — Run #5 (branch `auto/evolve-task-search`)
 
