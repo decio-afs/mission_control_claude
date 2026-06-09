@@ -16,33 +16,36 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (10 tabs after the 2026-06-09 Run #2 consolidation)
+## Current State (10 tabs — unchanged count after Run #3; cron consolidated within Command)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
 
 | # | Path | Page | Data | Notes |
 |---|------|------|------|-------|
-| 00 | `/command`     | Hermes Command (Cyberpunk) | LIVE | Primary ops console: agents, tasks, cron, spawn/dispatch. |
-| 01 | `/network`     | Ghost Network              | LIVE | Sprite-room agent topology (unique viz). |
+| 00 | `/command`     | Hermes Command (Cyberpunk) | LIVE | Primary ops console: agents, tasks, spawn/dispatch. **Cron is now a read-only summary that links to Operations** (Run #3). |
+| 01 | `/network`     | Ghost Network              | LIVE | NEXUS Orchestration Deck — agent topology (rebuilt, scoped `ghostNexus.css`). |
 | 02 | `/agent-hub`   | Agent Hub                  | LIVE | Agent CRUD registry + agent-activity tab + spawn-on-task. |
 | 03 | `/war-room`    | War Room                   | LIVE | Metrics gauges + task-status + agent-load + **TASKS/SIGNAL feed toggle**. |
-| 04 | `/operations`  | Operations Center          | LIVE | Kanban CRUD + cron list/run/**create** + task decompose. |
+| 04 | `/operations`  | Operations Center          | LIVE | Kanban CRUD + cron list/run/**create** + task decompose. **Single cron home.** |
 | 05 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | Chat round-trips to Hermes. |
 | 06 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
 | 07 | `/briefing`    | Briefing Terminal          | LIVE | `useBriefingStore` (briefing + sentinel digest). |
 | 08 | `/leads`       | Lead Tracker               | LIVE | `useLeadStore`. |
 | 09 | `/design-lab`  | Design Lab                 | DEMO | **Consolidated showcase** — internal sub-tabs: Intel Deck / Workflow Builder / Archives / Broadcast Uplink. |
 
-- **Consolidated this run (Run #2):** the 4 standalone DEMO tabs (Intel Deck, Workflow
-  Builder, Archives, Broadcast Uplink) → ONE `Design Lab` tab (`src/pages/DesignLab.tsx`)
-  with internal sub-tab nav. Old routes redirect to `/design-lab?tab=<id>`. 13 → 10 tabs.
-  No page files deleted — the 4 demo components are now children of `DesignLab`.
+- **Global topbar tooling (in `Layout.tsx`):** `⌘K` command palette (`CommandPalette.tsx`)
+  **and** a new **DIAG** button (Run #3) that opens the **Bridge Diagnostics** modal
+  (`src/components/BridgeDiagnostics.tsx`) — a green/red dot mirrors `vitals.hermesOnline`.
+- **Cron lives in ONE place now (Run #3):** Operations is the cron home (list/run/create).
+  Command's old cron widget (with per-job RUN NOW buttons) was trimmed to a read-only
+  count + name/schedule list + "OPEN OPERATIONS" link. No live cron *control* duplicated.
+- **Consolidated in Run #2:** the 4 standalone DEMO tabs → ONE `Design Lab` tab
+  (`src/pages/DesignLab.tsx`) with internal sub-tab nav. Old routes redirect to
+  `/design-lab?tab=<id>`. No page files deleted.
 - **Removed in Run #1:** `Signal Intelligence` (folded into War Room; `/signal-intelligence`
   → `/war-room`; page deleted).
-- **Only DEMO/static content left:** lives entirely inside Design Lab now. The other 9 tabs are LIVE.
-- **Global ⌘K / Ctrl+K command palette** mounted in `Layout.tsx` (`src/components/CommandPalette.tsx`).
-  Picks up `nav.ts` automatically; deep-links to Design Lab work via the query-param redirect.
+- **Only DEMO/static content left:** lives entirely inside Design Lab. The other 9 tabs are LIVE.
 
 ---
 
@@ -64,34 +67,86 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 ## Next Steps / TODO (the next run executes these)
 
 ### Consolidation
-- [ ] **Command vs Operations cron duplication** — Command (`src/pages/Cyberpunk.tsx`) still has an
-      inline cron list/run widget that now overlaps Operations' fuller cron CRUD (list/run/create).
-      Trim Command's cron widget down to a read-only summary that *links* to Operations, leaving
-      Operations as the single cron home. Do NOT remove Command's spawn/dispatch — only the cron block.
-- [ ] **Agent Hub "Activity" tab vs War Room SIGNAL feed** — both surface agent activity. Verify whether
-      Agent Hub's Activity tab (`useGhostStore.agentActivity`) adds anything over War Room's live
-      `/api/hermes/activity` SIGNAL feed; if redundant, drop the Agent Hub Activity tab and point to War Room.
+- [ ] **ChatTerminal "SESSIONS" rail vs other roster/list views** — ChatTerminal has its own
+      left rail; confirm it's session-scoped (chat history) and not duplicating the Agent Hub roster.
+      If it only lists chat sessions, leave it; if it re-renders agents, dedupe.
+- [ ] **War Room SIGNAL feed vs Command BRIDGE LOG** — both are time-ordered event streams. War Room's
+      SIGNAL is live Hermes `/activity`; Command's BRIDGE LOG is local client action log. Distinct, but
+      consider whether Command's BRIDGE LOG earns its vertical space on the primary console or could be a
+      collapsible drawer.
+- [x] ~~Command vs Operations cron duplication~~ — DONE in Run #3 (Command cron → read-only summary).
+- [x] ~~Agent Hub Activity tab vs War Room SIGNAL~~ — VERIFIED NOT redundant in Run #3 (Agent Hub Activity
+      is a *local session* registry-CRUD audit: created/spawned/deleted events from `useGhostStore.agentActivity`;
+      War Room SIGNAL is *Hermes runtime* task lifecycle from `/api/hermes/activity`. Different sources — KEPT both).
 
 ### UI / Display Fixes
-- [ ] **Cyberpunk / Hermes Command** page not yet audited this loop — it's the largest page (16.5K) and the
-      primary console. Check for overflow, cramped widgets, and design-system drift on small Electron widths.
-- [ ] **Ghost Network** (22.3K) and **ChatTerminal** (23.2K) are the two biggest pages and have never been
-      UI-audited in this loop — review them for overflow/scroll/responsive issues next.
-- [ ] **Operations Center** is now a 2-col grid with two modals (decompose + cron) — on the smallest window
-      width confirm the `lg:grid-cols-[360px_1fr]` left column doesn't squeeze the kanban cards.
+- [ ] **ChatTerminal narrow-width (`grid-cols-1`) layout** — root is `h-full grid grid-cols-1 lg:grid-cols-[240px_1fr]`
+      with no explicit grid-rows; on a narrow Electron window the SESSIONS panel + chat column stack with
+      auto rows and may overflow `<main>` (which is `overflow-hidden`). Give the narrow layout explicit rows
+      or a scroll container. (Desktop `lg` width is fine.)
+- [ ] **Command top stats** — `grid-cols-2 md:grid-cols-4 lg:grid-cols-7` packs 7 stat cards; at the `lg`
+      breakpoint minus the 220px sidebar each card is ~110px and tight. Consider `xl:grid-cols-7` so it
+      stays 4-up until there's real width.
+- [ ] **Operations Center** — still confirm `lg:grid-cols-[360px_1fr]` left column + the `calc(100% - 110px)`
+      maxHeight on the task list doesn't squeeze/clip kanban cards on the smallest window width.
 
-### Next Feature (must differ from everything in Run History — Run #1: Command Palette; Run #2: Cron Creation UI)
-- [ ] Build a **Bridge Health Diagnostics panel** (new tab or a modal off the topbar): ping each bridge
-      endpoint (`/api/hermes/status`, `/agents`, `/tasks`, `/cron`, `/activity`, `/content/pipeline`,
-      `/sentinel/digest`), show per-endpoint latency + last-success time + HTTP status, and surface the
-      Hermes CLI version. Add a lightweight `GET /api/hermes/health` aggregator to `hermes-bridge.py`.
+### Next Feature (must differ from Run History — Run #1: Command Palette; Run #2: Cron Creation UI; Run #3: Bridge Diagnostics)
+- [ ] Build an **Agent Drill-Down panel** — clicking an agent (in Agent Hub roster, Command's GHOST LEGION,
+      or the Nexus deck) opens a slide-over/modal showing that agent's: assigned tasks (filter
+      `/api/hermes/tasks` by `assignee`), skills, online/queue status, and recent activity rows
+      (filter `/api/hermes/activity` by agent). Reuses existing endpoints — likely no new bridge route,
+      or add `GET /api/hermes/agents/{name}/detail` if a single aggregated call is cleaner.
 - [ ] Alternative candidates (pick ONE, not already done): live log streaming (SSE/poll tail of a Hermes
-      run), agent drill-down panel (click an agent → its tasks/skills/recent activity), task dependency
-      view, completed-task desktop notifications, keyboard shortcuts cheat-sheet overlay.
+      run), task dependency / workflow-step view, completed-task desktop notifications, keyboard-shortcuts
+      cheat-sheet overlay, global task search/filter bar.
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-09 — Run #3 (branch `auto/evolve-bridge-diagnostics`)
+
+**Tab audit findings.** Re-enumerated all 10 tabs from `nav.ts`/`App.tsx`/`Layout.tsx` (count
+unchanged since Run #2). Two live-tab overlaps were queued by Run #2: (1) Command's inline cron
+list/run widget vs Operations' fuller cron CRUD, and (2) Agent Hub's Activity tab vs War Room's
+SIGNAL feed. Investigated both. **(1) is a real duplication** — Command and Operations both let you
+*run* cron jobs. **(2) is NOT redundant** — Agent Hub's Activity tab renders `useGhostStore.agentActivity`,
+a *local, session-scoped* audit of registry CRUD (agent created / spawned / deleted), whereas War Room's
+SIGNAL feed renders the *Hermes runtime* task-lifecycle stream from `/api/hermes/activity`. Different
+data, different purpose — kept both. New overlaps noted for next run: ChatTerminal's SESSIONS rail and
+Command's BRIDGE LOG vs War Room SIGNAL (queued, not touched).
+
+**Consolidated — cron now lives only in Operations.** Trimmed Command's (`src/pages/Cyberpunk.tsx`)
+CRON JOBS panel from an interactive widget (per-job **RUN NOW** buttons via `runHermesCron`) down to a
+**read-only summary**: a JOBS/ACTIVE stat pair, a compact name + schedule list (status dot, no controls),
+and two links to Operations (a `MANAGE →` header link + an `OPEN OPERATIONS · SCHEDULE / RUN JOBS` button).
+Removed the now-unused `runHermesCron` import and `handleRunCron` handler. Operations is the single cron
+home (list / run / create). No spawn/dispatch/task-create functionality on Command was touched.
+
+**UI fixes.** (1) Added vertical spacing between Command's main 3-col grid and the BRIDGE LOG panel —
+they were flush (the grid had no bottom margin); gave BRIDGE LOG `mt-4` and extended the file-local
+`Panel` to accept a `className`. (2) The trimmed cron summary also reads better — denser rows
+(`max-h-[120px]`), a status dot instead of a status pill, and schedule shown inline.
+
+**New feature — Bridge Health Diagnostics (topbar `DIAG` button → modal).** Closes the "is the bridge
+healthy?" gap. **Bridge:** added `GET /api/hermes/health` to `hermes-bridge.py` — a cheap self-report
+(uptime since `BRIDGE_STARTED`, port, python version, `hermes_cmd`, plus one `hermes --version` CLI probe
+with its own latency + error). **api.ts:** `HermesHealth` type + `getHermesHealth()`, a `BRIDGE_ENDPOINTS`
+list (the 10 GET routes), and `probeEndpoint(path)` (per-call HTTP status + round-trip latency via
+`performance.now()`). **Store:** `src/stores/useHealthStore.ts` pulls meta + probes every endpoint in
+parallel, preserving each row's prior `lastSuccess` timestamp on a failed probe. **UI:**
+`src/components/BridgeDiagnostics.tsx` — a modal with 4 meta cards (BRIDGE/PORT/UPTIME/CLI), a CLI/python/
+server-time line, and a per-endpoint table (status dot, HTTP code, color-tiered latency, "last OK" ago),
+plus an `N/M OK` pill and a RE-RUN button. Mounted in `Layout.tsx`; the topbar `DIAG` button carries a
+green/red dot mirroring `vitals.hermesOnline`. **How to access:** click **DIAG** in the top-right of the
+top bar (every route). **Verified live:** the bridge was running, modal showed **9/10 OK** with real
+latencies (1.4–5.2s — the bridge shells out to the CLI per request) and correctly flagged
+`/api/hermes/health` as 404 because the *running* bridge process predates the new endpoint — it resolves
+on the next bridge restart. The panel degrades gracefully (404 row red, other 9 green, meta cards `—`).
+
+**Verify.** `npm run build` ✓ (tsc + vite, **110 modules**), `npm run lint` ✓ (0 issues),
+`python -m py_compile hermes-bridge.py` ✓, and a live Vite preview pass (no console errors; cron summary +
+OPEN OPERATIONS link + BRIDGE LOG render; DIAG modal opens and probes all 10 endpoints).
 
 ### 2026-06-09 — Run #2 (branch `auto/evolve-designlab-cron`)
 
