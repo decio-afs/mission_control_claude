@@ -124,7 +124,7 @@ export default function BriefingTerminal() {
   const revealed = useTypewriterLines(typewriterLines.length, 60);
 
   return (
-    <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-2 p-2 relative">
+    <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-2 p-2 relative overflow-y-auto">
       <div className="flex flex-col gap-2 min-h-0">
         <Panel label="BRIEFING TERMINAL · /tty7" right={<span className="text-[#f64e6e]">● RECORDING</span>}>
           <div className="h-full bg-[#03030a] p-4 font-mono text-[12px] overflow-auto relative" style={{ fontFamily: '"JetBrains Mono",ui-monospace,monospace' }}>
@@ -152,8 +152,8 @@ export default function BriefingTerminal() {
         <SentinelFeed />
       </div>
 
-      <Panel label="TODAY'S DIRECTIVES">
-        <div className="flex flex-col gap-2">
+      <Panel label="TODAY'S DIRECTIVES" className="min-h-0">
+        <div className="flex flex-col gap-2 h-full overflow-y-auto">
           {briefing?.directives.map((b, i) => (
             <div key={i} className="border-l-2 pl-2" style={{ borderColor: sevColor[b.sev] }}>
               <div className="flex items-center justify-between mb-0.5">
