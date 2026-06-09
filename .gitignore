@@ -25,3 +25,18 @@ dist-ssr
 
 *.rar
 .tmp_*.json
+
+# Local design reference (extracted zip)
+.design-ref/
+
+# Python (bridge)
+__pycache__/
+*.pyc
+*.pyo
+
+# Windows shell junk
+desktop.ini
+Thumbs.db
+
+# Playwright MCP scratch output
+.playwright-mcp/

@@ -1,7 +1,13 @@
 import { create } from 'zustand';
-import axios from 'axios';
-import { api } from '../lib/api';
-import { notion, utils } from '../lib/notion.ts';
+import {
+  getHermesTasks,
+  createHermesTask,
+  claimHermesTask,
+  completeHermesTask,
+  blockHermesTask,
+  errMessage,
+  type HermesTask,
+} from '../lib/api';
 
 export interface OpTask {
   id: string;
@@ -9,204 +15,139 @@ export interface OpTask {
   name: string;
   agentId: string;
   agentName: string;
-  status: 'running' | 'pending' | 'failed' | 'complete';
-  priority: 'critical' | 'high' | 'normal';
+  status: 'running' | 'pending' | 'failed' | 'complete' | 'ready' | 'blocked' | 'done';
+  priority: 'critical' | 'high' | 'normal' | number;
   createdAt: Date;
+}
+
+export interface TaskSummary {
+  total: number;
+  completed: number;
+  running: number;
+  pending: number;
+  failed: number;
+  ready: number;
+  blocked: number;
 }
 
 interface TaskStore {
   tasks: OpTask[];
-  summary: { total: number; completed: number; running: number; pending: number; failed: number } | null;
+  hermesTasks: HermesTask[];
+  summary: TaskSummary | null;
   isLoading: boolean;
+  error: string | null;
+  lastSync: Date | null;
   fetchTasks: () => Promise<void>;
-  fetchSummary: () => Promise<void>;
-  addTask: (task: OpTask) => void;
+  fetchSummary: () => void;
+  addHermesTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<HermesTask | null>;
+  claimHermesTaskById: (taskId: string) => Promise<boolean>;
+  completeHermesTaskById: (taskId: string) => Promise<boolean>;
+  blockHermesTaskById: (taskId: string, reason: string) => Promise<boolean>;
+}
+
+const mapHermesToOp = (t: HermesTask): OpTask => ({
+  id: t.id,
+  projectId: t.tenant || 'hermes',
+  name: t.title,
+  agentId: t.assignee || 'unassigned',
+  agentName: t.assignee || 'Unassigned',
+  status:
+    t.status === 'done' || t.status === 'completed' ? 'done'
+    : t.status === 'running' ? 'running'
+    : t.status === 'blocked' ? 'blocked'
+    : t.status === 'failed' ? 'failed'
+    : t.status === 'ready' ? 'ready'
+    : 'pending',
+  priority: t.priority,
+  createdAt: new Date(t.created_at * 1000),
+});
+
+function summarize(ht: HermesTask[]): TaskSummary {
+  const is = (s: string) => (t: HermesTask) => t.status === s;
+  return {
+    total: ht.length,
+    completed: ht.filter((t) => t.status === 'done' || t.status === 'completed').length,
+    running: ht.filter(is('running')).length,
+    pending: ht.filter((t) => t.status === 'pending' || t.status === 'ready').length,
+    failed: ht.filter(is('failed')).length,
+    ready: ht.filter(is('ready')).length,
+    blocked: ht.filter(is('blocked')).length,
+  };
 }
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
+  hermesTasks: [],
   summary: null,
   isLoading: false,
-
-  addTask: async (task) => {
-    const NOTION_DB_TASKS = import.meta.env.VITE_NOTION_DB_TASKS;
-    const WEBHOOK_URL = import.meta.env.VITE_OPENCLAW_WEBHOOK;
-    
-    // Optimistic update
-    set((state) => ({ tasks: [task, ...state.tasks] }));
-    
-    try {
-      // 1. Log to Notion (Source of Truth)
-      if (NOTION_DB_TASKS && NOTION_DB_TASKS !== '...') {
-        await notion.post('/pages', {
-          parent: { database_id: NOTION_DB_TASKS },
-          properties: {
-            Name: { title: [{ text: { content: task.name } }] },
-            ProjectID: { rich_text: [{ text: { content: task.projectId } }] },
-            AgentName: { rich_text: [{ text: { content: task.agentName } }] },
-            Status: { select: { name: task.status } },
-            Priority: { select: { name: task.priority } }
-          }
-        });
-      }
-
-      // 2. Fire SaaS Webhook (Trigger Action)
-      if (WEBHOOK_URL && WEBHOOK_URL !== '...') {
-        await axios.post(WEBHOOK_URL, {
-          action: 'create_task',
-          payload: task
-        });
-      }
-    } catch (err) {
-      console.error("Failed to sync new task with backend/webhook:", err);
-    }
-  },
-
-  fetchSummary: async () => {
-    try {
-      const resp = await api.get('/tasks/summary');
-      if (resp.data) {
-        set({ summary: {
-          total: resp.data.total || 0,
-          completed: resp.data.by_status?.completed || resp.data.completed || 0,
-          running: resp.data.by_status?.running || resp.data.running || 0,
-          pending: resp.data.by_status?.pending || resp.data.pending || 0,
-          failed: resp.data.by_status?.failed || resp.data.failed || 0
-        }});
-        return;
-      }
-    } catch {
-      console.log("Summary fetch failed, calculating from local state");
-    }
-
-    // Fallback: Calculate from currently loaded tasks
-    set((state) => {
-      const t = state.tasks;
-      if (t.length === 0) return state;
-      
-      return {
-        summary: {
-          total: t.length,
-          completed: t.filter(x => x.status === 'complete').length,
-          running: t.filter(x => x.status === 'running').length,
-          pending: t.filter(x => x.status === 'pending').length,
-          failed: t.filter(x => x.status === 'failed').length
-        }
-      };
-    });
-  },
+  error: null,
+  lastSync: null,
 
   fetchTasks: async () => {
     set({ isLoading: true });
-    const NOTION_DB_TASKS = import.meta.env.VITE_NOTION_DB_TASKS;
-    
     try {
-      if (NOTION_DB_TASKS && NOTION_DB_TASKS !== '...') {
-        const response = await notion.post(`/databases/${NOTION_DB_TASKS}/query`, {
-          sorts: [{ timestamp: 'created_time', direction: 'descending' }]
-        });
-
-        const mappedTasks: OpTask[] = response.data.results.map((page: any) => ({
-          id: page.id,
-          projectId: utils.getText(page.properties.ProjectID) || 'proj-auto',
-          name: utils.getTitle(page.properties.Name),
-          agentId: page.id,
-          agentName: utils.getText(page.properties.AgentName) || 'Auto-Assigned',
-          status: (utils.getSelect(page.properties.Status)?.toLowerCase() || 'pending') as any,
-          priority: (utils.getSelect(page.properties.Priority)?.toLowerCase() || 'normal') as any,
-          createdAt: new Date(page.created_time)
-        }));
-
-        set({ tasks: mappedTasks, isLoading: false });
-        get().fetchSummary();
-        return;
-      }
-
-      const response = await api.get('/tasks');
-      let tasksData = [];
-      if (response.data) {
-        if (Array.isArray(response.data)) {
-          tasksData = response.data;
-        } else if (response.data.data && Array.isArray(response.data.data)) {
-          tasksData = response.data.data;
-        } else if (response.data.items && Array.isArray(response.data.items)) {
-          tasksData = response.data.items;
-        }
-      }
-
-      if (tasksData.length > 0) {
-        const mappedTasks = tasksData.map((t: any) => ({
-          id: t.id || `task-${Math.random()}`,
-          projectId: t.project_id || t.projectId || 'proj-unknown',
-          name: t.name || t.title || 'Unknown Task',
-          agentId: t.agent_id || t.agentId || 'unassigned',
-          agentName: t.agent_name || t.agentName || 'Unassigned',
-          status: t.status || 'pending',
-          priority: t.priority || 'normal',
-          createdAt: t.created_at ? new Date(t.created_at) : new Date()
-        }));
-        set({ tasks: mappedTasks, isLoading: false });
-        return;
-      }
+      const { tasks } = await getHermesTasks();
+      const ht = tasks || [];
+      set({
+        hermesTasks: ht,
+        tasks: ht.map(mapHermesToOp),
+        summary: summarize(ht),
+        error: null,
+        isLoading: false,
+        lastSync: new Date(),
+      });
     } catch (err) {
-      console.error("API Fetch failed for tasks, falling back to mock data", err);
+      const msg = errMessage(err);
+      console.error('[TaskStore] fetchTasks failed:', msg);
+      set({ isLoading: false, error: msg });
     }
+  },
 
-    // Fallback Mock Data
-    set({
-      tasks: [
-        {
-          id: 'task-1001',
-          projectId: 'proj-1',
-          name: 'Scrape /r/LocalLLaMA top weekly',
-          agentId: 'the-scraper',
-          agentName: 'The Scraper',
-          status: 'running',
-          priority: 'high',
-          createdAt: new Date(),
-        },
-        {
-          id: 'task-1002',
-          projectId: 'proj-1',
-          name: 'Analyze sentiment for #AGI on X',
-          agentId: 'mnemosyne',
-          agentName: 'Mnemosyne',
-          status: 'pending',
-          priority: 'normal',
-          createdAt: new Date(new Date().getTime() - 1000 * 60 * 30),
-        },
-        {
-          id: 'task-1003',
-          projectId: 'proj-2',
-          name: 'Generate scripts for TikTok batch #4',
-          agentId: 'claude-write',
-          agentName: 'Claude (Writer)',
-          status: 'complete',
-          priority: 'critical',
-          createdAt: new Date(new Date().getTime() - 1000 * 60 * 120),
-        },
-        {
-          id: 'task-1004',
-          projectId: 'proj-2',
-          name: 'Compile voiceovers via API',
-          agentId: 'overwatch',
-          agentName: 'Overwatch',
-          status: 'running',
-          priority: 'high',
-          createdAt: new Date(new Date().getTime() - 1000 * 60 * 10),
-        },
-        {
-          id: 'task-1005',
-          projectId: 'proj-1',
-          name: 'Index historical sentiment logs',
-          agentId: 'the-archivist',
-          agentName: 'The Archivist',
-          status: 'failed',
-          priority: 'normal',
-          createdAt: new Date(new Date().getTime() - 1000 * 60 * 60 * 24),
-        }
-      ],
-      isLoading: false
-    });
-  }
+  fetchSummary: () => set({ summary: summarize(get().hermesTasks) }),
+
+  addHermesTask: async (title, body, assignee, priority) => {
+    try {
+      const data = await createHermesTask({ title, body, assignee, priority });
+      await get().fetchTasks();
+      return (data?.task as HermesTask) ?? null;
+    } catch (err) {
+      const msg = errMessage(err);
+      console.error('[TaskStore] addHermesTask failed:', msg);
+      set({ error: msg });
+      return null;
+    }
+  },
+
+  claimHermesTaskById: async (taskId) => {
+    try {
+      await claimHermesTask(taskId);
+      await get().fetchTasks();
+      return true;
+    } catch (err) {
+      console.error('[TaskStore] claim failed:', errMessage(err));
+      return false;
+    }
+  },
+
+  completeHermesTaskById: async (taskId) => {
+    try {
+      await completeHermesTask(taskId);
+      await get().fetchTasks();
+      return true;
+    } catch (err) {
+      console.error('[TaskStore] complete failed:', errMessage(err));
+      return false;
+    }
+  },
+
+  blockHermesTaskById: async (taskId, reason) => {
+    try {
+      await blockHermesTask(taskId, reason);
+      await get().fetchTasks();
+      return true;
+    } catch (err) {
+      console.error('[TaskStore] block failed:', errMessage(err));
+      return false;
+    }
+  },
 }));

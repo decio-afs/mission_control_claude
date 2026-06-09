@@ -1,110 +1,198 @@
-import { Play, Sparkles, Video, MessageCircle, Disc3, FileText, Smartphone } from 'lucide-react';
-import { useState, useEffect } from 'react';
-import { useTrendStore } from '../stores/useTrendStore';
+// Content Factory — live content pipeline fed from Hermes kanban tasks.
+import { useEffect, useMemo } from 'react';
+import { Panel, Pill, CornerBrackets, Stat } from '../components/cyberpunk/ui';
+import { useContentStore } from '../stores/useContentStore';
+
+const statusTone: Record<string, 'good' | 'warn' | 'info' | 'neutral' | 'bad'> = {
+  ready: 'good',
+  running: 'info',
+  done: 'neutral',
+  blocked: 'warn',
+  failed: 'bad',
+};
+
+const statusColor: Record<string, string> = {
+  ready: '#10b981',
+  running: '#38bdf8',
+  done: '#b8b8b8',
+  blocked: '#f59e0b',
+  failed: '#ef4444',
+};
+
+function formatDate(d: string) {
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
 
 export default function ContentFactory() {
-  const { trends, fetchTrends, isLoading } = useTrendStore();
-  const [isGenerating, setIsGenerating] = useState(false);
+  const { campaigns, drafts, calendar, isLoading, error, lastSync, refresh } = useContentStore();
 
   useEffect(() => {
-    fetchTrends();
-  }, [fetchTrends]);
+    refresh();
+    const id = setInterval(() => refresh(), 30000);
+    return () => clearInterval(id);
+  }, [refresh]);
 
-  const handleGenerate = () => {
-    setIsGenerating(true);
-    setTimeout(() => setIsGenerating(false), 2000); // Mock generation delay
-  };
+  const summary = useMemo(() => {
+    const total = campaigns.length;
+    const done = campaigns.filter((c) => c.status === 'done').length;
+    const running = campaigns.filter((c) => c.status === 'running').length;
+    const ready = campaigns.filter((c) => c.status === 'ready').length;
+    const blocked = campaigns.filter((c) => c.status === 'blocked').length;
+    return { total, done, running, ready, blocked };
+  }, [campaigns]);
 
-  // Generate dynamic ideas based on fetched trends
-  const ideas = trends.map((trend, i) => {
-    const platforms = [
-      { id: 'youtube', icon: Video, color: '#ff0000', label: 'YouTube Video' },
-      { id: 'twitter', icon: MessageCircle, color: '#1da1f2', label: 'X Thread' },
-      { id: 'tiktok', icon: Smartphone, color: '#00f2fe', label: 'TikTok/Shorts' },
-      { id: 'blog', icon: FileText, color: '#10b981', label: 'Blog Post' }
-    ];
-    
-    // Assign pseudo-random platform based on index
-    const platform = platforms[i % platforms.length];
-    
-    // Generate an exciting hook based on the topic
-    let hook = `Why ${trend.topic} is changing the game forever.`;
-    if (trend.viabilityScore > 85) hook = `The Untold Truth About ${trend.topic} (Watch Before It's Too Late)`;
-    if (trend.engagementVelocity > 80) hook = `${trend.topic}: A Step-by-Step Guide for Beginners`;
-    
-    return {
-      id: `idea-${i}`,
-      trendId: trend.id,
-      topic: trend.topic,
-      viability: trend.viabilityScore,
-      platform,
-      hook,
-      status: 'Ready to Draft'
-    };
-  }).sort((a, b) => b.viability - a.viability);
+  const upcoming = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return calendar.filter((c) => c.date >= today).slice(0, 7);
+  }, [calendar]);
 
   return (
-    <div className="p-4 md:p-6 h-full flex flex-col min-w-0 overflow-y-auto w-full">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter mb-1">Content Factory</h2>
-          <div className="text-xs font-bold uppercase tracking-widest text-text-tertiary">
-            Automated Ideation Engine
-          </div>
+    <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-2 p-2 relative overflow-y-auto">
+      {/* Main column */}
+      <div className="flex flex-col gap-2 min-h-0">
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <Panel noPad className="p-2">
+            <Stat label="CAMPAIGNS" value={summary.total} tone="brand" big />
+          </Panel>
+          <Panel noPad className="p-2">
+            <Stat label="READY" value={summary.ready} tone="good" big />
+          </Panel>
+          <Panel noPad className="p-2">
+            <Stat label="RUNNING" value={summary.running} tone="info" big />
+          </Panel>
+          <Panel noPad className="p-2">
+            <Stat label="DONE" value={summary.done} tone="white" big />
+          </Panel>
+          <Panel noPad className="p-2">
+            <Stat label="BLOCKED" value={summary.blocked} tone="warn" big />
+          </Panel>
         </div>
-        <button 
-          onClick={handleGenerate}
-          disabled={isLoading || isGenerating}
-          className="w-full md:w-auto rounded-full bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] text-white px-6 py-2.5 font-bold uppercase text-xs tracking-wider hover:shadow-[0_0_20px_-5px_#8b5cf6] transition flex justify-center items-center gap-2 disabled:opacity-50"
+
+        {/* Campaigns */}
+        <Panel
+          label="ACTIVE CAMPAIGNS"
+          right={
+            <div className="flex items-center gap-2">
+              {isLoading && <span className="text-sky-400 animate-pulse">● SYNCING</span>}
+              {lastSync && (
+                <span className="text-[#545454]">
+                  {lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              )}
+              <button
+                onClick={() => refresh()}
+                className="text-[10px] font-mono text-[#b8b8b8] border border-white/10 px-2 py-0.5 hover:text-white hover:border-white/30 transition-colors"
+              >
+                REFRESH
+              </button>
+            </div>
+          }
         >
-          {isGenerating ? <Disc3 className="w-4 h-4 fill-white animate-spin" /> : <Sparkles className="w-4 h-4 fill-white" />}
-          {isGenerating ? 'Synthesizing...' : 'Generate New Ideas'}
-        </button>
-      </div>
-
-      <div className="flex-1">
-        <h3 className="text-sm font-bold text-white uppercase tracking-widest mb-4">High-Viability Content Hooks</h3>
-        
-        {isLoading ? (
-          <div className="flex justify-center items-center h-40">
-            <span className="text-text-tertiary font-mono text-sm uppercase">Syncing with Intelligence Deck...</span>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {ideas.map((idea) => {
-              const Icon = idea.platform.icon;
-              return (
-                <div key={idea.id} className="bg-bg-card border border-border-subtle rounded-3xl p-6 hover:border-[#8b5cf6] transition-colors group flex flex-col justify-between">
-                  <div>
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border-subtle bg-bg-deep" style={{ color: idea.platform.color }}>
-                        <Icon className="w-3.5 h-3.5" />
-                        <span className="text-[10px] font-black uppercase tracking-widest">{idea.platform.label}</span>
-                      </div>
-                      <div className={`text-[10px] uppercase font-black tracking-widest px-2 py-1 rounded-sm border ${idea.viability >= 80 ? 'bg-[#10b981]/10 text-[#10b981] border-[#10b981]/30' : 'bg-amber-500/10 text-amber-500 border-amber-500/30'}`}>
-                        {idea.viability}% Viability
-                      </div>
-                    </div>
-                    
-                    <h4 className="text-lg font-bold text-white mb-3">"{idea.hook}"</h4>
-                    <p className="text-sm text-text-secondary mb-6">
-                      Vector Match: <span className="text-[#38bdf8] font-bold">{idea.topic}</span>
-                    </p>
+          {error ? (
+            <div className="text-red-400 font-mono text-xs">{error}</div>
+          ) : campaigns.length === 0 ? (
+            <div className="text-[#545454] font-mono text-xs">No content campaigns found in Hermes tasks.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {campaigns.map((c) => (
+                <div
+                  key={c.id}
+                  className="p-3 border border-white/10 bg-[#080808] relative overflow-hidden"
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <Pill tone={statusTone[c.status] || 'neutral'}>{c.platform}</Pill>
+                    <span
+                      className="text-[10px] font-mono uppercase tracking-widest"
+                      style={{ color: statusColor[c.status] || '#b8b8b8' }}
+                    >
+                      {c.status}
+                    </span>
                   </div>
+                  <div className="text-sm text-white font-medium truncate">{c.title}</div>
+                  <div className="flex justify-between items-center mt-2">
+                    <span className="text-[10px] font-mono text-[#545454]">{c.assignee}</span>
+                    <span className="text-[10px] font-mono text-[#545454]">P{c.priority}</span>
+                  </div>
+                  <CornerBrackets color="rgba(246,78,110,0.15)" />
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
 
-                  <div className="flex gap-2 w-full pt-4 border-t border-border-subtle mt-auto">
-                    <button className="flex-1 bg-[#8b5cf6]/10 text-[#8b5cf6] hover:bg-[#8b5cf6] hover:text-white transition-colors py-2 rounded-full text-xs font-bold uppercase tracking-wider flex justify-center items-center gap-1.5">
-                      <Play className="w-3 h-3" /> Draft Content
-                    </button>
-                    <button className="px-4 bg-transparent border border-border-subtle text-text-tertiary hover:text-white hover:bg-white/5 transition-colors py-2 rounded-full text-xs font-bold uppercase tracking-wider">
-                      Skip
-                    </button>
+        {/* Draft Queue */}
+        <Panel label="DRAFT QUEUE">
+          {drafts.length === 0 ? (
+            <div className="text-[#545454] font-mono text-xs">No drafts in queue.</div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {drafts.map((d) => (
+                <div
+                  key={d.id}
+                  className="flex items-center justify-between p-2 border border-white/5 bg-[#080808] hover:border-white/10 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ background: statusColor[d.status] || '#b8b8b8', boxShadow: `0 0 6px ${statusColor[d.status] || '#b8b8b8'}` }}
+                    />
+                    <span className="text-xs text-white truncate">{d.title}</span>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-[10px] font-mono text-[#545454]">{d.assignee}</span>
+                    <Pill tone={statusTone[d.status] || 'neutral'}>{d.platform}</Pill>
+                    <span className="text-[10px] font-mono text-[#545454]">P{d.priority}</span>
                   </div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {/* Sidebar */}
+      <div className="flex flex-col gap-2 min-h-0">
+        {/* Calendar */}
+        <Panel
+          label="CONTENT CALENDAR"
+          right={<span className="text-[#545454]">UPCOMING</span>}
+        >
+          {upcoming.length === 0 ? (
+            <div className="text-[#545454] font-mono text-xs">No upcoming items.</div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {upcoming.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-2 p-2 border border-white/5 bg-[#080808]"
+                >
+                  <div className="w-12 text-center shrink-0">
+                    <div className="text-[10px] font-mono text-[#545454]">{formatDate(item.date)}</div>
+                  </div>
+                  <div className="w-px h-6 bg-white/10" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-white truncate">{item.title}</div>
+                  </div>
+                  <Pill tone={statusTone[item.status] || 'neutral'}>{item.platform}</Pill>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+
+        {/* Mini legend / help */}
+        <Panel label="LEGEND" className="shrink-0">
+          <div className="grid grid-cols-2 gap-1">
+            {Object.entries(statusColor).map(([st, col]) => (
+              <div key={st} className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full" style={{ background: col }} />
+                <span className="text-[10px] font-mono text-[#b8b8b8] uppercase">{st}</span>
+              </div>
+            ))}
           </div>
-        )}
+        </Panel>
       </div>
     </div>
   );

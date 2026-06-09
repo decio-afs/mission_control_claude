@@ -1,73 +1,93 @@
-# React + TypeScript + Vite
+# Mission Control · Hermes Edition
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A **local desktop app** (Electron) for the **Hermes Agent** system. Every screen
+renders **live data** from your local Hermes install — agents, kanban tasks, cron
+jobs, and bridge status. Nothing is deployed and nothing leaves your machine.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+┌──────────────────────────┐   spawns    ┌──────────────────┐  subprocess  ┌──────────┐
+│  Electron desktop window │ ──────────▶ │  hermes-bridge   │ ───────────▶ │  hermes  │
+│  (React app, file://)    │   on launch │  (FastAPI :8767) │   CLI calls  │  CLI     │
+└──────────────────────────┘ ◀──HTTP──── └──────────────────┘              └──────────┘
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The desktop process launches the Hermes bridge for you and shuts it down on quit —
+one window, no separate servers to babysit.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Modules
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+**Live (real Hermes data):**
+
+| Module             | Source (Hermes CLI)                                          |
+|--------------------|-------------------------------------------------------------|
+| **Hermes Command** | `kanban assignees`, `kanban list`, `cron list`, `chat -q` (spawn) |
+| **Ghost Network**  | `kanban assignees` → agent topology visualization           |
+| **War Room**       | `--version`, agents, tasks, cron → live metrics             |
+| **Operations**     | `kanban list/create/claim/complete/block`, `cron list/run`  |
+
+**Design showcase (static demo data — Hermes has no source for these; marked
+`DEMO DATA` in the UI):** Intel Deck, Content Factory, Briefing, Workflow
+Builder, Archives, Broadcast Uplink. These preserve the full original design.
+Static demo data lives in `src/lib/legionData.ts`.
+
+## Prerequisites
+
+- [Hermes Agent](https://github.com/) installed and on your `PATH` (`hermes --version`)
+- Python 3.11+ with `fastapi` and `uvicorn` (`pip install fastapi uvicorn`)
+- Node 20+
+
+## Run (desktop app)
+
+**Simplest — double-click `start.bat`** (Windows). It installs deps on first run,
+builds the UI, opens the desktop window, and auto-starts/stops the Hermes bridge.
+
+Or from a terminal:
+
+```bash
+npm install   # first time only
+npm start     # = npm run desktop
 ```
+
+`npm start` builds the UI, opens the desktop window, auto-starts the Hermes
+bridge on launch, and stops it on close. That's the whole workflow.
+
+### Dev mode (hot reload)
+
+Run the Vite dev server and point the desktop shell at it:
+
+```bash
+npm run dev                                   # terminal 1 → http://localhost:3001
+MC_DEV_URL=http://localhost:3001 npm run desktop:dev   # terminal 2 (opens devtools)
+```
+
+> On Windows PowerShell: `$env:MC_DEV_URL="http://localhost:3001"; npm run desktop:dev`
+
+You can also just run the bridge alone (`npm run bridge`) and open the UI in a
+browser at http://localhost:3001 via `npm run dev` if you prefer.
+
+## Configuration
+
+Single env var in `.env.local` (gitignored):
+
+```bash
+VITE_BRIDGE_URL=http://localhost:8767
+```
+
+Optional bridge env vars: `HERMES_CMD` (default `hermes`), `BRIDGE_PORT`
+(default `8767`), `CORS_ORIGINS`. The Electron shell honors `PYTHON` (python
+executable) and `BRIDGE_PORT`.
+
+### Optional: offline voice dictation in the chat tab
+
+The Ghost Comms chat supports microphone dictation. In the packaged desktop app
+this uses a **local Whisper** model so nothing leaves your machine:
+
+```bash
+pip install faster-whisper
+```
+
+Tune with `WHISPER_MODEL` (default `base.en`), `WHISPER_DEVICE` (`cpu`/`cuda`),
+`WHISPER_COMPUTE` (`int8`). If `faster-whisper` isn't installed, the mic falls
+back to the browser Web Speech API (works in `npm run dev`, not in Electron).
+
+See [AGENTS.md](AGENTS.md) for architecture and contribution details.

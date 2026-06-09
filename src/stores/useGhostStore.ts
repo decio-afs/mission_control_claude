@@ -1,7 +1,15 @@
 import { create } from 'zustand';
-import { socketService } from '../lib/socket.ts';
-import { api } from '../lib/api.ts';
-import { notion, utils } from '../lib/notion.ts';
+import {
+  getHermesAgents,
+  createHermesAgent,
+  updateHermesAgent,
+  deleteHermesAgent,
+  spawnAgentOnTask,
+  errMessage,
+  type HermesAgent,
+  type AgentCreateRequest,
+  type AgentUpdateRequest,
+} from '../lib/api';
 
 export interface GhostNode {
   id: string;
@@ -13,173 +21,203 @@ export interface GhostNode {
   tasks_running?: number;
   queue_depth?: number;
   has_active_work?: boolean;
-  status?: 'active' | 'idle' | 'offline' | string;
+  status?: 'active' | 'idle' | 'online' | 'offline' | string;
   last_active?: Date | null;
 }
 
-export interface GhostEdge {
-  source: string;
-  target: string;
+export interface AgentActivity {
+  id: string;
+  agentId: string;
+  agentName: string;
+  action: 'created' | 'updated' | 'deleted' | 'spawned' | 'status_change';
+  timestamp: Date;
+  detail?: string;
 }
 
 interface GhostStore {
   nodes: GhostNode[];
-  edges: GhostEdge[];
   isConnected: boolean;
+  isLoading: boolean;
+  error: string | null;
+  lastSync: Date | null;
+  agentActivity: AgentActivity[];
   fetchTopology: () => Promise<void>;
-  updateNodes: (nodes: GhostNode[]) => void;
-  updateEdges: (edges: GhostEdge[]) => void;
-  setConnectionStatus: (status: boolean) => void;
+  createAgent: (payload: AgentCreateRequest) => Promise<boolean>;
+  updateAgent: (id: string, payload: AgentUpdateRequest) => Promise<boolean>;
+  deleteAgent: (id: string) => Promise<boolean>;
+  spawnAgentOnTask: (agentId: string, taskId: string) => Promise<boolean>;
+  logActivity: (activity: Omit<AgentActivity, 'id' | 'timestamp'>) => void;
 }
+
+// Squads used purely for visual grouping/coloring of the legion.
+const SQUADS = ['SEC', 'INTEL', 'INFRA', 'CONT', 'DEV'] as const;
+// Agent names treated as the orchestrator / director core node.
+const CORE_NAMES = new Set(['kate', 'director', 'core', 'orchestrator', 'hermes']);
+
+function hash(s: string): number {
+  let x = 0;
+  for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(x);
+}
+
+function num(counts: Record<string, number>, ...keys: string[]): number {
+  for (const k of keys) {
+    const v = counts?.[k];
+    if (typeof v === 'number') return v;
+  }
+  return 0;
+}
+
+/**
+ * Map the live Hermes assignee list into Ghost Network nodes: one node per real
+ * agent, with a deterministic squad/role for coloring. No synthetic nodes are
+ * added, so counts always reflect the real agent roster.
+ */
+export function mapAgentsToTopology(agents: HermesAgent[]): GhostNode[] {
+  return agents.map((a) => {
+    const lc = a.name.toLowerCase();
+    const isCore = CORE_NAMES.has(lc);
+    const running = num(a.counts, 'running', 'in_progress', 'active', 'started');
+    const queue = num(a.counts, 'ready', 'queued', 'pending', 'todo', 'blocked');
+    const squad = isCore ? 'CORE' : SQUADS[hash(a.name) % SQUADS.length];
+    const type: GhostNode['type'] = isCore ? 'core' : hash(a.name) % 3 === 0 ? 'fixer' : 'runner';
+    const status = !a.on_disk ? 'offline' : running > 0 ? 'active' : 'online';
+
+    return {
+      id: a.name,
+      name: a.name,
+      type,
+      squad,
+      val: isCore ? 6 : type === 'fixer' ? 4 : 3,
+      tasks_running: running,
+      queue_depth: queue,
+      has_active_work: running > 0,
+      status,
+      last_active: null,
+    };
+  });
+}
+
+let _activityId = 0;
 
 export const useGhostStore = create<GhostStore>((set, get) => ({
   nodes: [],
-  edges: [],
   isConnected: false,
-
-  setConnectionStatus: (status) => set({ isConnected: status }),
-  updateNodes: (nodes) => set({ nodes }),
-  updateEdges: (edges) => set({ edges }),
+  isLoading: false,
+  error: null,
+  lastSync: null,
+  agentActivity: [],
 
   fetchTopology: async () => {
-    const NOTION_DB_AGENTS = import.meta.env.VITE_NOTION_DB_AGENTS;
-    
+    set({ isLoading: true });
     try {
-      if (NOTION_DB_AGENTS && NOTION_DB_AGENTS !== '...') {
-        const response = await notion.post(`/databases/${NOTION_DB_AGENTS}/query`);
-        const freshNodes: GhostNode[] = response.data.results.map((page: any) => {
-          const name = utils.getTitle(page.properties.Name);
-          const status = utils.getSelect(page.properties.Status)?.toLowerCase() || 'offline';
-          const lastActive = utils.getDate(page.properties['Last Active']);
-          
-          return {
-            id: page.id,
-            name,
-            type: (utils.getSelect(page.properties.Type) || 'runner') as any,
-            model: utils.getSelect(page.properties.Model),
-            squad: utils.getSelect(page.properties.Squad),
-            val: utils.getSelect(page.properties.Type) === 'core' ? 6 : 4,
-            tasks_running: utils.getNumber(page.properties.TasksRunning),
-            queue_depth: utils.getNumber(page.properties.QueueDepth),
-            has_active_work: utils.getNumber(page.properties.TasksRunning) > 0,
-            status,
-            last_active: lastActive
-          };
-        });
-
-
-
-        // ---- Build the new edge set and virtual squad nodes ----
-        const freshEdges: GhostEdge[] = [];
-        const coreNode = freshNodes.find((n) => n.name === 'Kate' || n.type === 'core');
-
-        if (coreNode) {
-          const squads = new Set<string>();
-          freshNodes.forEach((n) => { if (n.squad) squads.add(n.squad); });
-
-          squads.forEach(squad => {
-            const squadNodeId = `squad-${squad}`;
-            if (!freshNodes.find(n => n.id === squadNodeId)) {
-              freshNodes.push({
-                id: squadNodeId,
-                name: `${squad.toUpperCase()} SQUAD`,
-                type: 'squad',
-                val: 5,
-                tasks_running: 0,
-                queue_depth: 0,
-                has_active_work: false
-              });
-            }
-            freshEdges.push({ source: coreNode.id, target: squadNodeId });
-          });
-
-          freshNodes.forEach((n) => {
-            if (n.id !== coreNode.id && n.type !== 'squad' && !n.id.startsWith('squad-')) {
-              if (n.squad) {
-                freshEdges.push({ source: `squad-${n.squad}`, target: n.id });
-              } else {
-                freshEdges.push({ source: coreNode.id, target: n.id });
-              }
-            }
-          });
-        }
-
-        // Always set the full fresh data — the SVG renderer is static
-        // and doesn't have a physics simulation to disturb, so there's
-        // no reason to do complex in-place mutation anymore.
-        set({ nodes: freshNodes, edges: freshEdges });
-
-        return;
-      }
-
-      // If Notion isn't configured, try the local API
-      const response = await api.get('/agents');
-      if (response.data && response.data.agents) {
-        const nodes = response.data.agents.map((a: any) => ({
-          ...a,
-          val: a.type === 'core' ? 6 : 4
-        }));
-        
-        // Dynamically create edges: construct a hierarchy Grouped by Squad
-        const edges: any[] = [];
-        const coreNode = nodes.find((n: any) => n.type === 'core');
-        
-        if (coreNode) {
-          const squads = new Set<string>();
-          nodes.forEach((n: any) => { if (n.squad) squads.add(n.squad); });
-          
-          squads.forEach(squad => {
-            const squadId = `squad-${squad}`;
-            nodes.push({ 
-              id: squadId, 
-              name: `${squad} Squad`, 
-              type: 'squad', 
-              val: 5,
-              tasks_running: 0,
-              queue_depth: 0,
-              has_active_work: false
-            });
-            edges.push({ source: coreNode.id, target: squadId });
-          });
-          
-          nodes.forEach((n: any) => {
-            if (n.id !== coreNode.id && n.type !== 'squad') {
-              if (n.squad) {
-                edges.push({ source: `squad-${n.squad}`, target: n.id });
-              } else {
-                edges.push({ source: coreNode.id, target: n.id });
-              }
-            }
-          });
-        }
-        
-        set({ nodes, edges });
-      }
-    } catch (error: any) {
-      console.error('[GhostStore] fetchTopology error:', error?.message, error?.response?.status, error?.response?.data);
-      // Fallback mock data if server fails temporarily
-      if (get().nodes.length === 0) {
-        set({
-           nodes: [
-             { id: 'director', name: 'The Director', type: 'core', val: 5 },
-             { id: 'kimi-code', name: 'Kimi (Code)', type: 'fixer', model: 'cyan', val: 3 },
-             { id: 'claude-write', name: 'Claude (Writer)', type: 'fixer', model: 'purple', val: 3 },
-           ],
-           edges: [
-             { source: 'director', target: 'kimi-code' },
-             { source: 'director', target: 'claude-write' }
-           ]
-        });
-      }
+      const { agents } = await getHermesAgents();
+      set({
+        nodes: mapAgentsToTopology(agents || []),
+        isConnected: true,
+        error: null,
+        isLoading: false,
+        lastSync: new Date(),
+      });
+    } catch (err) {
+      const msg = errMessage(err);
+      console.error('[GhostStore] fetchTopology failed:', msg);
+      set({ isConnected: false, isLoading: false, error: msg });
     }
-  }
-}));
+  },
 
-// Initialize socket listeners for real-time node updates
-const socket = socketService.getSocket();
-if (socket) {
-  socket.on('topology_update', (data) => {
-    useGhostStore.getState().updateNodes(data.nodes);
-    useGhostStore.getState().updateEdges(data.edges);
-  });
-}
+  createAgent: async (payload) => {
+    set({ isLoading: true, error: null });
+    try {
+      await createHermesAgent(payload);
+      await get().fetchTopology();
+      get().logActivity({
+        agentId: payload.name,
+        agentName: payload.name,
+        action: 'created',
+        detail: `Created as ${payload.role}`,
+      });
+      set({ isLoading: false });
+      return true;
+    } catch (err) {
+      const msg = errMessage(err);
+      console.error('[GhostStore] createAgent failed:', msg);
+      set({ isLoading: false, error: msg });
+      return false;
+    }
+  },
+
+  updateAgent: async (id, payload) => {
+    set({ isLoading: true, error: null });
+    try {
+      await updateHermesAgent(id, payload);
+      await get().fetchTopology();
+      get().logActivity({
+        agentId: id,
+        agentName: payload.name || id,
+        action: 'updated',
+        detail: `Updated properties`,
+      });
+      set({ isLoading: false });
+      return true;
+    } catch (err) {
+      const msg = errMessage(err);
+      console.error('[GhostStore] updateAgent failed:', msg);
+      set({ isLoading: false, error: msg });
+      return false;
+    }
+  },
+
+  deleteAgent: async (id) => {
+    set({ isLoading: true, error: null });
+    try {
+      await deleteHermesAgent(id);
+      await get().fetchTopology();
+      get().logActivity({
+        agentId: id,
+        agentName: id,
+        action: 'deleted',
+        detail: `Agent removed from registry`,
+      });
+      set({ isLoading: false });
+      return true;
+    } catch (err) {
+      const msg = errMessage(err);
+      console.error('[GhostStore] deleteAgent failed:', msg);
+      set({ isLoading: false, error: msg });
+      return false;
+    }
+  },
+
+  spawnAgentOnTask: async (agentId, taskId) => {
+    set({ isLoading: true, error: null });
+    try {
+      await spawnAgentOnTask(agentId, taskId);
+      await get().fetchTopology();
+      get().logActivity({
+        agentId,
+        agentName: agentId,
+        action: 'spawned',
+        detail: `Spawned on task ${taskId}`,
+      });
+      set({ isLoading: false });
+      return true;
+    } catch (err) {
+      const msg = errMessage(err);
+      console.error('[GhostStore] spawnAgentOnTask failed:', msg);
+      set({ isLoading: false, error: msg });
+      return false;
+    }
+  },
+
+  logActivity: (activity) => {
+    const entry: AgentActivity = {
+      ...activity,
+      id: `act-${++_activityId}`,
+      timestamp: new Date(),
+    };
+    set((state) => ({
+      agentActivity: [entry, ...state.agentActivity].slice(0, 200),
+    }));
+  },
+}));

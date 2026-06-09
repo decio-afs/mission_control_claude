@@ -5,19 +5,10 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: '/',
+  // Relative base so the built app loads correctly from file:// inside Electron.
+  base: './',
   server: {
     port: 3001,
-    host: true,
-    proxy: {
-      '/notion-api': {
-        target: 'https://api.notion.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/notion-api/, ''),
-        headers: {
-          'Notion-Version': '2022-06-28',
-        }
-      }
-    }
+    host: '127.0.0.1',
   }
 })

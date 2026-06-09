@@ -1,60 +1,58 @@
 import { create } from 'zustand';
-import { socketService } from '../lib/socket.ts';
+import { getHermesStatus, errMessage } from '../lib/api';
 
 interface SystemVitals {
-  ramUsedMb: number;
-  ramTotalMb: number;
-  cpuPercentage: number;
-  diskUsedGb: number;
-  diskTotalGb: number;
-  activeRunners: number;
+  hermesOnline: boolean;
+  hermesVersion: string;
   connectionLatencyMs: number;
+  activeRunners: number;
 }
 
 interface SystemStore {
   vitals: SystemVitals;
+  latencyHistory: number[];
+  error: string | null;
+  lastSync: Date | null;
   updateVitals: (vitals: Partial<SystemVitals>) => void;
-  fetchDashboard: () => Promise<void>;
+  fetchHermesStatus: () => Promise<void>;
 }
+
+const MAX_HISTORY = 40;
 
 export const useSystemStore = create<SystemStore>((set) => ({
   vitals: {
-    ramUsedMb: 0,
-    ramTotalMb: 3819,
-    cpuPercentage: 0,
-    diskUsedGb: 0,
-    diskTotalGb: 80,
+    hermesOnline: false,
+    hermesVersion: 'unknown',
+    connectionLatencyMs: 0,
     activeRunners: 0,
-    connectionLatencyMs: 0
   },
-  updateVitals: (newVitals) => set((state) => ({ 
-    vitals: { ...state.vitals, ...newVitals } 
-  })),
-  fetchDashboard: async () => {
-    try {
-      const { api } = await import('../lib/api.ts');
-      const response = await api.get('/dashboard');
-      if (response.data) {
-        set((state) => ({
-          vitals: {
-            ...state.vitals,
-            ramUsedMb: response.data.memory_usage || response.data.ramUsedMb || state.vitals.ramUsedMb,
-            cpuPercentage: response.data.cpu_usage || response.data.cpuPercentage || state.vitals.cpuPercentage,
-            activeRunners: response.data.active_agents || response.data.activeRunners || state.vitals.activeRunners,
-            connectionLatencyMs: response.data.latency || response.data.connectionLatencyMs || state.vitals.connectionLatencyMs,
-          }
-        }));
-      }
-    } catch (err) {
-      console.error("Failed to fetch dashboard data:", err);
-    }
-  }
-}));
+  latencyHistory: [],
+  error: null,
+  lastSync: null,
 
-// Initialize socket listener for telemetry data
-const socket = socketService.getSocket();
-if (socket) {
-  socket.on('telemetry', (data: Partial<SystemVitals>) => {
-    useSystemStore.getState().updateVitals(data);
-  });
-}
+  updateVitals: (newVitals) => set((state) => ({ vitals: { ...state.vitals, ...newVitals } })),
+
+  fetchHermesStatus: async () => {
+    const start = performance.now();
+    try {
+      const data = await getHermesStatus();
+      const latency = Math.round(performance.now() - start);
+      set((state) => ({
+        vitals: {
+          ...state.vitals,
+          hermesOnline: true,
+          hermesVersion: data.hermes_version?.split('\n')[0] || 'connected',
+          connectionLatencyMs: latency,
+        },
+        latencyHistory: [...state.latencyHistory, latency].slice(-MAX_HISTORY),
+        error: null,
+        lastSync: new Date(),
+      }));
+    } catch (err) {
+      set((state) => ({
+        vitals: { ...state.vitals, hermesOnline: false, hermesVersion: 'disconnected' },
+        error: errMessage(err) || 'Hermes bridge unreachable',
+      }));
+    }
+  },
+}));

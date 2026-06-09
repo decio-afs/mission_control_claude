@@ -1,85 +1,85 @@
-import { ReactFlow, Controls, Background, type Node, type Edge, useNodesState, useEdgesState } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import { Play } from 'lucide-react';
-import { useEffect, useState } from 'react';
+// Workflow Builder — node graph editor. Ported from the zip design.
+// NOTE: static demo graph (no Hermes source).
+import { Panel, Label } from '../components/cyberpunk/ui';
+import { DEMO_NOTE } from '../lib/legionData';
+import DemoBadge from '../components/DemoBadge';
 
-const initialNodes: Node[] = [
-  { id: '1', position: { x: 50, y: 150 }, data: { label: 'TrendCollector\n(Aggregator)' }, type: 'input' },
-  { id: '2', position: { x: 250, y: 150 }, data: { label: 'ViabilityScorer\n(>60 Gate)' } },
-  { id: '3', position: { x: 450, y: 150 }, data: { label: 'ContentGenerator\n(Multi-modal)' } },
-  { id: '4', position: { x: 650, y: 150 }, data: { label: 'ReviewGate\n(Human/AI)' } },
-  { id: '5', position: { x: 850, y: 150 }, data: { label: 'Publisher\n(Queue)' }, type: 'output' },
+const accent = '#f64e6e';
+
+interface WfNode { id: string; x: number; y: number; label: string; sub: string; color: string; }
+
+const nodes: WfNode[] = [
+  { id: 'n1', x: 60, y: 100, label: 'TREND DETECT', sub: 'THE PROPHET', color: '#a855f7' },
+  { id: 'n2', x: 260, y: 60, label: 'SCORE VIAB.', sub: '≥60', color: '#38bdf8' },
+  { id: 'n3', x: 260, y: 160, label: 'SENTIMENT', sub: 'MORNINGSTAR', color: '#38bdf8' },
+  { id: 'n4', x: 460, y: 110, label: 'COMPOSE', sub: 'THE WEAVER', color: '#f64e6e' },
+  { id: 'n5', x: 660, y: 60, label: 'CAROUSEL', sub: '7 slides', color: '#f59e0b' },
+  { id: 'n6', x: 660, y: 160, label: 'SCRIPT', sub: 'THE HOOK', color: '#f59e0b' },
+  { id: 'n7', x: 860, y: 110, label: 'PUBLISH', sub: 'DROPKICK', color: '#10b981' },
+  { id: 'n8', x: 460, y: 260, label: 'ARCHIVE', sub: 'MNEMOSYNE', color: '#545454' },
+];
+const edges: [string, string][] = [
+  ['n1', 'n2'], ['n1', 'n3'], ['n2', 'n4'], ['n3', 'n4'],
+  ['n4', 'n5'], ['n4', 'n6'], ['n5', 'n7'], ['n6', 'n7'], ['n4', 'n8'],
 ];
 
-const initialEdges: Edge[] = [
-  { id: 'e1-2', source: '1', target: '2', animated: true, style: { stroke: '#38bdf8' } },
-  { id: 'e2-3', source: '2', target: '3', animated: true, style: { stroke: '#a78bfa' } },
-  { id: 'e3-4', source: '3', target: '4', animated: true, style: { stroke: '#34d399' } },
-  { id: 'e4-5', source: '4', target: '5', animated: true, style: { stroke: '#f59e0b' } },
-];
+const nBy = (id: string) => nodes.find((n) => n.id === id)!;
 
 export default function WorkflowBuilder() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      if (mobile) {
-        // align vertically for mobile
-        setNodes(nds => nds.map((n, i) => ({
-          ...n,
-          position: { x: window.innerWidth / 2 - 75, y: 50 + i * 100 }
-        })));
-      } else {
-        // horizontal for desktop
-        setNodes(nds => nds.map((n, i) => ({
-          ...n,
-          position: { x: 50 + i * 200, y: 150 }
-        })));
-      }
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
   return (
-    <div className="p-4 md:p-6 h-full flex flex-col min-w-0">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter mb-1">Workflow Builder</h2>
-          <div className="text-xs font-bold uppercase tracking-widest text-text-tertiary">
-            Visual Node Editor
-          </div>
+    <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-2 p-2 relative">
+      <Panel label="WORKFLOW · trend-to-publish-v3" right="drag to pan · scroll to zoom">
+        <div className="h-full relative overflow-hidden bg-[#030306] min-h-[340px]"
+          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)', backgroundSize: '24px 24px' }}>
+          <svg viewBox="0 0 960 340" preserveAspectRatio="xMidYMid meet" className="w-full h-full">
+            {edges.map(([a, b], i) => {
+              const na = nBy(a), nb = nBy(b);
+              const x1 = na.x + 80, y1 = na.y + 24;
+              const x2 = nb.x, y2 = nb.y + 24;
+              const mid = (x1 + x2) / 2;
+              const d = `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
+              return (
+                <g key={i}>
+                  <path d={d} stroke="rgba(255,255,255,0.15)" strokeWidth="1" fill="none" />
+                  <circle r="2" fill={accent}>
+                    <animateMotion dur={`${2 + (i % 3)}s`} repeatCount="indefinite" path={d} />
+                  </circle>
+                </g>
+              );
+            })}
+            {nodes.map((n) => (
+              <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
+                <rect width="160" height="48" fill="#0a0a0a" stroke={n.color} strokeWidth="1" />
+                <rect width="160" height="2" fill={n.color} />
+                <rect width="3" height="48" fill={n.color} opacity="0.5" />
+                <text x="8" y="18" fontFamily="monospace" fontSize="10" fill="#fff" fontWeight="700">{n.label}</text>
+                <text x="8" y="34" fontFamily="monospace" fontSize="9" fill="#b8b8b8">{n.sub}</text>
+                <circle cx="155" cy="8" r="2" fill={n.color}>
+                  <animate attributeName="opacity" values="0.3;1;0.3" dur="1.4s" repeatCount="indefinite" />
+                </circle>
+              </g>
+            ))}
+          </svg>
         </div>
-        <button className="w-full md:w-auto rounded-full bg-gradient-to-r from-[#f64e6e] to-[#ff795e] text-white px-6 py-2.5 font-bold uppercase text-xs tracking-wider hover:shadow-[0_0_20px_-5px_#f64e6e] transition flex justify-center items-center gap-2">
-          <Play className="w-4 h-4 fill-white" /> Compile Pipeline
-        </button>
-      </div>
+      </Panel>
 
-      <div className="flex-1 bg-bg-card rounded-2xl md:rounded-3xl border border-border-subtle overflow-hidden relative min-h-[400px]">
-        <style dangerouslySetInnerHTML={{__html: `
-          .react-flow__node { background: #050505; color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; padding: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); text-align: center; white-space: pre-wrap; width: 150px; }
-          .react-flow__node.selected { border-color: #f64e6e; box-shadow: 0 0 15px -3px rgba(246, 78, 110, 0.4); }
-          .react-flow__controls button { background: #0a0a0a; border-bottom: 1px solid rgba(255,255,255,0.1); color: #b8b8b8; }
-          .react-flow__controls button:hover { background: #1a1a1a; color: #fff; }
-          .react-flow__handle { background: #f64e6e; border: none; width: 8px; height: 8px; }
-        `}} />
-        <ReactFlow 
-          nodes={nodes} 
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          fitView={!isMobile} // Disable auto fitView on mobile to let vertical layout breathe
-          defaultViewport={{ x: 0, y: 0, zoom: 0.7 }}
-        >
-          <Background color="rgba(255,255,255,0.05)" gap={24} />
-          <Controls />
-        </ReactFlow>
-      </div>
+      <Panel label="NODE PALETTE">
+        <div className="flex flex-col gap-1">
+          <Label className="text-[#545454] mb-1">TRIGGERS</Label>
+          {['cron', 'webhook', 'trend-watch', 'ws-event'].map((x) => (
+            <div key={x} className="px-2 py-1.5 border border-white/8 text-[10px] font-mono text-[#b8b8b8] hover:border-[#f64e6e] hover:text-white cursor-grab">◈ {x}</div>
+          ))}
+          <Label className="text-[#545454] mt-2 mb-1">TRANSFORMS</Label>
+          {['score', 'filter', 'rewrite', 'extract', 'merge'].map((x) => (
+            <div key={x} className="px-2 py-1.5 border border-white/8 text-[10px] font-mono text-[#b8b8b8] hover:border-[#f64e6e] hover:text-white cursor-grab">◇ {x}</div>
+          ))}
+          <Label className="text-[#545454] mt-2 mb-1">SINKS</Label>
+          {['notion', 'publish', 'slack', 'archive'].map((x) => (
+            <div key={x} className="px-2 py-1.5 border border-white/8 text-[10px] font-mono text-[#b8b8b8] hover:border-[#f64e6e] hover:text-white cursor-grab">▣ {x}</div>
+          ))}
+        </div>
+      </Panel>
+      <DemoBadge label={DEMO_NOTE} />
     </div>
   );
 }
