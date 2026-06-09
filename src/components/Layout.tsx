@@ -5,6 +5,7 @@ import { useSystemStore } from '../stores/useSystemStore';
 import { useTaskStore } from '../stores/useTaskStore';
 import { MODULES } from '../lib/nav';
 import CommandPalette from './CommandPalette';
+import BridgeDiagnostics from './BridgeDiagnostics';
 
 // const ACCENT_OPTIONS: Record<string, string> = {
 //   coral:  '#f64e6e',
@@ -28,6 +29,7 @@ export default function Layout() {
   // Lazy initializer reads persisted tweaks once — no setState-in-effect needed.
   const [tweaks] = useState(loadTweaks);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [diagOpen, setDiagOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const location = useLocation();
   const activeModule = MODULES.find(m => location.pathname.startsWith(m.path))?.id || 'command';
@@ -189,6 +191,14 @@ export default function Layout() {
           </div>
           <div className="ml-auto flex items-center gap-3">
             <button
+              onClick={() => setDiagOpen(true)}
+              title="Bridge diagnostics — endpoint health & latency"
+              className="flex items-center gap-1.5 text-[#545454] hover:text-white border border-white/10 hover:border-white/30 rounded-sm px-1.5 py-0.5 transition-colors"
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${vitals.hermesOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
+              <span className="text-[10px] hidden sm:inline">DIAG</span>
+            </button>
+            <button
               onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}
               title="Command palette (Ctrl/⌘ K)"
               className="hidden sm:flex items-center gap-1 text-[#545454] hover:text-white border border-white/10 hover:border-white/30 rounded-sm px-1.5 py-0.5 transition-colors"
@@ -216,6 +226,9 @@ export default function Layout() {
 
       {/* Global ⌘K / Ctrl+K command palette — available on every route. */}
       <CommandPalette />
+
+      {/* Bridge health diagnostics — opened from the topbar DIAG button. */}
+      {diagOpen && <BridgeDiagnostics onClose={() => setDiagOpen(false)} />}
     </div>
   );
 }

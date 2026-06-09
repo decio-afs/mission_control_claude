@@ -247,6 +247,60 @@ export async function getHermesActivity(): Promise<{ activities: HermesActivity[
 }
 
 // ---------------------------------------------------------------------------
+// Bridge health / diagnostics
+// ---------------------------------------------------------------------------
+export interface HermesHealth {
+  bridge: string;
+  port: number;
+  uptime_seconds: number;
+  python_version: string;
+  hermes_cmd: string;
+  cli_ok: boolean;
+  cli_version: string;
+  cli_probe_ms: number;
+  cli_error: string | null;
+  server_time: string;
+}
+
+export async function getHermesHealth(): Promise<HermesHealth> {
+  const { data } = await bridge.get('/api/hermes/health');
+  return data;
+}
+
+/** GET endpoints the Diagnostics panel probes for per-endpoint latency/status. */
+export interface BridgeEndpoint {
+  key: string;
+  label: string;
+  path: string;
+}
+
+export const BRIDGE_ENDPOINTS: BridgeEndpoint[] = [
+  { key: 'status',   label: 'Status',          path: '/api/hermes/status' },
+  { key: 'health',   label: 'Health',          path: '/api/hermes/health' },
+  { key: 'agents',   label: 'Agents',          path: '/api/hermes/agents' },
+  { key: 'tasks',    label: 'Tasks',           path: '/api/hermes/tasks' },
+  { key: 'cron',     label: 'Cron',            path: '/api/hermes/cron' },
+  { key: 'activity', label: 'Activity',        path: '/api/hermes/activity' },
+  { key: 'content',  label: 'Content Pipeline', path: '/api/content/pipeline' },
+  { key: 'briefing', label: 'Briefing',        path: '/api/hermes/briefing' },
+  { key: 'sentinel', label: 'Sentinel Digest', path: '/api/sentinel/digest' },
+  { key: 'leads',    label: 'Leads',           path: '/api/hermes/leads' },
+];
+
+/** Probe a single bridge path; returns HTTP status + round-trip latency. */
+export async function probeEndpoint(path: string): Promise<{ ok: boolean; status: number; latencyMs: number; error: string | null }> {
+  const start = performance.now();
+  try {
+    const res = await bridge.get(path, { timeout: 15000 });
+    return { ok: true, status: res.status, latencyMs: Math.round(performance.now() - start), error: null };
+  } catch (e) {
+    const latencyMs = Math.round(performance.now() - start);
+    const status = axios.isAxiosError(e) && e.response ? e.response.status : 0;
+    return { ok: false, status, latencyMs, error: errMessage(e) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sentinel AI Daily Digest types & fetchers
 // ---------------------------------------------------------------------------
 export interface SentinelStory {

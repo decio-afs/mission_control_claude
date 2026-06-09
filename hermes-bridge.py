@@ -27,6 +27,8 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 HERMES_CMD = os.environ.get("HERMES_CMD", "hermes")
 BRIDGE_PORT = int(os.environ.get("BRIDGE_PORT", "8767"))
+# Wall-clock the process came up — used by /api/hermes/health to report uptime.
+BRIDGE_STARTED = time.time()
 # Allow all origins by default: this is a localhost-only bridge for a local
 # desktop app. Inside Electron the UI loads from file:// (Origin: "null"), so a
 # fixed allow-list would block every request. Override with CORS_ORIGINS if needed.
@@ -237,6 +239,42 @@ def get_status():
     return {
         "hermes_version": resp["stdout"],
         "bridge": "ok",
+    }
+
+
+@app.get("/api/hermes/health")
+def get_health():
+    """Lightweight bridge self-report for the Diagnostics panel.
+
+    Cheap on purpose: it reports bridge process meta (uptime, python, port) and
+    does ONE `hermes --version` probe so the panel can confirm the CLI is wired
+    up without serially shelling out to every endpoint. Per-endpoint latency is
+    measured client-side by the health store (real round-trips from the app).
+    """
+    cli_ok = False
+    cli_version = "unknown"
+    cli_error: Optional[str] = None
+    started = time.time()
+    try:
+        resp = run_hermes("--version", timeout=10)
+        cli_ok = True
+        cli_version = (resp["stdout"] or "").splitlines()[0] if resp["stdout"] else "connected"
+    except HTTPException as exc:
+        detail = exc.detail
+        cli_error = detail if isinstance(detail, str) else str(detail)
+    cli_probe_ms = round((time.time() - started) * 1000)
+
+    return {
+        "bridge": "ok",
+        "port": BRIDGE_PORT,
+        "uptime_seconds": round(time.time() - BRIDGE_STARTED),
+        "python_version": sys.version.split()[0],
+        "hermes_cmd": HERMES_CMD,
+        "cli_ok": cli_ok,
+        "cli_version": cli_version,
+        "cli_probe_ms": cli_probe_ms,
+        "cli_error": cli_error,
+        "server_time": datetime.now().isoformat(timespec="seconds"),
     }
 
 
