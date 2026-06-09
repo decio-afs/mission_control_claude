@@ -64,12 +64,15 @@ function noise(seed: number): number {
   return x - Math.floor(x);
 }
 
-// ── live sparkline (seeded noise window driven by the global tick) ──────────
-function Spark({ base, color, w, h, className, tick }: { base: number; color: string; w: number; h: number; className: string; tick: number }) {
+// ── live sparkline (seeded noise window, self-ticking so it never re-renders
+//    the parent tree; only mounted sparks run an interval) ───────────────────
+function Spark({ base, color, w, h, className }: { base: number; color: string; w: number; h: number; className: string }) {
   const rawId = useId();
   const seed = useMemo(() => { let s = 0; for (let i = 0; i < rawId.length; i++) s = (s * 31 + rawId.charCodeAt(i)) >>> 0; return s % 9973; }, [rawId]);
+  const [t, setT] = useState(0);
+  useEffect(() => { const id = setInterval(() => setT((x) => x + 1), 1600); return () => clearInterval(id); }, []);
   const n = 26;
-  const data = Array.from({ length: n }, (_, i) => clamp(base + (noise(seed + (tick - (n - 1 - i))) * 0.32 - 0.16), 0.04, 0.98));
+  const data = Array.from({ length: n }, (_, i) => clamp(base + (noise(seed + (t - (n - 1 - i))) * 0.32 - 0.16), 0.04, 0.98));
   const pts = data.map((v, i) => `${((i / (n - 1)) * w).toFixed(1)},${(h - v * h).toFixed(1)}`);
   return (
     <svg className={className} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
@@ -95,7 +98,7 @@ export default function GhostNetwork() {
   const [localLines, setLocalLines] = useState<FeedLine[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [tick, setTick] = useState(0);
+  const [paused, setPaused] = useState(false);
   const [zoomLabel, setZoomLabel] = useState('100%');
 
   const stageBodyRef = useRef<HTMLDivElement>(null);
@@ -107,7 +110,14 @@ export default function GhostNetwork() {
 
   // live data lifecycle
   useEffect(() => { fetchTopology(); startPolling(); return () => stopPolling(); }, [fetchTopology, startPolling, stopPolling]);
-  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1600); return () => clearInterval(t); }, []);
+  // Pause all the deck's CSS animations when the window is hidden/backgrounded —
+  // saves continuous GPU compositing + CPU while the user isn't looking.
+  useEffect(() => {
+    const onVis = () => setPaused(document.hidden);
+    onVis();
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
 
   // map live agents → nexus agents
   const agents = useMemo<NexAgent[]>(() => {
@@ -268,7 +278,7 @@ export default function GhostNetwork() {
   const ghostError = useGhostStore((s) => s.error);
 
   return (
-    <div className="nexus" data-layout={layout}>
+    <div className={`nexus${paused ? ' paused' : ''}`} data-layout={layout}>
       <div className="fx fx-grid" />
       <div className="fx fx-scan" />
       <div className="fx fx-vignette" />
@@ -325,7 +335,9 @@ export default function GhostNetwork() {
           </div>
 
           <div className="stage-body" ref={stageBodyRef}>
-            {/* orbital */}
+            {/* orbital — only mounted in orbital view so its heavy core/ring
+                animations don't run (or consume GPU layers) while in grid view */}
+            {layout === 'orbital' && (
             <div className="orbital">
               <div className="orbit-space" ref={orbitSpaceRef}>
                 {rings.map((r) => (
@@ -363,8 +375,11 @@ export default function GhostNetwork() {
                 </div>
               </div>
             </div>
+            )}
 
-            {/* grid */}
+            {/* grid — only mounted in grid view so the 13 card sparklines don't
+                run their intervals while you're on the orbital view */}
+            {layout === 'grid' && (
             <div className="gridview">
               <div className="cards">
                 {agents.map((a) => (
@@ -374,12 +389,13 @@ export default function GhostNetwork() {
                       <div className="cn"><b>{a.name}</b><span>{a.role.toUpperCase()} · {STLABEL[a.status]}</span></div>
                     </div>
                     <div className="ctask">{a.task}</div>
-                    <Spark base={a.load} color={a.color} w={220} h={30} className="spark" tick={tick} />
+                    <Spark base={a.load} color={a.color} w={220} h={30} className="spark" />
                     <div className="cfoot"><span>Q {a.queue} · {a.running} running</span><span className="lo">LOAD {Math.round(a.load * 100)}%</span></div>
                   </div>
                 ))}
               </div>
             </div>
+            )}
 
             <div className="zoomctl">
               <button title="Zoom in" onClick={() => setZoom(zoomRef.current.z * 1.2, true)}>+</button>
@@ -407,7 +423,7 @@ export default function GhostNetwork() {
                   <div className={`vital${v.up ? ' up' : ''}`} key={v.id}>
                     <div className="vl">{v.label}</div>
                     <div className="vv">{v.value}<small>{v.unit}</small></div>
-                    <Spark base={v.norm} color={v.up ? 'var(--accent-2)' : 'var(--accent)'} w={60} h={22} className="vspark" tick={tick} />
+                    <Spark base={v.norm} color={v.up ? 'var(--accent-2)' : 'var(--accent)'} w={60} h={22} className="vspark" />
                   </div>
                 ))}
               </div>
