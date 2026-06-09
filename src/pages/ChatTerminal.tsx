@@ -337,7 +337,7 @@ export default function ChatTerminal() {
   };
 
   return (
-    <div className="h-full grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-2 p-2">
+    <div className="h-full grid grid-rows-[minmax(110px,28vh)_1fr] grid-cols-1 lg:grid-rows-1 lg:grid-cols-[240px_1fr] gap-2 p-2 min-h-0">
       {/* Session sidebar */}
       <Panel label="SESSIONS" right={<span className="text-[#545454]">{sessions.length}</span>} className="flex flex-col min-h-0">
         <button
