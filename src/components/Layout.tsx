@@ -6,6 +6,7 @@ import { useTaskStore } from '../stores/useTaskStore';
 import { MODULES } from '../lib/nav';
 import CommandPalette from './CommandPalette';
 import BridgeDiagnostics from './BridgeDiagnostics';
+import AgentDrillDown from './AgentDrillDown';
 
 // const ACCENT_OPTIONS: Record<string, string> = {
 //   coral:  '#f64e6e',
@@ -229,6 +230,9 @@ export default function Layout() {
 
       {/* Bridge health diagnostics — opened from the topbar DIAG button. */}
       {diagOpen && <BridgeDiagnostics onClose={() => setDiagOpen(false)} />}
+
+      {/* Agent drill-down slide-over — opened by clicking any agent in a roster. */}
+      <AgentDrillDown />
     </div>
   );
 }

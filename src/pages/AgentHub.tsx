@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useGhostStore, type GhostNode } from '../stores/useGhostStore';
 import { useTaskStore } from '../stores/useTaskStore';
+import { useAgentDrilldownStore } from '../stores/useAgentDrilldownStore';
 import { Panel, Pill, Label } from '../components/cyberpunk/ui';
 
 const SQUAD_META: Record<string, { color: string; label: string }> = {
@@ -29,6 +30,7 @@ export default function AgentHub() {
   } = useGhostStore();
 
   const { tasks, fetchTasks } = useTaskStore();
+  const openDrilldown = useAgentDrilldownStore((s) => s.open);
 
   const [tab, setTab] = useState<'registry' | 'activity'>('registry');
   const [filter, setFilter] = useState('');
@@ -171,19 +173,24 @@ export default function AgentHub() {
               const sq = SQUAD_META[n.squad || 'CORE'] || SQUAD_META.CORE;
               return (
                 <div key={n.id} className="flex items-center justify-between px-3 py-2 border border-white/[0.06] bg-[#080808] hover:border-white/15 transition-colors">
-                  <div className="flex items-center gap-3 min-w-0">
+                  <button
+                    onClick={() => openDrilldown(n.name)}
+                    title="Inspect agent — tasks, status & activity"
+                    className="flex items-center gap-3 min-w-0 text-left group/agent"
+                  >
                     <div className="w-2 h-2 shrink-0" style={{ background: sq.color, boxShadow: `0 0 6px ${sq.color}` }} />
                     <div className="min-w-0">
-                      <div className="text-[12px] text-white font-bold truncate">{n.name}</div>
+                      <div className="text-[12px] text-white font-bold truncate group-hover/agent:text-[#f64e6e] transition-colors">{n.name}</div>
                       <div className="text-[9px] font-mono text-[#545454]">{n.type.toUpperCase()} · {sq.label}</div>
                     </div>
-                  </div>
+                  </button>
                   <div className="flex items-center gap-3 shrink-0">
                     <div className="text-[10px] font-mono text-[#b8b8b8]">
                       <span className="text-[#545454]">RUN</span> {n.tasks_running ?? 0} <span className="text-[#545454]">Q</span> {n.queue_depth ?? 0}
                     </div>
                     <Pill tone={statusTone(n.status)}>{(n.status || 'UNKNOWN').toUpperCase()}</Pill>
                     <div className="flex gap-1">
+                      <button onClick={() => openDrilldown(n.name)} className="text-[9px] font-mono border border-white/10 px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">INSPECT</button>
                       <button onClick={() => openSpawn(n)} className="text-[9px] font-mono border border-white/10 px-2 py-1 hover:border-emerald-400 hover:text-emerald-400">SPAWN</button>
                       <button onClick={() => openEdit(n)} className="text-[9px] font-mono border border-white/10 px-2 py-1 hover:border-sky-400 hover:text-sky-400">EDIT</button>
                       <button onClick={() => openDelete(n)} className="text-[9px] font-mono border border-white/10 px-2 py-1 hover:border-red-400 hover:text-red-400">DEL</button>
