@@ -16,27 +16,33 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (10 tabs — unchanged count after Run #3; cron consolidated within Command)
+## Current State (10 tabs — unchanged count after Run #4; Command's BRIDGE LOG now collapsible)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
 
 | # | Path | Page | Data | Notes |
 |---|------|------|------|-------|
-| 00 | `/command`     | Hermes Command (Cyberpunk) | LIVE | Primary ops console: agents, tasks, spawn/dispatch. **Cron is now a read-only summary that links to Operations** (Run #3). |
+| 00 | `/command`     | Hermes Command (Cyberpunk) | LIVE | Primary ops console: agents, tasks, spawn/dispatch. Cron = read-only summary linking to Operations (Run #3). **BRIDGE LOG is now a collapsible drawer** (Run #4). **GHOST LEGION rows open the Agent Drill-Down** (Run #4). |
 | 01 | `/network`     | Ghost Network              | LIVE | NEXUS Orchestration Deck — agent topology (rebuilt, scoped `ghostNexus.css`). |
-| 02 | `/agent-hub`   | Agent Hub                  | LIVE | Agent CRUD registry + agent-activity tab + spawn-on-task. |
+| 02 | `/agent-hub`   | Agent Hub                  | LIVE | Agent CRUD registry + agent-activity tab + spawn-on-task. **Roster rows + INSPECT button open the Agent Drill-Down** (Run #4). |
 | 03 | `/war-room`    | War Room                   | LIVE | Metrics gauges + task-status + agent-load + **TASKS/SIGNAL feed toggle**. |
 | 04 | `/operations`  | Operations Center          | LIVE | Kanban CRUD + cron list/run/**create** + task decompose. **Single cron home.** |
-| 05 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | Chat round-trips to Hermes. |
+| 05 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | Chat round-trips to Hermes. **Narrow-width layout now uses explicit grid rows** (Run #4). |
 | 06 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
 | 07 | `/briefing`    | Briefing Terminal          | LIVE | `useBriefingStore` (briefing + sentinel digest). |
 | 08 | `/leads`       | Lead Tracker               | LIVE | `useLeadStore`. |
 | 09 | `/design-lab`  | Design Lab                 | DEMO | **Consolidated showcase** — internal sub-tabs: Intel Deck / Workflow Builder / Archives / Broadcast Uplink. |
 
 - **Global topbar tooling (in `Layout.tsx`):** `⌘K` command palette (`CommandPalette.tsx`)
-  **and** a new **DIAG** button (Run #3) that opens the **Bridge Diagnostics** modal
+  **and** a **DIAG** button (Run #3) that opens the **Bridge Diagnostics** modal
   (`src/components/BridgeDiagnostics.tsx`) — a green/red dot mirrors `vitals.hermesOnline`.
+- **Agent Drill-Down (Run #4):** a global right-side slide-over (`src/components/AgentDrillDown.tsx`)
+  mounted once in `Layout.tsx`, opened from any roster surface via the tiny
+  `useAgentDrilldownStore` (`open(name)`/`close()`). Shows the agent's live status/queue,
+  assigned tasks (filtered from `/api/hermes/tasks` by `assignee`) and recent activity
+  (filtered from `/api/hermes/activity` by `agent`). No new bridge endpoint — pure client
+  aggregation of existing stores. Esc / backdrop closes.
 - **Cron lives in ONE place now (Run #3):** Operations is the cron home (list/run/create).
   Command's old cron widget (with per-job RUN NOW buttons) was trimmed to a read-only
   count + name/schedule list + "OPEN OPERATIONS" link. No live cron *control* duplicated.
@@ -67,42 +73,93 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 ## Next Steps / TODO (the next run executes these)
 
 ### Consolidation
-- [ ] **ChatTerminal "SESSIONS" rail vs other roster/list views** — ChatTerminal has its own
-      left rail; confirm it's session-scoped (chat history) and not duplicating the Agent Hub roster.
-      If it only lists chat sessions, leave it; if it re-renders agents, dedupe.
-- [ ] **War Room SIGNAL feed vs Command BRIDGE LOG** — both are time-ordered event streams. War Room's
-      SIGNAL is live Hermes `/activity`; Command's BRIDGE LOG is local client action log. Distinct, but
-      consider whether Command's BRIDGE LOG earns its vertical space on the primary console or could be a
-      collapsible drawer.
-- [x] ~~Command vs Operations cron duplication~~ — DONE in Run #3 (Command cron → read-only summary).
-- [x] ~~Agent Hub Activity tab vs War Room SIGNAL~~ — VERIFIED NOT redundant in Run #3 (Agent Hub Activity
-      is a *local session* registry-CRUD audit: created/spawned/deleted events from `useGhostStore.agentActivity`;
-      War Room SIGNAL is *Hermes runtime* task lifecycle from `/api/hermes/activity`. Different sources — KEPT both).
+- [ ] **Wire the Agent Drill-Down into the Nexus deck (`/network`)** — Run #4 added the global
+      `useAgentDrilldownStore` + `AgentDrillDown` slide-over and wired it from Agent Hub + Command's
+      GHOST LEGION. The Nexus Orchestration Deck (`src/pages/GhostNetwork.tsx`) still has no entry point;
+      make its agent nodes call `useAgentDrilldownStore.open(name)` so all three roster surfaces share it.
+      Also consider routing the Command Palette's "agent" results to `open(name)` instead of (or alongside)
+      navigating to Agent Hub.
+- [ ] **Command vs Operations task-creation duplication** — both Command (CREATE TASK / DISPATCH AGENT) and
+      Operations (MISSION QUEUE create + DECOMPOSE) expose task creation. Distinct enough (Command = quick
+      inline, Operations = full kanban), but evaluate trimming Command's CREATE TASK to a link to Operations,
+      mirroring how cron was consolidated in Run #3. Conservative — confirm before removing a live verb.
+- [x] ~~ChatTerminal SESSIONS rail vs roster~~ — VERIFIED NOT redundant in Run #4 (it lists chat sessions
+      from `useChatStore`, never agents — left as-is).
+- [x] ~~Command BRIDGE LOG earns its vertical space?~~ — DONE in Run #4 (made it a collapsible drawer with
+      persisted `mc-bridgelog-open` preference; default expanded).
 
 ### UI / Display Fixes
-- [ ] **ChatTerminal narrow-width (`grid-cols-1`) layout** — root is `h-full grid grid-cols-1 lg:grid-cols-[240px_1fr]`
-      with no explicit grid-rows; on a narrow Electron window the SESSIONS panel + chat column stack with
-      auto rows and may overflow `<main>` (which is `overflow-hidden`). Give the narrow layout explicit rows
-      or a scroll container. (Desktop `lg` width is fine.)
-- [ ] **Command top stats** — `grid-cols-2 md:grid-cols-4 lg:grid-cols-7` packs 7 stat cards; at the `lg`
-      breakpoint minus the 220px sidebar each card is ~110px and tight. Consider `xl:grid-cols-7` so it
-      stays 4-up until there's real width.
-- [ ] **Operations Center** — still confirm `lg:grid-cols-[360px_1fr]` left column + the `calc(100% - 110px)`
-      maxHeight on the task list doesn't squeeze/clip kanban cards on the smallest window width.
+- [x] ~~ChatTerminal narrow-width layout~~ — DONE in Run #4 (explicit `grid-rows-[minmax(110px,28vh)_1fr]`
+      on narrow, `lg:grid-rows-1`; verified mobile 375px stacks with 0 overflow, desktop 1440px = 240px+1fr).
+- [x] ~~Command top stats `lg:grid-cols-7`~~ — DONE in Run #4 (`xl:grid-cols-7`; stays 4-up until xl width).
+- [ ] **Operations Center `calc(100% - 110px)` task list** — still uses a fragile magic-number maxHeight on
+      the MISSION QUEUE scroll list (subtracts the filter row + create-task footer height). Works today, but
+      a flex-based `flex-1 min-h-0` layout (footer as a `shrink-0` sibling) would be more robust than the
+      hardcoded 110px. Low priority — not currently clipping.
+- [ ] **AgentDrillDown polish** — the status strip falls back to `STATUS UNKNOWN / TYPE —` when the clicked
+      agent isn't in `useGhostStore.nodes` (e.g. opened from a stale palette entry). Acceptable, but consider
+      showing a subtle "agent not in current topology" hint. Also: the slide-over has no skills row yet
+      (GhostNode carries no skills; would need a bridge field) — wire skills if/when the agent detail grows.
 
-### Next Feature (must differ from Run History — Run #1: Command Palette; Run #2: Cron Creation UI; Run #3: Bridge Diagnostics)
-- [ ] Build an **Agent Drill-Down panel** — clicking an agent (in Agent Hub roster, Command's GHOST LEGION,
-      or the Nexus deck) opens a slide-over/modal showing that agent's: assigned tasks (filter
-      `/api/hermes/tasks` by `assignee`), skills, online/queue status, and recent activity rows
-      (filter `/api/hermes/activity` by agent). Reuses existing endpoints — likely no new bridge route,
-      or add `GET /api/hermes/agents/{name}/detail` if a single aggregated call is cleaner.
+### Next Feature (must differ from Run History — Run #1: Command Palette; Run #2: Cron Creation UI; Run #3: Bridge Diagnostics; Run #4: Agent Drill-Down)
+- [ ] Build a **global task search / filter bar** — a `⌘F`-style overlay (or a persistent filter row) that
+      searches `/api/hermes/tasks` across ALL tabs by title / id / assignee / status, and on selecting a task
+      routes to Operations with that task focused. Reuses `useTaskStore.hermesTasks` (already polled globally).
+      Distinct from the Command Palette (which jumps to nav modules/agents, not deep task filtering).
 - [ ] Alternative candidates (pick ONE, not already done): live log streaming (SSE/poll tail of a Hermes
-      run), task dependency / workflow-step view, completed-task desktop notifications, keyboard-shortcuts
-      cheat-sheet overlay, global task search/filter bar.
+      run), task dependency / workflow-step view (HermesTask carries `workflow_template_id` + `current_step_key`),
+      completed-task desktop notifications (Electron `Notification` on `done` transitions), keyboard-shortcuts
+      cheat-sheet overlay.
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-09 — Run #4 (branch `auto/evolve-agent-drilldown`)
+
+**Tab audit findings.** Re-enumerated all 10 tabs from `nav.ts`/`App.tsx`/`Layout.tsx` (count unchanged
+since Run #2). The two soft overlaps Run #3 queued were resolved: (1) **ChatTerminal's SESSIONS rail is NOT
+redundant** — it renders chat sessions from `useChatStore` (name + msg count + date), never the agent roster;
+left as-is. (2) **Command's BRIDGE LOG vs War Room SIGNAL are distinct** (local client action log vs Hermes
+`/activity` runtime stream) — kept both, but acted on the "does BRIDGE LOG earn its vertical space" question
+by making it collapsible (see below). Remaining redundancy surfaced for next run: the Nexus deck still lacks
+an Agent Drill-Down entry point (the new slide-over is wired from only 2 of 3 roster surfaces), and Command
+vs Operations both expose task creation (queued, not touched — conservative).
+
+**Consolidated — Command BRIDGE LOG → collapsible drawer.** The BRIDGE LOG (a local client-side action log,
+not Hermes data) permanently occupied a 140px panel at the bottom of the primary console. Made it collapsible:
+the panel header `right` slot is now a toggle button (`N EVENTS ▾/▸`) that hides/shows the log body; the
+preference persists to `localStorage` (`mc-bridgelog-open`, default expanded). Reclaims vertical space on the
+landing console without losing the log. Verified live: toggling flips `▾`↔`▸`, removes/restores the
+`h-[140px]` body, and writes `mc-bridgelog-open=false/true`.
+
+**UI fixes.** (1) **ChatTerminal narrow-width** — root grid was `grid-cols-1 lg:grid-cols-[240px_1fr]` with no
+explicit rows, so on a narrow window the SESSIONS + chat panels stacked with auto rows and could overflow the
+`overflow-hidden` `<main>`. Now `grid-rows-[minmax(110px,28vh)_1fr] grid-cols-1 lg:grid-rows-1
+lg:grid-cols-[240px_1fr] min-h-0`: SESSIONS gets a bounded 28vh row, chat fills the rest. Verified at 375px
+(rows 227px/520px, **0 overflow** in `<main>`) and 1440px (single row, `240px 956px` cols — desktop intact).
+(2) **Command top stats** — `lg:grid-cols-7` → `xl:grid-cols-7` so the 7 stat cards stay 4-up until there's
+real width (at `lg` minus the 220px sidebar each card was ~110px). Verified the grid class in the live DOM.
+
+**New feature — Agent Drill-Down slide-over.** Clicking an agent anywhere opens a right-side slide-over
+aggregating everything Hermes knows about it. **Store:** `src/stores/useAgentDrilldownStore.ts` — a tiny
+global `{ agentName, open(name), close() }` so any roster can open it without prop-drilling. **Component:**
+`src/components/AgentDrillDown.tsx` — reads the agent's `GhostNode` (status/type/running/queue/squad/model),
+its assigned tasks (filter `useTaskStore.hermesTasks` by `assignee`, with a per-status count breakdown), and
+its recent activity (filter `useActivityStore.activities` by `agent`, relative `ago()` timestamps); fetches
+fresh activity on open, closes on Esc/backdrop. **No new bridge endpoint** — pure client aggregation of the
+three already-polled stores. **Mounted** once in `Layout.tsx` (overlays every route). **Wired** from Agent Hub
+(roster row identity is now a button + a dedicated `INSPECT` action) and Command's GHOST LEGION (each row is a
+button). **How to access:** Agent Hub → click an agent name or INSPECT; or Command → click any GHOST LEGION
+row. **Verified live with real Hermes data:** opened on `signalscraper` → STATUS ACTIVE / FIXER / INTEL,
+RUNNING 1, 2 assigned tasks ("Research DA Agency LLC…" RUNNING, "Find direct competitor agencies…" DONE, both
+`9h ago`), 6 activity events — and confirmed graceful empty-state handling (STATUS UNKNOWN + "No tasks/activity"
+when an agent has no topology/data).
+
+**Verify.** `npm run build` ✓ (tsc + vite, **112 modules**, up from 110), `npm run lint` ✓ (0 issues), and a
+live Vite preview pass: no React/render console errors (only pre-existing bridge-timeout warnings while the CLI
+was slow), collapsible BRIDGE LOG, ChatTerminal responsive rows, and the Agent Drill-Down end-to-end against
+live agent/task/activity data.
 
 ### 2026-06-09 — Run #3 (branch `auto/evolve-bridge-diagnostics`)
 
