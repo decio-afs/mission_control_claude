@@ -1,4 +1,4 @@
-// Operations Center — full Hermes kanban board.
+﻿// Operations Center — full Hermes kanban board.
 //
 // A column-per-status board backed live by `hermes kanban`, with a per-task
 // detail/control slide-over (TaskDetailDrawer) exposing the full verb set:
@@ -17,7 +17,7 @@ const COLUMNS: { key: string; label: string; tone: string }[] = [
   { key: 'todo', label: 'TODO', tone: '#9aa3b5' },
   { key: 'ready', label: 'READY', tone: '#38bdf8' },
   { key: 'running', label: 'RUNNING', tone: '#f59e0b' },
-  { key: 'review', label: 'REVIEW', tone: '#a855f7' },
+  { key: 'review', label: 'REVIEW', tone: '#ff795e' },
   { key: 'blocked', label: 'BLOCKED', tone: '#ef4444' },
   { key: 'scheduled', label: 'SCHEDULED', tone: '#6b7280' },
   { key: 'done', label: 'DONE', tone: '#10b981' },
@@ -40,11 +40,15 @@ function ago(unixSeconds: number): string {
 }
 
 export default function OperationsCenter() {
-  const { hermesTasks, summary, stats, error, lastSync, fetchTasks, fetchStats, createTask, claimHermesTaskById, completeHermesTaskById } = useTaskStore();
+  const { hermesTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, createTask, claimHermesTaskById, completeHermesTaskById } = useTaskStore();
   const nodes = useGhostStore((s) => s.nodes);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [assigneeFilter, setAssigneeFilter] = useState('ALL');
+  const [diagOpen, setDiagOpen] = useState(false);
+  const [boardModal, setBoardModal] = useState(false);
+  const [newBoardSlug, setNewBoardSlug] = useState('');
+  const [newBoardName, setNewBoardName] = useState('');
 
   // create-task modal
   const [createOpen, setCreateOpen] = useState(false);
@@ -72,7 +76,11 @@ export default function OperationsCenter() {
 
   const loadCron = () => getHermesCron().then((d) => setCron(d.jobs || [])).catch(() => {});
 
-  useEffect(() => { fetchTasks(); fetchStats(); loadCron(); }, [fetchTasks, fetchStats]);
+  useEffect(() => { fetchTasks(); fetchStats(); fetchBoards(); fetchDiagnostics(); loadCron(); }, [fetchTasks, fetchStats, fetchBoards, fetchDiagnostics]);
+
+  const currentBoard = boards.find((b) => b.is_current);
+  const diagCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.length || 0), 0);
+  const allTasks = useMemo(() => hermesTasks.map((t) => ({ id: t.id, title: t.title })), [hermesTasks]);
 
   // Task Search (⌘F) → open that task's drawer directly.
   const { focusId, nonce, clear: clearFocus } = useTaskFocusStore();
@@ -153,6 +161,17 @@ export default function OperationsCenter() {
           {oldestReady != null && <Chip k="OLDEST READY" v={`${ago(Math.floor(Date.now() / 1000) - oldestReady)}`} c="text-[#b8b8b8]" />}
         </div>
         <div className="ml-auto flex items-center gap-1.5 text-[10px] font-mono">
+          {boards.length > 0 && (
+            <select value={currentBoard?.slug || ''} onChange={(e) => { if (e.target.value === '__new__') setBoardModal(true); else void switchBoard(e.target.value); }}
+              title="Active board" className="bg-[#080808] border border-white/10 px-2 py-1 text-white focus:border-[#f64e6e] outline-none">
+              {boards.map((b) => <option key={b.slug} value={b.slug}>▣ {b.name || b.slug}</option>)}
+              <option value="__new__">+ new board…</option>
+            </select>
+          )}
+          <button onClick={() => { void fetchDiagnostics(); setDiagOpen(true); }} title="Board diagnostics"
+            className={`border px-2 py-1 ${diagCount > 0 ? 'border-amber-400/50 text-amber-400' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'}`}>
+            ⚠ {diagCount}
+          </button>
           <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}
             className="bg-[#080808] border border-white/10 px-2 py-1 text-white focus:border-[#f64e6e] outline-none">
             <option value="ALL">ALL ASSIGNEES</option>
@@ -209,7 +228,40 @@ export default function OperationsCenter() {
       </div>
 
       {/* DETAIL DRAWER */}
-      <TaskDetailDrawer key={openTaskId ?? 'none'} taskId={openTaskId} profiles={profiles} onClose={() => setOpenTaskId(null)} onOpenTask={(id) => setOpenTaskId(id)} />
+      <TaskDetailDrawer key={openTaskId ?? 'none'} taskId={openTaskId} profiles={profiles} allTasks={allTasks} onClose={() => setOpenTaskId(null)} onOpenTask={(id) => setOpenTaskId(id)} />
+
+      {/* DIAGNOSTICS MODAL */}
+      {diagOpen && (
+        <Modal title={`BOARD DIAGNOSTICS · ${diagCount}`} onClose={() => setDiagOpen(false)}>
+          <div className="flex flex-col gap-1.5 max-h-[360px] overflow-auto">
+            {diagnostics.length === 0 && <div className="text-[10px] font-mono text-emerald-400">✓ no active diagnostics — board healthy</div>}
+            {diagnostics.map((d) => (
+              <div key={d.task_id} className="border border-white/[0.06] bg-[#080808] p-2">
+                <button onClick={() => { setOpenTaskId(d.task_id); setDiagOpen(false); }} className="flex items-center gap-2 text-left w-full mb-1 hover:text-[#f64e6e]">
+                  <span className="text-[10px] font-mono text-[#545454]">{d.task_id}</span>
+                  <span className="text-[11px] text-white truncate">{d.title}</span>
+                </button>
+                {d.diagnostics?.map((x, i) => (
+                  <div key={i} className="text-[10px] font-mono flex items-start gap-1.5">
+                    <span className={x.severity === 'critical' || x.severity === 'error' ? 'text-red-400' : 'text-amber-400'}>● {x.severity || x.kind}</span>
+                    <span className="text-[#b8b8b8]">{x.message || x.kind}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {/* CREATE BOARD MODAL */}
+      {boardModal && (
+        <Modal title="CREATE BOARD" onClose={() => setBoardModal(false)}>
+          <Field label="SLUG (kebab-case)"><input autoFocus value={newBoardSlug} onChange={(e) => setNewBoardSlug(e.target.value)} placeholder="client-acme" className={inputCls} /></Field>
+          <Field label="NAME (optional)"><input value={newBoardName} onChange={(e) => setNewBoardName(e.target.value)} placeholder="Client Acme" className={inputCls} /></Field>
+          <button onClick={async () => { if (!newBoardSlug.trim()) return; const ok = await createBoard(newBoardSlug.trim(), newBoardName.trim() || undefined, undefined, true); if (ok) { setBoardModal(false); setNewBoardSlug(''); setNewBoardName(''); await fetchTasks(); await fetchStats(); } }}
+            disabled={!newBoardSlug.trim()} className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">+ CREATE & SWITCH</button>
+        </Modal>
+      )}
 
       {/* CREATE MODAL */}
       {createOpen && (

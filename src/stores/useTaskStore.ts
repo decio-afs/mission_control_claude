@@ -16,12 +16,19 @@ import {
   editHermesTask,
   linkHermesTasks,
   unlinkHermesTasks,
+  specifyHermesTask,
   getHermesTaskDetail,
   getKanbanStats,
+  getKanbanDiagnostics,
+  getHermesBoards,
+  createHermesBoard,
+  switchHermesBoard,
   errMessage,
   type HermesTask,
   type TaskDetail,
   type KanbanStats,
+  type KanbanBoard,
+  type BoardDiagnostic,
 } from '../lib/api';
 
 export interface OpTask {
@@ -60,12 +67,19 @@ interface TaskStore {
   hermesTasks: HermesTask[];
   summary: TaskSummary | null;
   stats: KanbanStats | null;
+  boards: KanbanBoard[];
+  diagnostics: BoardDiagnostic[];
   isLoading: boolean;
   error: string | null;
   lastSync: Date | null;
   fetchTasks: () => Promise<void>;
   fetchSummary: () => void;
   fetchStats: () => Promise<void>;
+  fetchBoards: () => Promise<void>;
+  switchBoard: (slug: string) => Promise<boolean>;
+  createBoard: (slug: string, name?: string, description?: string, switchTo?: boolean) => Promise<boolean>;
+  fetchDiagnostics: () => Promise<void>;
+  specifyTask: (taskId: string) => Promise<boolean>;
   fetchTaskDetail: (taskId: string) => Promise<TaskDetail | null>;
   addHermesTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<HermesTask | null>;
   createTask: (input: CreateTaskInput) => Promise<HermesTask | null>;
@@ -136,6 +150,8 @@ export const useTaskStore = create<TaskStore>((set, get) => {
     hermesTasks: [],
     summary: null,
     stats: null,
+    boards: [],
+    diagnostics: [],
     isLoading: false,
     error: null,
     lastSync: null,
@@ -170,6 +186,38 @@ export const useTaskStore = create<TaskStore>((set, get) => {
         console.error('[TaskStore] fetchStats failed:', errMessage(err));
       }
     },
+
+    fetchBoards: async () => {
+      try {
+        const { boards } = await getHermesBoards();
+        set({ boards: boards || [] });
+      } catch (err) {
+        console.error('[TaskStore] fetchBoards failed:', errMessage(err));
+      }
+    },
+
+    switchBoard: async (slug) => {
+      const ok = await mutate('switchBoard', () => switchHermesBoard(slug));
+      if (ok) await get().fetchBoards();
+      return ok;
+    },
+
+    createBoard: async (slug, name, description, switchTo) => {
+      const ok = await mutate('createBoard', () => createHermesBoard({ slug, name, description, switch: switchTo }));
+      if (ok) await get().fetchBoards();
+      return ok;
+    },
+
+    fetchDiagnostics: async () => {
+      try {
+        const { diagnostics } = await getKanbanDiagnostics();
+        set({ diagnostics: diagnostics || [] });
+      } catch (err) {
+        console.error('[TaskStore] fetchDiagnostics failed:', errMessage(err));
+      }
+    },
+
+    specifyTask: (taskId) => mutate('specify', () => specifyHermesTask(taskId)),
 
     fetchTaskDetail: async (taskId) => {
       try {

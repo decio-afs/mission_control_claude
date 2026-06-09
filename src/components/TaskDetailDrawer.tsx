@@ -4,7 +4,29 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
 import { Pill } from './cyberpunk/ui';
-import type { TaskDetail } from '../lib/api';
+import {
+  getHermesTaskLog, getHermesTaskContext, getTaskNotifications, subscribeTaskNotify, unsubscribeTaskNotify,
+  type TaskDetail, type NotifySubscription,
+} from '../lib/api';
+
+const NOTIFY_PLATFORMS = ['telegram', 'discord', 'signal', 'whatsapp'];
+
+// Lightweight markdown for task descriptions: bold heading lines + render
+// `[ ]` / `[x]` as checkboxes, the way the official kanban renders specs.
+function MarkdownLite({ text }: { text: string }) {
+  return (
+    <div className="text-[11px] text-[#b8b8b8] leading-relaxed flex flex-col">
+      {text.split('\n').map((raw, i) => {
+        const trimmed = raw.trim();
+        if (!trimmed) return <div key={i} className="h-1.5" />;
+        const line = raw.replace(/\[\s\]/g, '☐').replace(/\[[xX]\]/g, '☑');
+        const isHeading = /^[A-Z][\w /&-]+$/.test(trimmed) && trimmed.length < 34 && !trimmed.includes('.');
+        if (isHeading) return <div key={i} className="text-[#f64e6e] font-bold mt-1.5">{trimmed}</div>;
+        return <div key={i} className="whitespace-pre-wrap">{line}</div>;
+      })}
+    </div>
+  );
+}
 
 const STATUS_TONE: Record<string, 'good' | 'info' | 'bad' | 'warn' | 'neutral'> = {
   done: 'good', running: 'warn', ready: 'info', review: 'info',
@@ -33,16 +55,17 @@ function ago(unixSeconds: number): string {
 }
 const fmt = (u?: number | null) => (u ? new Date(u * 1000).toLocaleString() : '—');
 
-export default function TaskDetailDrawer({ taskId, profiles, onClose, onOpenTask }: {
+export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, onOpenTask }: {
   taskId: string | null;
   profiles: string[];
+  allTasks: { id: string; title: string }[];
   onClose: () => void;
   onOpenTask: (id: string) => void;
 }) {
   const {
     fetchTaskDetail, claimHermesTaskById, completeHermesTaskById, blockHermesTaskById,
     unblockTask, promoteTask, scheduleTask, archiveTask, reassignTask, reclaimTask,
-    commentTask, editTask, linkTasks, unlinkTasks,
+    commentTask, editTask, linkTasks, unlinkTasks, specifyTask,
   } = useTaskStore();
 
   const [detail, setDetail] = useState<TaskDetail | null>(null);
@@ -51,14 +74,24 @@ export default function TaskDetailDrawer({ taskId, profiles, onClose, onOpenTask
   const [comment, setComment] = useState('');
   const [reason, setReason] = useState('');
   const [linkChild, setLinkChild] = useState('');
+  const [linkParent, setLinkParent] = useState('');
   const [reassignTo, setReassignTo] = useState('');
   const [editResult, setEditResult] = useState('');
   const [showEdit, setShowEdit] = useState(false);
+  // notify
+  const [notifySubs, setNotifySubs] = useState<NotifySubscription[]>([]);
+  const [nPlatform, setNPlatform] = useState('telegram');
+  const [nChatId, setNChatId] = useState('');
+  // log / context
+  const [log, setLog] = useState<string | null>(null);
+  const [context, setContext] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!taskId) return;
     const d = await fetchTaskDetail(taskId);
     setDetail(d);
+    const subs = await getTaskNotifications(taskId).then((r) => r.subscriptions).catch(() => []);
+    setNotifySubs(subs);
     setLoaded(true);
   }, [taskId, fetchTaskDetail]);
 
@@ -110,7 +143,7 @@ export default function TaskDetailDrawer({ taskId, profiles, onClose, onOpenTask
             {/* title + body */}
             <div>
               <div className="text-[14px] text-white leading-snug mb-1">{t.title}</div>
-              {t.body && <div className="text-[11px] text-[#b8b8b8] whitespace-pre-wrap leading-relaxed border-l-2 border-white/10 pl-2">{t.body}</div>}
+              {t.body && <div className="border-l-2 border-white/10 pl-2"><MarkdownLite text={t.body} /></div>}
             </div>
 
             {/* meta grid */}
@@ -140,6 +173,7 @@ export default function TaskDetailDrawer({ taskId, profiles, onClose, onOpenTask
             {/* actions */}
             <Section title="ACTIONS">
               <div className="grid grid-cols-3 gap-1.5">
+                {status === 'triage' && <Btn busy={busy} id="specify" label="SPECIFY" cls="border-violet-400/40 text-violet-300 hover:bg-violet-400/10" onClick={() => act('specify', () => specifyTask(taskId))} />}
                 {allow('claim') && <Btn busy={busy} id="claim" label="CLAIM" cls="border-amber-400/40 text-amber-400 hover:bg-amber-400/10" onClick={() => act('claim', () => claimHermesTaskById(taskId))} />}
                 {allow('complete') && <Btn busy={busy} id="complete" label="COMPLETE" cls="border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/10" onClick={() => act('complete', () => completeHermesTaskById(taskId))} />}
                 {allow('promote') && <Btn busy={busy} id="promote" label="PROMOTE" cls="border-sky-400/40 text-sky-400 hover:bg-sky-400/10" onClick={() => act('promote', () => promoteTask(taskId, reason || undefined))} />}
@@ -177,13 +211,34 @@ export default function TaskDetailDrawer({ taskId, profiles, onClose, onOpenTask
 
             {/* dependencies */}
             <Section title={`DEPENDENCIES · ${detail.parents.length}↑ ${detail.children.length}↓`}>
-              {detail.parents.length === 0 && detail.children.length === 0 && <div className="text-[10px] font-mono text-[#545454]">no dependencies</div>}
-              {detail.parents.map((p) => <DepRow key={p} id={p} dir="parent" onOpen={() => onOpenTask(p)} onUnlink={() => act('unlink', () => unlinkTasks(p, taskId))} />)}
-              {detail.children.map((c) => <DepRow key={c} id={c} dir="child" onOpen={() => onOpenTask(c)} onUnlink={() => act('unlink', () => unlinkTasks(taskId, c))} />)}
+              {detail.parents.length === 0 && detail.children.length === 0 && <div className="text-[10px] font-mono text-[#545454] mb-1">no dependencies</div>}
+              {detail.parents.map((p) => <DepRow key={p} id={p} title={titleOf(allTasks, p)} dir="parent" onOpen={() => onOpenTask(p)} onUnlink={() => act('unlink', () => unlinkTasks(p, taskId))} />)}
+              {detail.children.map((c) => <DepRow key={c} id={c} title={titleOf(allTasks, c)} dir="child" onOpen={() => onOpenTask(c)} onUnlink={() => act('unlink', () => unlinkTasks(taskId, c))} />)}
               <div className="flex gap-1.5 mt-1">
-                <input value={linkChild} onChange={(e) => setLinkChild(e.target.value)} placeholder="child task id to link…"
-                  className="flex-1 bg-[#080808] border border-white/10 px-2 py-1.5 text-[10px] font-mono text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none" />
-                <Btn busy={busy} id="link" label="+ LINK" cls="border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e]" disabled={!linkChild.trim()} onClick={() => act('link', async () => { const ok = await linkTasks(taskId, linkChild.trim()); if (ok) setLinkChild(''); return ok; })} />
+                <DepPicker value={linkParent} setValue={setLinkParent} placeholder="add parent…" options={allTasks.filter((o) => o.id !== taskId && !detail.parents.includes(o.id))} />
+                <Btn busy={busy} id="linkp" label="+ PARENT" cls="border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e]" disabled={!linkParent} onClick={() => act('linkp', async () => { const ok = await linkTasks(linkParent, taskId); if (ok) setLinkParent(''); return ok; })} />
+              </div>
+              <div className="flex gap-1.5 mt-1">
+                <DepPicker value={linkChild} setValue={setLinkChild} placeholder="add child…" options={allTasks.filter((o) => o.id !== taskId && !detail.children.includes(o.id))} />
+                <Btn busy={busy} id="linkc" label="+ CHILD" cls="border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e]" disabled={!linkChild} onClick={() => act('linkc', async () => { const ok = await linkTasks(taskId, linkChild); if (ok) setLinkChild(''); return ok; })} />
+              </div>
+            </Section>
+
+            {/* notify channels */}
+            <Section title={`NOTIFY CHANNELS · ${notifySubs.length}`}>
+              {notifySubs.map((s, i) => (
+                <div key={i} className="flex items-center justify-between border border-white/[0.06] bg-[#080808] px-2 py-1 mb-1">
+                  <span className="text-[10px] font-mono text-[#b8b8b8] truncate">{String(s.platform)} · {String(s.chat_id)}{s.thread_id ? `/${String(s.thread_id)}` : ''}</span>
+                  <button disabled={!!busy} onClick={async () => { setBusy('noff'); try { await unsubscribeTaskNotify(taskId, { platform: String(s.platform), chat_id: String(s.chat_id), thread_id: s.thread_id ? String(s.thread_id) : undefined }); setNotifySubs(await getTaskNotifications(taskId).then((r) => r.subscriptions).catch(() => [])); } finally { setBusy(null); } }} className="text-[#545454] hover:text-red-400 text-[11px] shrink-0">✕</button>
+                </div>
+              ))}
+              {notifySubs.length === 0 && <div className="text-[10px] font-mono text-[#545454] mb-1">no subscriptions</div>}
+              <div className="flex gap-1.5 mt-1">
+                <select value={nPlatform} onChange={(e) => setNPlatform(e.target.value)} className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[10px] font-mono text-white focus:border-[#f64e6e] outline-none">
+                  {NOTIFY_PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <input value={nChatId} onChange={(e) => setNChatId(e.target.value)} placeholder="chat id…" className="flex-1 bg-[#080808] border border-white/10 px-2 py-1.5 text-[10px] font-mono text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none" />
+                <Btn busy={busy} id="non" label="+ SUB" cls="border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e]" disabled={!nChatId.trim()} onClick={async () => { setBusy('non'); try { await subscribeTaskNotify(taskId, { platform: nPlatform, chat_id: nChatId.trim() }); setNChatId(''); setNotifySubs(await getTaskNotifications(taskId).then((r) => r.subscriptions).catch(() => [])); } finally { setBusy(null); } }} />
               </div>
             </Section>
 
@@ -232,6 +287,20 @@ export default function TaskDetailDrawer({ taskId, profiles, onClose, onOpenTask
                 ))}
               </div>
             </Section>
+
+            {/* worker log (lazy) */}
+            <Section title="WORKER LOG">
+              {log === null
+                ? <Btn busy={busy} id="log" label="LOAD WORKER LOG" cls="border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e] w-full" onClick={async () => { setBusy('log'); const r = await getHermesTaskLog(taskId, 8000).catch(() => ({ log: '(no log file for this task)' })); setLog(r.log || '(empty)'); setBusy(null); }} />
+                : <pre className="text-[9px] font-mono text-[#9aa3b5] whitespace-pre-wrap max-h-52 overflow-auto bg-[#050505] border border-white/10 p-2">{log}</pre>}
+            </Section>
+
+            {/* assembled context (lazy) */}
+            <Section title="ASSEMBLED CONTEXT">
+              {context === null
+                ? <Btn busy={busy} id="ctx" label="LOAD CONTEXT" cls="border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e] w-full" onClick={async () => { setBusy('ctx'); const r = await getHermesTaskContext(taskId).catch(() => ({ context: '(no context available)' })); setContext(r.context || '(empty)'); setBusy(null); }} />
+                : <pre className="text-[9px] font-mono text-[#9aa3b5] whitespace-pre-wrap max-h-52 overflow-auto bg-[#050505] border border-white/10 p-2">{context}</pre>}
+            </Section>
           </div>
         )}
       </aside>
@@ -266,14 +335,29 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function DepRow({ id, dir, onOpen, onUnlink }: { id: string; dir: 'parent' | 'child'; onOpen: () => void; onUnlink: () => void }) {
+function titleOf(all: { id: string; title: string }[], id: string): string {
+  return all.find((t) => t.id === id)?.title ?? '';
+}
+
+function DepRow({ id, title, dir, onOpen, onUnlink }: { id: string; title: string; dir: 'parent' | 'child'; onOpen: () => void; onUnlink: () => void }) {
   return (
     <div className="flex items-center justify-between border border-white/[0.06] bg-[#080808] px-2 py-1 mb-1">
       <button onClick={onOpen} className="flex items-center gap-1.5 min-w-0 text-left hover:text-[#f64e6e]">
-        <span className="text-[9px] text-[#545454]">{dir === 'parent' ? '↑' : '↓'}</span>
-        <span className="text-[10px] font-mono text-[#b8b8b8] truncate">{id}</span>
+        <span className="text-[9px] text-[#545454] shrink-0">{dir === 'parent' ? '↑' : '↓'}</span>
+        <span className="text-[10px] font-mono text-[#b8b8b8] shrink-0">{id}</span>
+        {title && <span className="text-[9px] text-[#545454] truncate">{title}</span>}
       </button>
       <button onClick={onUnlink} title="Unlink" className="text-[#545454] hover:text-red-400 text-[11px] shrink-0">✕</button>
     </div>
+  );
+}
+
+function DepPicker({ value, setValue, placeholder, options }: { value: string; setValue: (v: string) => void; placeholder: string; options: { id: string; title: string }[] }) {
+  return (
+    <select value={value} onChange={(e) => setValue(e.target.value)}
+      className="flex-1 min-w-0 bg-[#080808] border border-white/10 px-2 py-1.5 text-[10px] font-mono text-white focus:border-[#f64e6e] outline-none">
+      <option value="">{placeholder}</option>
+      {options.map((o) => <option key={o.id} value={o.id}>{o.id} · {o.title.slice(0, 40)}</option>)}
+    </select>
   );
 }

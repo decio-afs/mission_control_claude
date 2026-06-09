@@ -209,6 +209,67 @@ export async function unlinkHermesTasks(parentId: string, childId: string) {
   return data;
 }
 
+// ── Worker insight / specify / notify / boards ────────────────────────────
+export interface NotifySubscription { platform?: string; chat_id?: string; thread_id?: string | null; user_id?: string | null; [k: string]: unknown }
+export interface KanbanBoard {
+  slug: string; name: string; description?: string; icon?: string; color?: string;
+  is_current?: boolean; archived?: boolean; counts?: Record<string, number>; [k: string]: unknown;
+}
+export interface BoardDiagnostic {
+  task_id: string; title?: string; status?: string; assignee?: string | null;
+  diagnostics: Array<{ kind?: string; severity?: string; message?: string; [k: string]: unknown }>;
+}
+
+export async function specifyHermesTask(taskId: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/specify`, {}, { timeout: 190000 });
+  return data;
+}
+
+export async function getHermesTaskLog(taskId: string, tail?: number): Promise<{ log: string }> {
+  const { data } = await bridge.get(`/api/hermes/tasks/${taskId}/log`, { params: tail ? { tail } : undefined });
+  return data;
+}
+
+export async function getHermesTaskContext(taskId: string): Promise<{ context: string }> {
+  const { data } = await bridge.get(`/api/hermes/tasks/${taskId}/context`);
+  return data;
+}
+
+export async function getKanbanDiagnostics(): Promise<{ diagnostics: BoardDiagnostic[] }> {
+  const { data } = await bridge.get('/api/hermes/kanban/diagnostics');
+  return data;
+}
+
+export async function getTaskNotifications(taskId: string): Promise<{ subscriptions: NotifySubscription[] }> {
+  const { data } = await bridge.get(`/api/hermes/tasks/${taskId}/notify`);
+  return data;
+}
+
+export async function subscribeTaskNotify(taskId: string, payload: { platform: string; chat_id: string; thread_id?: string; user_id?: string }) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/notify`, payload);
+  return data;
+}
+
+export async function unsubscribeTaskNotify(taskId: string, payload: { platform: string; chat_id: string; thread_id?: string }) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/notify/unsubscribe`, payload);
+  return data;
+}
+
+export async function getHermesBoards(): Promise<{ boards: KanbanBoard[] }> {
+  const { data } = await bridge.get('/api/hermes/boards');
+  return data;
+}
+
+export async function createHermesBoard(payload: { slug: string; name?: string; description?: string; switch?: boolean }) {
+  const { data } = await bridge.post('/api/hermes/boards', payload);
+  return data;
+}
+
+export async function switchHermesBoard(slug: string) {
+  const { data } = await bridge.post('/api/hermes/boards/switch', { slug });
+  return data;
+}
+
 export async function getHermesCron(): Promise<{ jobs: HermesCronJob[]; raw: string }> {
   const { data } = await bridge.get('/api/hermes/cron');
   return data;

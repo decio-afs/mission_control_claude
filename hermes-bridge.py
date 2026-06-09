@@ -167,6 +167,30 @@ class EditTaskPayload(BaseModel):
     metadata: Optional[str] = None
 
 
+class NotifyPayload(BaseModel):
+    platform: str
+    chat_id: str
+    thread_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+class NotifyUnsubPayload(BaseModel):
+    platform: str
+    chat_id: str
+    thread_id: Optional[str] = None
+
+
+class BoardCreatePayload(BaseModel):
+    slug: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    switch: Optional[bool] = None
+
+
+class BoardSwitchPayload(BaseModel):
+    slug: str
+
+
 class CreateCronPayload(BaseModel):
     # Schedule like '30m', 'every 2h', or '0 9 * * *'.
     schedule: str
@@ -605,6 +629,94 @@ def kanban_stats():
     """Per-status + per-assignee counts + oldest-ready age."""
     resp = run_hermes("kanban", "stats", "--json")
     return resp["data"]
+
+
+@app.get("/api/hermes/kanban/diagnostics")
+def kanban_diagnostics():
+    """Active board diagnostics (stale claims, missing deps, etc.)."""
+    resp = run_hermes("kanban", "diagnostics", "--json")
+    return {"diagnostics": resp["data"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/specify")
+def specify_task(task_id: str):
+    """Run a specifier on a triage task — fleshes out the spec and promotes it."""
+    resp = run_hermes("kanban", "specify", task_id, timeout=180)
+    return {"message": resp["stdout"]}
+
+
+@app.get("/api/hermes/tasks/{task_id}/log")
+def task_log(task_id: str, tail: Optional[int] = None):
+    """The worker log for a task (from <kanban-root>/kanban/logs/)."""
+    args = ["kanban", "log", task_id]
+    if tail:
+        args += ["--tail", str(tail)]
+    resp = run_hermes(*args)
+    return {"log": resp["stdout"]}
+
+
+@app.get("/api/hermes/tasks/{task_id}/context")
+def task_context(task_id: str):
+    """The assembled context a worker sees for this task."""
+    resp = run_hermes("kanban", "context", task_id)
+    return {"context": resp["stdout"]}
+
+
+@app.get("/api/hermes/tasks/{task_id}/notify")
+def task_notify_list(task_id: str):
+    """List notification subscriptions on a task."""
+    resp = run_hermes("kanban", "notify-list", task_id, "--json")
+    return {"subscriptions": resp["data"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/notify")
+def task_notify_subscribe(task_id: str, payload: NotifyPayload):
+    """Subscribe a gateway channel to a task's terminal events."""
+    args = ["kanban", "notify-subscribe", task_id, "--platform", payload.platform, "--chat-id", payload.chat_id]
+    if payload.thread_id:
+        args += ["--thread-id", payload.thread_id]
+    if payload.user_id:
+        args += ["--user-id", payload.user_id]
+    resp = run_hermes(*args)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/notify/unsubscribe")
+def task_notify_unsubscribe(task_id: str, payload: NotifyUnsubPayload):
+    """Remove a gateway subscription from a task."""
+    args = ["kanban", "notify-unsubscribe", task_id, "--platform", payload.platform, "--chat-id", payload.chat_id]
+    if payload.thread_id:
+        args += ["--thread-id", payload.thread_id]
+    resp = run_hermes(*args)
+    return {"message": resp["stdout"]}
+
+
+@app.get("/api/hermes/boards")
+def list_boards():
+    """List kanban boards with task counts and which one is current."""
+    resp = run_hermes("kanban", "boards", "list", "--json")
+    return {"boards": resp["data"]}
+
+
+@app.post("/api/hermes/boards")
+def create_board(payload: BoardCreatePayload):
+    """Create a new board (optionally switch to it)."""
+    args = ["kanban", "boards", "create", payload.slug]
+    if payload.name:
+        args += ["--name", payload.name]
+    if payload.description:
+        args += ["--description", payload.description]
+    if payload.switch:
+        args.append("--switch")
+    resp = run_hermes(*args)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/boards/switch")
+def switch_board(payload: BoardSwitchPayload):
+    """Set the active board for subsequent calls."""
+    resp = run_hermes("kanban", "boards", "switch", payload.slug)
+    return {"message": resp["stdout"]}
 
 
 @app.get("/api/hermes/cron")
