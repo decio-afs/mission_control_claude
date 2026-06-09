@@ -127,6 +127,18 @@ export default function AgentDrillDown() {
             <span className="text-[10px] font-mono text-[#545454]">{agentTasks.length} task{agentTasks.length !== 1 ? 's' : ''} · {agentActivity.length} event{agentActivity.length !== 1 ? 's' : ''}</span>
           </div>
 
+          {/* Topology hint — the clicked agent isn't in the live mesh right now
+              (e.g. opened from a stale palette/search entry); status strip above
+              falls back to UNKNOWN, so explain why rather than look broken. */}
+          {!node && (
+            <div className="flex items-center gap-2 border border-amber-400/20 bg-amber-400/[0.04] px-2 py-1.5">
+              <span className="text-amber-400 text-[11px] shrink-0">⚠</span>
+              <span className="text-[10px] font-mono text-[#b8b8b8] leading-snug">
+                Agent not in the current topology — showing its tasks &amp; activity only. Live status, queue and squad are unavailable.
+              </span>
+            </div>
+          )}
+
           {/* Assigned tasks */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
