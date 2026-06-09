@@ -5,6 +5,7 @@ import { useSystemStore } from '../stores/useSystemStore';
 import { useTaskStore } from '../stores/useTaskStore';
 import { MODULES } from '../lib/nav';
 import CommandPalette from './CommandPalette';
+import TaskSearch from './TaskSearch';
 import BridgeDiagnostics from './BridgeDiagnostics';
 import AgentDrillDown from './AgentDrillDown';
 
@@ -200,6 +201,13 @@ export default function Layout() {
               <span className="text-[10px] hidden sm:inline">DIAG</span>
             </button>
             <button
+              onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true }))}
+              title="Search tasks (Ctrl/⌘ F)"
+              className="hidden sm:flex items-center gap-1 text-[#545454] hover:text-white border border-white/10 hover:border-white/30 rounded-sm px-1.5 py-0.5 transition-colors"
+            >
+              <span className="text-[10px]">⌕ ⌘F</span>
+            </button>
+            <button
               onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}
               title="Command palette (Ctrl/⌘ K)"
               className="hidden sm:flex items-center gap-1 text-[#545454] hover:text-white border border-white/10 hover:border-white/30 rounded-sm px-1.5 py-0.5 transition-colors"
@@ -227,6 +235,9 @@ export default function Layout() {
 
       {/* Global ⌘K / Ctrl+K command palette — available on every route. */}
       <CommandPalette />
+
+      {/* Global ⌘F / Ctrl+F task search — deep filter across the Hermes queue. */}
+      <TaskSearch />
 
       {/* Bridge health diagnostics — opened from the topbar DIAG button. */}
       {diagOpen && <BridgeDiagnostics onClose={() => setDiagOpen(false)} />}

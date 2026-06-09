@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
+import { useTaskFocusStore } from '../stores/useTaskFocusStore';
 import { getHermesCron, runHermesCron, createHermesCron, decomposeTask, errMessage, type HermesCronJob } from '../lib/api';
 import { Panel, Pill } from '../components/cyberpunk/ui';
 
@@ -36,6 +37,11 @@ export default function OperationsCenter() {
     fetchTasks, addHermesTask, claimHermesTaskById, completeHermesTaskById, blockHermesTaskById,
   } = useTaskStore();
 
+  // Task Search (⌘F) hands a task id here; scroll it into view + flash-highlight it.
+  const { focusId, nonce, clear: clearFocus } = useTaskFocusStore();
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
   const loadCron = () => getHermesCron().then((d) => setCron(d.jobs || [])).catch(() => {});
 
   // Tasks are refreshed globally by Layout (and after each mutation); poll only cron here.
@@ -45,6 +51,23 @@ export default function OperationsCenter() {
     const id = setInterval(loadCron, 8000);
     return () => clearInterval(id);
   }, [fetchTasks]);
+
+  // When Task Search focuses a task, reset the filter so it's guaranteed visible,
+  // then scroll + flash it once the row is in the DOM. `nonce` re-fires even when
+  // the same task is chosen twice; the flash clears itself after 2.4s.
+  useEffect(() => {
+    if (!focusId) return;
+    setFilter('ALL');
+    setFlashId(focusId);
+    const raf = requestAnimationFrame(() => {
+      const el = listRef.current?.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(focusId)}"]`);
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    const t = setTimeout(() => setFlashId(null), 2400);
+    clearFocus();
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, nonce]);
 
   const filtered = tasks.filter((t) => filter === 'ALL' || t.status.toUpperCase() === filter);
 
@@ -99,8 +122,8 @@ export default function OperationsCenter() {
   return (
     <div className="h-full grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-2 p-2 overflow-auto">
       {/* Task queue */}
-      <Panel label="MISSION QUEUE" right={<span className="text-[#545454]">{filtered.length} / {tasks.length}</span>}>
-        <div className="flex flex-wrap gap-1 mb-2 text-[10px] font-mono">
+      <Panel label="MISSION QUEUE" right={<span className="text-[#545454]">{filtered.length} / {tasks.length}</span>} bodyClass="flex flex-col">
+        <div className="flex flex-wrap gap-1 mb-2 text-[10px] font-mono shrink-0">
           {FILTERS.map((f) => (
             <button key={f} onClick={() => setFilter(f)}
               className={`px-2 py-1 border ${filter === f ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'}`}>
@@ -108,9 +131,10 @@ export default function OperationsCenter() {
             </button>
           ))}
         </div>
-        <div className="flex flex-col gap-1 overflow-auto" style={{ maxHeight: 'calc(100% - 110px)' }}>
+        <div ref={listRef} className="flex flex-col gap-1 overflow-auto flex-1 min-h-0">
           {filtered.map((task) => (
-            <div key={task.id} className="p-2 border border-white/[0.08] hover:border-white/20 bg-[#080808] transition-colors">
+            <div key={task.id} data-task-id={task.id}
+              className={`p-2 border bg-[#080808] transition-colors ${flashId === task.id ? 'border-[#f64e6e] ring-1 ring-[#f64e6e]/60 bg-[#f64e6e]/[0.06]' : 'border-white/[0.08] hover:border-white/20'}`}>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] font-mono text-[#545454]">{task.id}</span>
                 <Pill tone={toneFor(task.status)}>{task.status.toUpperCase()}</Pill>
@@ -142,7 +166,7 @@ export default function OperationsCenter() {
         </div>
 
         {/* Create task */}
-        <div className="mt-2 flex flex-col gap-1.5 border-t border-white/10 pt-2">
+        <div className="mt-2 flex flex-col gap-1.5 border-t border-white/10 pt-2 shrink-0">
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New task title..."
             className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none" />
           <input value={body} onChange={(e) => setBody(e.target.value)} placeholder="Body (optional)..."
