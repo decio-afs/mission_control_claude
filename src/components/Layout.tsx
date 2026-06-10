@@ -3,13 +3,13 @@ import { useState, useEffect } from 'react';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useSystemStore } from '../stores/useSystemStore';
 import { useTaskStore } from '../stores/useTaskStore';
-import { useNotifyStore } from '../stores/useNotifyStore';
 import { MODULES } from '../lib/nav';
 import CommandPalette from './CommandPalette';
 import TaskSearch from './TaskSearch';
 import BridgeDiagnostics from './BridgeDiagnostics';
 import AgentDrillDown from './AgentDrillDown';
 import TaskNotifier from './TaskNotifier';
+import NotifyCenter from './NotifyCenter';
 
 // const ACCENT_OPTIONS: Record<string, string> = {
 //   coral:  '#f64e6e',
@@ -45,7 +45,6 @@ export default function Layout() {
   const { nodes, fetchTopology } = useGhostStore();
   const { vitals, fetchHermesStatus } = useSystemStore();
   const { summary, fetchTasks } = useTaskStore();
-  const { enabled: notifyEnabled, permission: notifyPerm, toggle: toggleNotify } = useNotifyStore();
 
   // Keep the shell (topbar, roster, status) live on every route.
   useEffect(() => {
@@ -205,28 +204,7 @@ export default function Layout() {
             <span>TASKS <span style={{ color: accent }}>{summary?.total ?? 0}</span></span>
           </div>
           <div className="ml-auto flex items-center gap-3">
-            <button
-              onClick={() => { void toggleNotify(); }}
-              title={
-                notifyPerm === 'unsupported'
-                  ? 'Desktop notifications not supported here'
-                  : notifyPerm === 'denied'
-                    ? 'Notifications blocked by the OS — enable them in system settings'
-                    : notifyEnabled
-                      ? 'Task-complete notifications ON — click to mute'
-                      : 'Task-complete notifications OFF — click to enable'
-              }
-              disabled={notifyPerm === 'unsupported'}
-              className={`flex items-center gap-1 border rounded-sm px-1.5 py-0.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                notifyEnabled
-                  ? 'border-white/30 text-white'
-                  : 'text-[#545454] hover:text-white border-white/10 hover:border-white/30'
-              }`}
-              style={notifyEnabled ? { color: accent, borderColor: accent } : undefined}
-            >
-              <span className="text-[11px] leading-none">{notifyEnabled ? '🔔' : '🔕'}</span>
-              <span className="text-[10px] hidden md:inline">{notifyEnabled ? 'NOTIFY' : 'MUTED'}</span>
-            </button>
+            <NotifyCenter accent={accent} />
             <button
               onClick={() => setDiagOpen(true)}
               title="Bridge diagnostics — endpoint health & latency"

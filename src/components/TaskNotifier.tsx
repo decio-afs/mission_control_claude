@@ -19,6 +19,7 @@ export default function TaskNotifier() {
   const hermesTasks = useTaskStore((s) => s.hermesTasks);
   const enabled = useNotifyStore((s) => s.enabled);
   const bumpSent = useNotifyStore((s) => s.bumpSent);
+  const record = useNotifyStore((s) => s.record);
   const focus = useTaskFocusStore((s) => s.focus);
   const navigate = useNavigate();
 
@@ -36,24 +37,36 @@ export default function TaskNotifier() {
     // First observation — seed only, never notify for pre-existing tasks.
     if (seen === null) return;
 
-    if (!enabled || typeof Notification === 'undefined' || Notification.permission !== 'granted') {
-      return;
-    }
+    const canFireOs =
+      enabled && typeof Notification !== 'undefined' && Notification.permission === 'granted';
 
     for (const t of hermesTasks) {
       const before = seen.get(t.id);
-      // Fire only on a genuine transition: we saw it before in a non-terminal
+      // Act only on a genuine transition: we saw it before in a non-terminal
       // state and it is now terminal. New tasks that appear already-terminal,
       // or tasks staying terminal across polls, are ignored.
       if (before && !isTerminal(before) && isTerminal(t.status)) {
-        fire(t, () => {
-          focus(t.id);
-          navigate('/operations');
+        // Always record into the in-app Notification Center history, even when
+        // OS toasts are muted — the operator can still review what finished.
+        record({
+          key: `${t.id}:${t.status}`,
+          taskId: t.id,
+          title: t.title,
+          assignee: t.assignee,
+          outcome: t.status === 'failed' ? 'failed' : 'done',
+          at: Date.now(),
         });
-        bumpSent();
+        // Only the desktop toast is gated on the toggle + OS permission.
+        if (canFireOs) {
+          fire(t, () => {
+            focus(t.id);
+            navigate('/operations');
+          });
+          bumpSent();
+        }
       }
     }
-  }, [hermesTasks, enabled, focus, navigate, bumpSent]);
+  }, [hermesTasks, enabled, focus, navigate, bumpSent, record]);
 
   return null;
 }
