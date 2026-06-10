@@ -281,6 +281,9 @@
 .nexus .dtags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .nexus .dtag { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; padding: 4px 8px; border-radius: 2px; border: 1px solid var(--line); color: var(--txt-2); background: var(--surface); }
 .nexus .dctrl { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+/* Two stacked control rows (orchestrator directives + registry CRUD) sat flush,
+   reading as one cramped 6-button block. Separate the second group cleanly. */
+.nexus .detail .dctrl + .dctrl { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
 .nexus .dbtn { font-family: var(--font-ui); font-weight: 600; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; padding: 9px 8px; border-radius: var(--r); cursor: pointer; border: 1px solid var(--line-hard); background: color-mix(in oklab,var(--accent) 12%, transparent); color: var(--accent); transition: background .14s; }
 .nexus .dbtn:hover { background: color-mix(in oklab,var(--accent) 24%, transparent); }
 .nexus .dbtn.warn { border-color: color-mix(in oklab,var(--c-amber) 50%,transparent); color: var(--c-amber); background: color-mix(in oklab,var(--c-amber) 12%,transparent); }
