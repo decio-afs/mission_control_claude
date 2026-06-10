@@ -112,7 +112,7 @@ export default function LeadTracker() {
                   />
                   <span className="text-xs text-white truncate font-medium">{lead.name}</span>
                 </div>
-                <span className="text-[10px] font-mono text-[#b8b8b8] uppercase">{lead.source}</span>
+                <span className="text-[10px] font-mono text-[#b8b8b8] uppercase truncate" title={lead.source}>{lead.source}</span>
                 <Pill tone={statusTone[lead.status] || 'neutral'}>{lead.status}</Pill>
                 <span
                   className="text-right text-xs font-mono font-bold tabular-nums"
