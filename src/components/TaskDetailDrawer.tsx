@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
 import { Pill } from './cyberpunk/ui';
+import TaskDependencyGraph from './TaskDependencyGraph';
 import {
   getHermesTaskLog, getHermesTaskContext, getTaskNotifications, subscribeTaskNotify, unsubscribeTaskNotify,
   type TaskDetail, type NotifySubscription,
@@ -78,6 +79,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
   const [reassignTo, setReassignTo] = useState('');
   const [editResult, setEditResult] = useState('');
   const [showEdit, setShowEdit] = useState(false);
+  const [showGraph, setShowGraph] = useState(false);
   // notify
   const [notifySubs, setNotifySubs] = useState<NotifySubscription[]>([]);
   const [nPlatform, setNPlatform] = useState('telegram');
@@ -98,7 +100,6 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
   // The parent remounts this via `key={taskId}`, so a fresh mount already has
   // clean state — we just need to load the detail once. (setState inside `load`
   // only runs after the awaited fetch, so it isn't a synchronous effect update.)
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
 
   // Esc to close
@@ -210,7 +211,11 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
             </Section>
 
             {/* dependencies */}
-            <Section title={`DEPENDENCIES · ${detail.parents.length}↑ ${detail.children.length}↓`}>
+            <Section title={`DEPENDENCIES · ${detail.parents.length}↑ ${detail.children.length}↓`}
+              right={(detail.parents.length > 0 || detail.children.length > 0) && (
+                <button onClick={() => setShowGraph(true)}
+                  className="text-[9px] font-mono tracking-[0.1em] px-1.5 py-0.5 border border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e]">⊞ MAP</button>
+              )}>
               {detail.parents.length === 0 && detail.children.length === 0 && <div className="text-[10px] font-mono text-[#545454] mb-1">no dependencies</div>}
               {detail.parents.map((p) => <DepRow key={p} id={p} title={titleOf(allTasks, p)} dir="parent" onOpen={() => onOpenTask(p)} onUnlink={() => act('unlink', () => unlinkTasks(p, taskId))} />)}
               {detail.children.map((c) => <DepRow key={c} id={c} title={titleOf(allTasks, c)} dir="child" onOpen={() => onOpenTask(c)} onUnlink={() => act('unlink', () => unlinkTasks(taskId, c))} />)}
@@ -304,6 +309,13 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
           </div>
         )}
       </aside>
+
+      {/* Full dependency-DAG map, opened from the DEPENDENCIES section. */}
+      <TaskDependencyGraph
+        rootId={showGraph ? taskId : null}
+        onClose={() => setShowGraph(false)}
+        onOpenTask={(id) => { setShowGraph(false); onOpenTask(id); }}
+      />
     </>
   );
 }
@@ -326,10 +338,13 @@ function Meta({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, right }: { title: string; children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div className="border-t border-white/10 pt-2">
-      <div className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454] mb-1.5">{title}</div>
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">{title}</div>
+        {right}
+      </div>
       {children}
     </div>
   );
