@@ -10,6 +10,7 @@ import { useTaskStore } from '../stores/useTaskStore';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
 import { getHermesCron, runHermesCron, createHermesCron, decomposeTask, errMessage, type HermesCronJob, type HermesTask } from '../lib/api';
+import { parseSchedule, formatCountdown, fireLabel, type ParsedSchedule } from '../lib/cronSchedule';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 
 const COLUMNS: { key: string; label: string; tone: string }[] = [
@@ -73,10 +74,36 @@ export default function OperationsCenter() {
   const [cronName, setCronName] = useState('');
   const [cronLoading, setCronLoading] = useState(false);
   const [cronError, setCronError] = useState<string | null>(null);
+  // Live clock for the cron next-fire countdowns — ticks only while the modal
+  // is open (seeded once, never read via Date.now() inside render).
+  const [cronNow, setCronNow] = useState(0);
 
   const loadCron = () => getHermesCron().then((d) => setCron(d.jobs || [])).catch(() => {});
 
   useEffect(() => { fetchTasks(); fetchStats(); fetchBoards(); fetchDiagnostics(); loadCron(); }, [fetchTasks, fetchStats, fetchBoards, fetchDiagnostics]);
+
+  // While the cron modal is open, keep a 1s clock so the next-fire countdowns
+  // tick live. Seed immediately, then interval; torn down on close.
+  useEffect(() => {
+    if (!cronOpen) return;
+    setCronNow(Date.now());
+    const t = setInterval(() => setCronNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [cronOpen]);
+
+  // Parse each job's schedule and sort soonest-fire first; intervals and
+  // unparseable schedules (no anchorable next fire) sink to the bottom.
+  const cronView = useMemo(() => {
+    const now = cronNow || 0;
+    return cron
+      .map((job) => ({ job, sched: parseSchedule(job.schedule || job.repeat, now) }))
+      .sort((a, b) => {
+        const an = a.sched.nextMs ?? Infinity;
+        const bn = b.sched.nextMs ?? Infinity;
+        if (an !== bn) return an - bn;
+        return (a.job.name || a.job.id).localeCompare(b.job.name || b.job.id);
+      });
+  }, [cron, cronNow]);
 
   const currentBoard = boards.find((b) => b.is_current);
   const diagCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.length || 0), 0);
@@ -317,17 +344,25 @@ export default function OperationsCenter() {
       {/* CRON MODAL */}
       {cronOpen && (
         <Modal title="SCHEDULED JOBS · hermes cron" onClose={() => setCronOpen(false)}>
+          {cron.length > 0 && (
+            <div className="flex items-center justify-between px-2 text-[8px] font-mono tracking-[0.2em] uppercase text-[#545454]">
+              <span>JOB · SCHEDULE</span><span>NEXT FIRE ▾</span>
+            </div>
+          )}
           <div className="flex flex-col gap-1 max-h-[220px] overflow-auto">
-            {cron.map((j) => (
-              <div key={j.id} className="flex items-center justify-between px-2 py-1.5 border border-white/[0.06] bg-[#080808]">
+            {cronView.map(({ job: j, sched }) => (
+              <div key={j.id} className="flex items-center justify-between gap-2 px-2 py-1.5 border border-white/[0.06] bg-[#080808]">
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="w-1.5 h-1.5 shrink-0" style={{ background: j.status === 'active' ? '#10b981' : '#545454' }} />
                   <div className="min-w-0">
                     <div className="text-[11px] text-white truncate">{j.name || j.id.slice(0, 12)}</div>
-                    <div className="text-[9px] font-mono text-[#545454] truncate">{j.schedule || j.repeat || '—'}</div>
+                    <div className="text-[9px] font-mono text-[#545454] truncate">{sched.label}</div>
                   </div>
                 </div>
-                <button onClick={() => void runHermesCron(j.id)} className="text-[9px] font-mono border border-white/10 px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e] shrink-0">RUN</button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <CronNextFire sched={sched} nowMs={cronNow} />
+                  <button onClick={() => void runHermesCron(j.id)} className="text-[9px] font-mono border border-white/10 px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">RUN</button>
+                </div>
               </div>
             ))}
             {cron.length === 0 && <div className="text-[10px] font-mono text-[#545454] p-2">No scheduled jobs.</div>}
@@ -355,6 +390,29 @@ function Chip({ k, v, c }: { k: string; v: number | string; c: string }) {
   );
 }
 
+// Compact next-fire badge for a cron row. Cron expressions show a live
+// "in 3h 12m" countdown (+ the absolute fire time as a tooltip); interval
+// jobs have no anchorable next fire, so they show "↻ repeats"; anything
+// unparseable shows a muted dash.
+function CronNextFire({ sched, nowMs }: { sched: ParsedSchedule; nowMs: number }) {
+  if (sched.kind === 'cron' && sched.nextMs !== null) {
+    const delta = sched.nextMs - nowMs;
+    const soon = delta <= 60000; // < 1 min away → coral
+    return (
+      <span
+        title={`Next fire: ${fireLabel(sched.nextMs)} (local)`}
+        className={`text-[9px] font-mono tabular-nums px-1.5 py-1 border whitespace-nowrap ${soon ? 'border-[#f64e6e]/40 text-[#f64e6e] bg-[#f64e6e]/10' : 'border-white/10 text-[#b8b8b8]'}`}
+      >
+        ▸ {formatCountdown(delta)}
+      </span>
+    );
+  }
+  if (sched.kind === 'interval') {
+    return <span title="Interval job — fires on a fixed period" className="text-[9px] font-mono text-[#545454] px-1.5 py-1 whitespace-nowrap">↻ repeats</span>;
+  }
+  return <span className="text-[9px] font-mono text-[#545454] px-1.5 py-1">—</span>;
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
@@ -367,12 +425,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-[#0A0A0A] border border-white/10 w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
-        <div className="px-3 h-[26px] flex items-center justify-between border-b border-white/10 bg-[#080808]">
-          <span className="font-mono text-[10px] tracking-[0.2em] uppercase font-bold text-[#b8b8b8]">{title}</span>
-          <button onClick={onClose} className="text-[#545454] hover:text-white text-[11px]">✕</button>
+      <div className="bg-[#0A0A0A] border border-white/10 w-full max-w-lg mx-4 max-h-[88vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="px-3 h-[26px] shrink-0 flex items-center justify-between border-b border-white/10 bg-[#080808]">
+          <span className="font-mono text-[10px] tracking-[0.2em] uppercase font-bold text-[#b8b8b8] truncate">{title}</span>
+          <button onClick={onClose} className="text-[#545454] hover:text-white text-[11px] shrink-0 ml-2">✕</button>
         </div>
-        <div className="p-3 flex flex-col gap-2">{children}</div>
+        <div className="p-3 flex flex-col gap-2 overflow-y-auto">{children}</div>
       </div>
     </div>
   );
