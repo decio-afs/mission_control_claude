@@ -251,7 +251,9 @@
 .nexus .vitals { padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .nexus .vital { border: 1px solid var(--line); border-radius: var(--r); padding: 11px 12px; position: relative; overflow: hidden; background: var(--surface); }
 .nexus .vital .vl { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em; color: var(--txt-dim); text-transform: uppercase; }
-.nexus .vital .vv { font-size: 22px; font-weight: 700; color: var(--txt); margin-top: 5px; letter-spacing: 0.02em; }
+/* reserve room for the absolutely-positioned .vspark (60px @ right:8px) and
+   ellipsize so a long value can't run under the sparkline or escape the cell. */
+.nexus .vital .vv { font-size: 22px; font-weight: 700; color: var(--txt); margin-top: 5px; letter-spacing: 0.02em; padding-right: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nexus .vital .vv small { font-size: 11px; font-weight: 400; color: var(--txt-dim); font-family: var(--font-mono); margin-left: 3px; }
 .nexus .vital .vspark { position: absolute; right: 8px; bottom: 8px; width: 60px; height: 22px; opacity: .9; }
 .nexus .vital.up .vv { color: var(--accent-2); }
@@ -275,9 +277,11 @@
 .nexus .prog { height: 4px; background: rgba(255,255,255,0.07); border-radius: 99px; overflow: hidden; margin-top: 11px; }
 .nexus .prog i { display: block; height: 100%; background: linear-gradient(90deg,var(--accent-2),var(--accent)); box-shadow: 0 0 8px var(--accent); border-radius: 99px; }
 .nexus .dstats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; margin-bottom: 13px; }
-.nexus .dstat { border: 1px solid var(--line); border-radius: var(--r); padding: 9px 10px; background: var(--surface); }
-.nexus .dstat .l { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.12em; color: var(--txt-dim); text-transform: uppercase; }
-.nexus .dstat .v { font-size: 16px; font-weight: 700; color: var(--txt); margin-top: 4px; }
+.nexus .dstat { border: 1px solid var(--line); border-radius: var(--r); padding: 9px 10px; background: var(--surface); min-width: 0; }
+.nexus .dstat .l { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.12em; color: var(--txt-dim); text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* min-width:0 on the cell + ellipsis here so a wide value (e.g. 100%) can't blow
+   out the 3-col 1fr grid on the narrow (≤1320px) detail panel. */
+.nexus .dstat .v { font-size: 16px; font-weight: 700; color: var(--txt); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nexus .dtags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .nexus .dtag { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; padding: 4px 8px; border-radius: 2px; border: 1px solid var(--line); color: var(--txt-2); background: var(--surface); }
 .nexus .dctrl { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
