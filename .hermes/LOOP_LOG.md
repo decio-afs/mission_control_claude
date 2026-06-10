@@ -16,7 +16,7 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11; topbar gained a `?` keyboard-shortcuts cheat-sheet in Run #12)
+## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11; topbar gained a `?` keyboard-shortcuts cheat-sheet in Run #12; the Operations cron modal gained live next-fire countdowns in Run #13)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
@@ -25,7 +25,7 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 |---|------|------|------|-------|
 | 00 | `/network`     | Ghost Network              | LIVE | **Merged primary console.** NEXUS Orchestration Deck (orbital mesh + roster) **plus** the agent Registry CRUD (create/edit/delete/spawn via the new `useAgentCrud()` hook + `+ Agent` button) **plus** the ARCAN orchestrator command bar (directives, status, reassign) wired to the shared chat session. Detail panel `▦ INSPECT` → Agent Drill-Down. Absorbed the old Hermes Command + Agent Hub (Run #6). |
 | 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + **TASK STATUS ↔ FLOW toggle** (status breakdown **or** the per-hour throughput histogram, Run #11) + **AGENT LOAD ↔ PERF toggle** (performance leaderboard, Run #6 — **now click-to-sort columns**, Run #8) + **TASKS/SIGNAL feed toggle**. |
-| 02 | `/operations`  | Operations Center          | LIVE | Full kanban CRUD + cron list/run/create + task decompose + **TaskDetailDrawer** (comments/events/runs/notify/boards/diagnostics + **⊞ Dependency Map**, Run #7 + **live-tail WORKER LOG**, Run #8). Single cron home. Receives ⌘F Task Search focus. |
+| 02 | `/operations`  | Operations Center          | LIVE | Full kanban CRUD + cron list/run/create (**now with live next-fire countdowns + soonest-first sort**, Run #13) + task decompose + **TaskDetailDrawer** (comments/events/runs/notify/boards/diagnostics + **⊞ Dependency Map**, Run #7 + **live-tail WORKER LOG**, Run #8). Single cron home. Receives ⌘F Task Search focus. |
 | 03 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | ARCAN multi-session orchestrator chat (persistent SQLite sessions, attachments, voice). |
 | 04 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
 | 05 | `/briefing`    | Briefing Terminal          | LIVE | `useBriefingStore` (briefing + sentinel digest). |
@@ -97,6 +97,20 @@ all survive in the Ghost Network detail panel).
   reaches inputs, the chat box, task titles) or via a topbar `?` button (dispatches the same key event); Esc /
   backdrop close; the two-column `<kbd>` legend scrolls within `max-h-[80vh]`. Pure static — no store, no bridge.
   **How to access:** press `?` anywhere, or click the topbar `?` button.
+- **Cron Next-Fire Countdown (Run #13):** the Operations cron modal (`⏱ CRON`) now parses each job's
+  `schedule`/`repeat` and shows a **live "▸ in 3h 12m" countdown** to its next fire, with the rows **sorted
+  soonest-first** (a `JOB · SCHEDULE / NEXT FIRE ▾` header tops the list). The parser lives in
+  `src/lib/cronSchedule.ts` (`parseSchedule` / `formatCountdown` / `fireLabel`) — a pure, self-contained
+  reader of standard 5-field Vixie cron (`*`, lists, ranges, `*/n` steps; correct dom/dow "either" rule),
+  the `@daily`/`@hourly`/… macros, and `30m` / `every 2h` interval shorthand. Cron expressions get a real
+  next-fire time (a cheap month/day/hour/minute *stepper* over LOCAL time — the daemon fires on the machine's
+  clock; the relative countdown is timezone-independent) plus a friendly label (`*/5 * * * *` → `every 5m`,
+  `0 7 * * *` → `07:00 daily`) and an absolute "Next fire: Tue 09:00 (local)" tooltip; intervals show
+  `↻ repeats` (no anchorable next fire); unparseable schedules show `—`. A 1s clock (`cronNow`) ticks the
+  countdowns only while the modal is open. **No new bridge endpoint** — pure client parse of the already-polled
+  cron list. **How to access:** Operations → `⏱ CRON`. **Verified live against real Hermes cron data** (3 jobs:
+  `kanban-auto-claim` `every 5m`, `Mission Control Auto-Audit` `every 5h`, `Sentinel Daily Trend Engine`
+  `07:00 daily`) — correct labels, live countdowns (`▸ 3m / 2h 43m / 18h 43m`), soonest-first order.
 - **Agent Drill-Down (Run #4):** a global right-side slide-over (`src/components/AgentDrillDown.tsx`)
   mounted once in `Layout.tsx`, opened from any roster surface via the tiny
   `useAgentDrilldownStore` (`open(name)`/`close()`). Shows the agent's live status/queue,
@@ -174,6 +188,14 @@ all survive in the Ghost Network detail panel).
       `overflow:hidden / text-overflow:ellipsis / white-space:nowrap / min-width:0`, the right slot
       `flex-shrink:0`, and the header reports `scrollWidth === clientWidth` (no horizontal overflow). High-leverage
       — fixes every `Panel` header app-wide, not just War Room.
+- [x] ~~Local `Modal` overflow guard (Operations Center)~~ — DONE in Run #13. The file-local `Modal`
+      (`src/pages/OperationsCenter.tsx`, used by 5 modals: cron, create-task, decompose, board diagnostics,
+      create-board) was a fixed `flex flex-col` box with a non-scrolling body and no height cap, so tall content
+      (cron list + 3-field create form, or a long decompose result) could push the bottom action button off a
+      short viewport with no way to reach it. Added `max-h-[88vh] flex flex-col` to the box, `shrink-0` + `truncate`
+      to the header, and `overflow-y-auto` to the body so any modal now caps at the viewport and scrolls its body.
+      **Verified live** at 1280×800: the cron modal box computes `max-height:704px` (= 88vh) and the body
+      `overflow-y:auto`. High-leverage — fixes every Operations modal, not just cron.
 - [ ] **AgentDrillDown skills row** — still no per-agent skills (GhostNode carries none). Needs a bridge
       field on the agent node. Low priority.
 - [ ] **Dependency Map polish (optional follow-up to Run #7):** progressive per-ring render (the BFS fetches
@@ -183,7 +205,7 @@ all survive in the Ghost Network detail panel).
       suffix instead of replacing the whole `<pre>` each 2s poll; auto-stop the stream when the task leaves
       `running`. Low priority.
 
-### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram; #12 Keyboard-Shortcuts Cheat-Sheet)
+### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram; #12 Keyboard-Shortcuts Cheat-Sheet; #13 Cron Next-Fire Countdown)
 - [ ] **Pick ONE (none of the above):**
   1. **Saved task filter/view presets (Operations)** — let the operator save the current status+assignee+search
      filter combo as a named chip (persisted to `localStorage`), one click to re-apply. Pure client; no bridge.
@@ -194,16 +216,75 @@ all survive in the Ghost Network detail panel).
      a small "mean time-to-complete" trend (bucket `completed_at − started_at` per hour) or a stacked
      created-vs-completed *backlog burn* line (cumulative created − cumulative done) to show whether the queue is
      keeping up. Reuses the Run #11 lib; pure client. (Distinct from #11, which is raw completions-per-hour.)
-  4. **Cron next-fire countdown (Operations / War Room SCHEDULED)** — parse each cron `schedule` and show a live
-     "next run in …" countdown + a sortable next-fire column. Pure client (a small cron-expression parser); no
-     bridge — the job list is already polled. Pairs naturally with the Run #12 cheat-sheet's `+NEW` entry.
-  5. **Bridge log / activity export** — a one-click "copy / download recent activity (JSON or text)" from the War
+  4. **Bridge log / activity export** — a one-click "copy / download recent activity (JSON or text)" from the War
      Room SIGNAL feed or the Notification Center, for pasting a quick incident report. Pure client over the
      already-polled `useActivityStore` / `useNotifyStore.history`; no bridge.
+  5. **Cron schedule timeline / next-24h agenda (War Room or Operations)** — build *on top of* Run #13's
+     `cronSchedule.ts`: a compact horizontal "next 24h" lane plotting each cron job's upcoming fire(s) as ticks
+     (iterate `parseSchedule` forward N times per job), so the operator sees *when the next wave of scheduled
+     work lands* at a glance. Reuses the Run #13 parser (extend it with an `upcomingFires(schedule, nowMs, n)`
+     helper); pure client. (Distinct from #13, which is a per-job single countdown in the modal.)
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-10 — Run #13 (branch `auto/evolve-cron-countdown`)
+
+**Inherited-state note.** Opened on the Run #12 branch tree (`auto/evolve-shortcuts-help`), still carrying the
+concurrent Hermes self-audit's uncommitted churn (`.hermes/audit-*`, `scripts/audit-and-improve.py`,
+`BRAND_STRATEGY.md`) **plus** four of my own source files the audit had modified in the working tree:
+`CommandPalette.tsx` (re-aligned `tasks`→`hermesTasks` / `t.name`→`t.title` / `t.agentName`→`t.assignee` to the
+real `useTaskStore` shape — a legitimate fix), and harmless side-effect/type-only `../lib/api` imports added to
+`useNotifyStore.ts`, `useTaskFocusStore.ts`, `useAgentDrilldownStore.ts` (no `.ts` extension this time, so unlike
+Run #7 they build clean). Verified the baseline builds (124 modules) + lints (0 issues) **with** that churn
+present, left all of it untouched (not this run's deliverable), branched `auto/evolve-cron-countdown` from HEAD,
+and committed only my own files.
+
+**Tab audit findings (sanity pass).** Re-enumerated `src/lib/nav.ts` (**8 modules**, num 00–07), `App.tsx`, and
+the Layout sidebar. Consolidation remains complete — unchanged since Run #6. All redirects still resolve
+(`/command`,`/cyberpunk`,`/agent-hub` → `/network`; the 4 Design Lab legacy paths → `/design-lab?tab=…`;
+`/signal-intelligence` → `/war-room`; `*` → `/network`). No dead nav entry crept back. **No consolidation
+needed this run** — UI fix + new feature only, per the standing guidance.
+
+**UI fix — local `Modal` overflow guard (`src/pages/OperationsCenter.tsx`).** The file-local `Modal` (used by
+**5** modals: cron, create-task, decompose, board-diagnostics, create-board) was a fixed `flex flex-col` box
+whose body had no scroll and the box no height cap — so tall content (the cron list + 3-field create form, or a
+long AI-decompose result) could push the bottom action button **off a short viewport with no way to scroll to
+it**. Added `max-h-[88vh] flex flex-col` to the box, `shrink-0` + `truncate` to the header (so a long title can't
+crowd the ✕), and `overflow-y-auto` to the body. Now every Operations modal caps at the viewport and scrolls its
+own body. **High-leverage** — fixes all 5 modals, not just cron. **Verified live** at 1280×800: the cron modal
+box computes `max-height:704px` (= 88vh, the rule resolves — an unset value would read `none`) and the body
+`overflow-y:auto`; modal height 437px (fits, capped). (At the headless sandbox's default 0-height viewport, 88vh
+resolves to 0px — why an early probe read `0px`; forcing a real viewport confirmed the cap.)
+
+**New feature — Cron Next-Fire Countdown (Operations cron modal).** The cron home listed each job's raw schedule
+string with no sense of *when it next runs*. New lib `src/lib/cronSchedule.ts` (`parseSchedule` /
+`formatCountdown` / `fireLabel`, all pure) parses a job's `schedule`/`repeat` into `{ kind, label, nextMs }`:
+standard 5-field Vixie cron (`*`, lists `a,b`, ranges `a-b`, `*/n` and `a-b/n` steps, the correct dom/dow
+"either restricted field matches" rule), the `@daily`/`@hourly`/`@weekly`/… macros, and `30m` / `every 2h`
+interval shorthand. Cron expressions get a real next-fire time via a cheap month→day→hour→minute **stepper** (skips
+whole non-matching months/days/hours so it resolves in a handful of steps; a 600k-iteration guard caps the
+worst case) computed in **LOCAL** time (the hermes daemon fires on the machine's clock; the relative countdown is
+timezone-independent regardless), a friendly label (`*/5 * * * *` → `every 5m`, `0 7 * * *` → `07:00 daily`), and
+an absolute "Next fire: Tue 09:00 (local)" tooltip. Intervals show `↻ repeats` (no anchorable next fire);
+unparseable schedules show `—`. **Wiring** (`OperationsCenter.tsx`): the cron modal maps the polled job list
+through `parseSchedule` (memoized on `[cron, cronNow]`), **sorts soonest-fire-first** (intervals/unknowns sink to
+the bottom), adds a `JOB · SCHEDULE / NEXT FIRE ▾` header row, and renders a `CronNextFire` badge per row
+(`▸ 3h 12m` coral when <1 min out). A 1s clock (`cronNow`) ticks the countdowns **only while the modal is open**
+(seeded on open, interval torn down on close — never `Date.now()` in render). **No new bridge endpoint** — pure
+client parse of the already-polled cron list. **How to access:** Operations → `⏱ CRON`. **Verified live against
+real Hermes cron data** (bridge online, 3 jobs): `kanban-auto-claim` (`*/5 * * * *` → label `every 5m`, countdown
+`▸ 3m`), `Mission Control Auto-Audit` (`every 5h`, `▸ 2h 43m`), `Sentinel Daily Trend Engine` (`07:00 daily`,
+`▸ 18h 43m`) — correct labels, soonest-first order, the first countdown observed **ticking** from `<1m`→`3m`
+across polls (live clock confirmed). Also unit-checked the parser via a standalone `tsc` transpile over 14
+representative schedules (cron / macro / interval / weekday / monthly / garbage) — all next-fire times correct.
+**No console errors.** (Screenshots time out in this sandbox — verified via `preview_eval` DOM inspection +
+`preview_console_logs`, as in Runs #7–#12.)
+
+**Verify.** `npm run build` ✓ (tsc + vite, **125 modules**, up from 124 — `cronSchedule.ts`), `npm run lint` ✓
+(**0 errors, 0 warnings**), the standalone parser unit-check (14 cases) ✓, and the live Vite preview pass above on
+`/operations` (cron countdowns against real data + the `Modal` height-cap computed style), no console errors.
 
 ### 2026-06-10 — Run #12 (branch `auto/evolve-shortcuts-help`)
 
