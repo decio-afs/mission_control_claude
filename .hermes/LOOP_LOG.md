@@ -16,7 +16,7 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11; topbar gained a `?` keyboard-shortcuts cheat-sheet in Run #12; the Operations cron modal gained live next-fire countdowns in Run #13)
+## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11; topbar gained a `?` keyboard-shortcuts cheat-sheet in Run #12; the Operations cron modal gained live next-fire countdowns in Run #13 + a Next-24h Agenda timeline in Run #14)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
@@ -25,7 +25,7 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 |---|------|------|------|-------|
 | 00 | `/network`     | Ghost Network              | LIVE | **Merged primary console.** NEXUS Orchestration Deck (orbital mesh + roster) **plus** the agent Registry CRUD (create/edit/delete/spawn via the new `useAgentCrud()` hook + `+ Agent` button) **plus** the ARCAN orchestrator command bar (directives, status, reassign) wired to the shared chat session. Detail panel `▦ INSPECT` → Agent Drill-Down. Absorbed the old Hermes Command + Agent Hub (Run #6). |
 | 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + **TASK STATUS ↔ FLOW toggle** (status breakdown **or** the per-hour throughput histogram, Run #11) + **AGENT LOAD ↔ PERF toggle** (performance leaderboard, Run #6 — **now click-to-sort columns**, Run #8) + **TASKS/SIGNAL feed toggle**. |
-| 02 | `/operations`  | Operations Center          | LIVE | Full kanban CRUD + cron list/run/create (**now with live next-fire countdowns + soonest-first sort**, Run #13) + task decompose + **TaskDetailDrawer** (comments/events/runs/notify/boards/diagnostics + **⊞ Dependency Map**, Run #7 + **live-tail WORKER LOG**, Run #8). Single cron home. Receives ⌘F Task Search focus. |
+| 02 | `/operations`  | Operations Center          | LIVE | Full kanban CRUD + cron list/run/create (**live next-fire countdowns + soonest-first sort**, Run #13; **+ a Next-24h Agenda timeline** plotting every upcoming fire per job, Run #14) + task decompose + **TaskDetailDrawer** (comments/events/runs/notify/boards/diagnostics + **⊞ Dependency Map**, Run #7 + **live-tail WORKER LOG**, Run #8). Single cron home. Receives ⌘F Task Search focus. |
 | 03 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | ARCAN multi-session orchestrator chat (persistent SQLite sessions, attachments, voice). |
 | 04 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
 | 05 | `/briefing`    | Briefing Terminal          | LIVE | `useBriefingStore` (briefing + sentinel digest). |
@@ -111,6 +111,19 @@ all survive in the Ghost Network detail panel).
   cron list. **How to access:** Operations → `⏱ CRON`. **Verified live against real Hermes cron data** (3 jobs:
   `kanban-auto-claim` `every 5m`, `Mission Control Auto-Audit` `every 5h`, `Sentinel Daily Trend Engine`
   `07:00 daily`) — correct labels, live countdowns (`▸ 3m / 2h 43m / 18h 43m`), soonest-first order.
+- **Cron Next-24h Agenda timeline (Run #14):** the Operations cron modal (`⏱ CRON`) now opens with a
+  **NEXT 24H AGENDA** panel above the job list: one thin lane per job plotting *every* upcoming fire as a
+  tick across a 24-hour track (6/12/18h gridlines + a `now → +24h` axis), so the operator sees *the rhythm
+  of the next day's scheduled work* at a glance (the row countdown answers "when next?"; this answers "how
+  often, and when do the waves land?"). Active jobs draw coral ticks, paused jobs grey; each tick has a
+  `job · Thu 07:00 (in 15h 47m)` tooltip; a header `N FIRES` totals the window. Built on a new pure helper
+  `upcomingFires(schedule, nowMs, windowMs, maxFires)` in `src/lib/cronSchedule.ts` (walks cron forward via
+  the Run #13 stepper; anchors intervals at `nowMs`) + `src/components/CronTimeline.tsx` (layout memoized per
+  minute so it doesn't recompute every second; dense jobs capped at 300 ticks). **No new bridge endpoint** —
+  pure client parse of the already-polled cron list. **How to access:** Operations → `⏱ CRON`. **Verified
+  live against real Hermes cron data** (3 jobs): `kanban-auto-claim` every-5m → 288 ticks across the full
+  band, `Mission Control Auto-Audit` → 5 ticks (first +4h47m), `Sentinel Daily Trend Engine` → 1 tick at
+  Thu 07:00 (left 65.8% ≈ 15.8/24) — header read `294 FIRES`, axis `now/+6h/+12h/+18h/+24h` correct.
 - **Agent Drill-Down (Run #4):** a global right-side slide-over (`src/components/AgentDrillDown.tsx`)
   mounted once in `Layout.tsx`, opened from any roster surface via the tiny
   `useAgentDrilldownStore` (`open(name)`/`close()`). Shows the agent's live status/queue,
@@ -196,6 +209,13 @@ all survive in the Ghost Network detail panel).
       to the header, and `overflow-y-auto` to the body so any modal now caps at the viewport and scrolls its body.
       **Verified live** at 1280×800: the cron modal box computes `max-height:704px` (= 88vh) and the body
       `overflow-y:auto`. High-leverage — fixes every Operations modal, not just cron.
+- [x] ~~Lead Tracker `Source` column overflow~~ — DONE in Run #14. The `LEAD REGISTRY` table
+      (`src/pages/LeadTracker.tsx`) lays rows on `grid-cols-[1fr_120px_100px_80px]`; the **Name** cell had
+      `min-w-0 truncate` but the **Source** cell (`<span>{lead.source}</span>`) did not, so a long source
+      value would overflow its fixed 120px track and run into the Status column. Added `truncate` + a `title`
+      tooltip to the Source span (mirroring the proven Name-cell pattern). Build/lint clean; the fix mirrors an
+      adjacent already-verified cell (couldn't render live rows — the bridge `/api/hermes/leads` poll was
+      offline this run, no leads to display).
 - [ ] **AgentDrillDown skills row** — still no per-agent skills (GhostNode carries none). Needs a bridge
       field on the agent node. Low priority.
 - [ ] **Dependency Map polish (optional follow-up to Run #7):** progressive per-ring render (the BFS fetches
@@ -205,7 +225,7 @@ all survive in the Ghost Network detail panel).
       suffix instead of replacing the whole `<pre>` each 2s poll; auto-stop the stream when the task leaves
       `running`. Low priority.
 
-### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram; #12 Keyboard-Shortcuts Cheat-Sheet; #13 Cron Next-Fire Countdown)
+### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram; #12 Keyboard-Shortcuts Cheat-Sheet; #13 Cron Next-Fire Countdown; #14 Cron Next-24h Agenda Timeline)
 - [ ] **Pick ONE (none of the above):**
   1. **Saved task filter/view presets (Operations)** — let the operator save the current status+assignee+search
      filter combo as a named chip (persisted to `localStorage`), one click to re-apply. Pure client; no bridge.
@@ -219,15 +239,69 @@ all survive in the Ghost Network detail panel).
   4. **Bridge log / activity export** — a one-click "copy / download recent activity (JSON or text)" from the War
      Room SIGNAL feed or the Notification Center, for pasting a quick incident report. Pure client over the
      already-polled `useActivityStore` / `useNotifyStore.history`; no bridge.
-  5. **Cron schedule timeline / next-24h agenda (War Room or Operations)** — build *on top of* Run #13's
-     `cronSchedule.ts`: a compact horizontal "next 24h" lane plotting each cron job's upcoming fire(s) as ticks
-     (iterate `parseSchedule` forward N times per job), so the operator sees *when the next wave of scheduled
-     work lands* at a glance. Reuses the Run #13 parser (extend it with an `upcomingFires(schedule, nowMs, n)`
-     helper); pure client. (Distinct from #13, which is a per-job single countdown in the modal.)
+  5. **Cron run-history / last-fire panel (Operations)** — complement Run #13/#14's *forward* views (countdown +
+     24h agenda) with a *backward* one: surface each cron job's recent fires/outcomes. Check whether the bridge
+     `/api/hermes/cron` payload (or a `hermes cron log`-style call) already carries `last_run`/history; if so it's
+     a pure client render, otherwise add a small read-only bridge endpoint. (Distinct from #13/#14, which only
+     look ahead.)
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-10 — Run #14 (branch `auto/evolve-cron-timeline`)
+
+**Inherited-state note.** Opened on the Run #13 branch tree (`auto/evolve-cron-countdown`), still carrying the
+concurrent Hermes self-audit's uncommitted churn — `.hermes/audit-*`, `scripts/audit-and-improve.py`,
+`BRAND_STRATEGY.md`, **plus** audit-touched edits in five of my own source files: `CommandPalette.tsx` (a
+legitimate `tasks`→`hermesTasks` / `t.name`→`t.title` re-alignment, as Run #13 noted), comment-only
+"bloodhound" annotations + a type re-export in the three stores (`useNotifyStore.ts`, `useTaskFocusStore.ts`,
+`useAgentDrilldownStore.ts`), and a **new substantive `ChatTerminal.tsx` change** (inline Electron-safe project
+create/rename replacing `window.prompt`, using the existing `Panel` `bodyClass` prop). Confirmed the baseline
+builds (125 modules) + lints (0 issues) with all that churn present, **left every audit file untouched** (not
+this run's deliverable), branched `auto/evolve-cron-timeline` from HEAD, and committed **only my own files**.
+
+**Tab audit findings (sanity pass).** Re-enumerated `src/lib/nav.ts` (**8 modules**, num 00–07), `App.tsx`, and
+the Layout sidebar. Consolidation remains complete — unchanged since Run #6. All redirects still resolve
+(`/command`,`/cyberpunk`,`/agent-hub` → `/network`; the 4 Design Lab legacy paths → `/design-lab?tab=…`;
+`/signal-intelligence` → `/war-room`; `*` → `/network`). No dead nav entry crept back. **No consolidation
+needed this run** — UI fix + new feature only, per the standing guidance.
+
+**UI fix — Lead Tracker `Source` column overflow (`src/pages/LeadTracker.tsx`).** The `LEAD REGISTRY` table
+lays each row on `grid-cols-[1fr_120px_100px_80px]`; the **Name** cell carried `min-w-0 truncate` but the
+**Source** cell (`<span>{lead.source}</span>`) did not, so a long source value would overflow its fixed 120px
+track and bleed into the Status column. Added `truncate` + a `title` tooltip to the Source span, mirroring the
+adjacent (already-verified) Name-cell pattern. Build + lint clean. (Couldn't render live rows — the bridge
+`/api/hermes/leads` poll was offline this run, so the registry was empty; the one-class fix mirrors a proven
+sibling cell.)
+
+**New feature — Cron Next-24h Agenda timeline (Operations cron modal).** Run #13 gave each cron job a single
+*next-fire* countdown; this adds the *forward agenda* — when does the next day's scheduled work actually land?
+**Lib** (`src/lib/cronSchedule.ts`): new pure helper `upcomingFires(raw, nowMs, windowMs, maxFires=64)` returns
+every fire in `(nowMs, nowMs+windowMs]`, soonest first, capped — cron expressions walked forward via the Run #13
+month→day→hour→minute stepper (cursor advanced to each fire, which `nextCron` resolves strictly after, so no
+repeat/stall), interval jobs anchored at `nowMs` (first fire one period out, since they have no real anchor).
+**Component** (`src/components/CronTimeline.tsx`): a **NEXT 24H AGENDA** panel — one thin lane per job over a
+24h track with 6/12/18h gridlines + a `now → +24h` axis, every upcoming fire drawn as a tick (coral for active
+jobs, grey for paused), each with a `job · Thu 07:00 (in 15h 47m)` tooltip; a header `N FIRES` totals the window.
+The tick layout is **memoized per minute** (`Math.floor(nowMs/60000)`) so it doesn't recompute on every 1s clock
+tick (positions shift <0.001%/s over 24h); dense jobs capped at 300 ticks (an every-5m job → a near-continuous
+band). **Wiring** (`OperationsCenter.tsx`): rendered at the top of the cron modal (`{cron.length>0 && <CronTimeline
+jobs={cron} nowMs={cronNow} />}`), reusing the modal's existing 1s `cronNow` clock (no new state/clock). **No new
+bridge endpoint** — pure client parse of the already-polled cron list. **How to access:** Operations → `⏱ CRON`.
+**Verified live against real Hermes cron data** (bridge served the cron list; 3 jobs): the agenda rendered 3 lanes
+— `kanban-auto-claim` (every 5m → **288 ticks**, first `Wed 15:15 (in 2m)` at left 0.2%), `Mission Control
+Auto-Audit` (**5 ticks**, first `Wed 20:00 (in 4h 47m)` at left 20% = 4.8/24), `Sentinel Daily Trend Engine`
+(**1 tick** at `Thu 07:00 (in 15h 47m)`, left 65.8% = 15.8/24) — header `294 FIRES` (288+5+1), axis labels
+`now/+6h/+12h/+18h/+24h` correct. Also unit-checked `upcomingFires` via a standalone `tsc` transpile over 6
+schedules (cron / macro / interval / dense / garbage) — all fire counts + boundaries correct (e.g. `0 7 * * *`
+from Wed 08:00 → 1 fire Thu 07:00; `every 5h` → 4 fires; `30m` → 48 fires). **No component console errors** (only
+the documented baseline background bridge-poll `Network Error`s for fetchTasks/fetchTopology). (Screenshots time
+out in this sandbox — verified via `preview_eval` DOM inspection + `preview_console_logs`, as in Runs #7–#13.)
+
+**Verify.** `npm run build` ✓ (tsc + vite, **126 modules**, up from 125 — `CronTimeline.tsx`), `npm run lint` ✓
+(**0 errors, 0 warnings**), the standalone `upcomingFires` unit-check (6 cases) ✓, and the live Vite preview pass
+above on `/operations` (cron agenda against real data), no component console errors.
 
 ### 2026-06-10 — Run #13 (branch `auto/evolve-cron-countdown`)
 
