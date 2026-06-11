@@ -111,7 +111,9 @@ export default function Layout() {
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-[220px] shrink-0 border-r border-white/10 bg-[#050505] flex flex-col transition-all duration-300 lg:relative ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-0 lg:-translate-x-full lg:border-r-0 lg:overflow-hidden' : 'lg:w-[220px] lg:translate-x-0'}`}>
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-[220px] shrink-0 border-r border-white/[0.07] flex flex-col transition-all duration-300 lg:relative ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-0 lg:-translate-x-full lg:border-r-0 lg:overflow-hidden' : 'lg:w-[220px] lg:translate-x-0'}`}
+        style={{ background: 'linear-gradient(180deg, #0b0b0e 0%, #060608 55%, #050507 100%)', boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.03)' }}>
         {/* Logo */}
         <div className="h-[50px] px-3 flex items-center gap-2 border-b border-white/10 shrink-0">
           <div className="w-7 h-7 relative" style={{ background: `linear-gradient(135deg, ${accent}, #ff795e)`, clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}>
@@ -132,8 +134,12 @@ export default function Layout() {
             const is = activeModule === m.id;
             return (
               <NavLink key={m.id} to={m.path} onClick={() => setMobileOpen(false)}
-                className={`w-full text-left px-3 py-2 flex items-center gap-2 border-l-2 transition-all group ${is ? 'bg-white/[0.03]' : 'border-transparent hover:bg-white/[0.02]'}`}
-                style={{ borderLeftColor: is ? accent : 'transparent' }}>
+                className={`w-full text-left px-3 py-2 flex items-center gap-2 border-l-2 transition-all group ${is ? '' : 'border-transparent hover:bg-white/[0.03]'}`}
+                style={{
+                  borderLeftColor: is ? accent : 'transparent',
+                  background: is ? `linear-gradient(90deg, ${accent}1f 0%, ${accent}08 45%, transparent 100%)` : undefined,
+                  boxShadow: is ? `inset 0 1px 0 rgba(255,255,255,0.04)` : undefined,
+                }}>
                 <span className="text-[10px] font-mono text-[#363636] w-5">{m.num}</span>
                 <span className={`text-[11px] font-bold tracking-[0.12em] uppercase ${is ? 'text-white' : 'text-[#b8b8b8] group-hover:text-white'}`}>
                   {m.label}
@@ -150,7 +156,7 @@ export default function Layout() {
           <div className="grid grid-cols-5 gap-1 mb-2">
             {agents.slice(0, 25).map(a => {
               const squadColor = a.squad ? {
-                CORE: '#f64e6e', SEC: '#ef4444', INTEL: '#ff795e', INFRA: '#10b981', CONT: '#f59e0b', DEV: '#38bdf8'
+                CORE: '#f64e6e', SEC: '#a78bfa', INTEL: '#22d3ee', INFRA: '#10b981', CONT: '#f59e0b', DEV: '#38bdf8'
               }[a.squad] || '#1a1a1a' : '#1a1a1a';
               const isOnline = a.status === 'active' || a.status === 'online';
               const isBusy = (a.tasks_running ?? 0) > 0;
@@ -189,7 +195,9 @@ export default function Layout() {
 
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* TopBar */}
-        <header className="h-[40px] shrink-0 border-b border-white/10 bg-[#050505] flex items-center px-4 gap-6 text-[10px] font-mono">
+        <header
+          className="h-[40px] shrink-0 border-b border-white/[0.07] flex items-center px-4 gap-6 text-[10px] font-mono backdrop-blur-md"
+          style={{ background: 'linear-gradient(180deg, rgba(13,13,16,0.92), rgba(7,7,9,0.88))', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -18px rgba(0,0,0,0.9)' }}>
           <button onClick={() => setMobileOpen(true)} className="lg:hidden text-[#b8b8b8] hover:text-white mr-2">☰</button>
           <button onClick={() => setCollapsed((c) => !c)} title={collapsed ? 'Show navigation' : 'Hide navigation'} className="hidden lg:inline-flex items-center text-[#b8b8b8] hover:text-white mr-1">☰</button>
           <div className="flex items-center gap-2">
