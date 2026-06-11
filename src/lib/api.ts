@@ -822,3 +822,24 @@ export async function generateAiDigest(): Promise<AiDigest> {
   const { data } = await bridge.post('/api/hermes/ai-digest', {}, { timeout: 250000 });
   return data;
 }
+
+export interface ContentIdea {
+  title: string; platform: string; format: string;
+  hook: string; why_now: string; pattern_source: string;
+}
+export interface ContentIdeas {
+  available: boolean;
+  generated_at?: string;
+  strategy_note?: string;
+  ideas?: ContentIdea[];
+  inputs?: { viral_posts: number; news_stories: number; brand_doc: boolean };
+}
+export async function getContentIdeas(): Promise<ContentIdeas> {
+  const { data } = await bridge.get('/api/content/ideas');
+  return data;
+}
+export async function generateContentIdeas(): Promise<ContentIdeas> {
+  // LLM synthesis over viral signals + news + brand doc — slow.
+  const { data } = await bridge.post('/api/content/ideas', {}, { timeout: 250000 });
+  return data;
+}

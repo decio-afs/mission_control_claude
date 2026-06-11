@@ -5,7 +5,8 @@ import { Panel, Pill, CornerBrackets, Stat } from '../components/cyberpunk/ui';
 import { useContentStore } from '../stores/useContentStore';
 import {
   addCalendarItem, getCreators, watchCreator, scrapeCreators, errMessage,
-  type CreatorsResponse,
+  getContentIdeas, generateContentIdeas, createHermesTask,
+  type CreatorsResponse, type ContentIdeas,
 } from '../lib/api';
 
 const statusTone: Record<string, 'good' | 'warn' | 'info' | 'neutral' | 'bad'> = {
@@ -79,6 +80,60 @@ export default function ContentFactory() {
     }
   };
 
+  // ── Idea Engine — news × viral patterns × brand doc → ranked ideas ──
+  const [ideas, setIdeas] = useState<ContentIdeas | null>(null);
+  const [ideasBusy, setIdeasBusy] = useState(false);
+  const [ideasMsg, setIdeasMsg] = useState<string | null>(null);
+  const [ideaActionBusy, setIdeaActionBusy] = useState<string | null>(null);
+
+  useEffect(() => { getContentIdeas().then(setIdeas).catch(() => setIdeas(null)); }, []);
+
+  const handleGenerateIdeas = async () => {
+    if (ideasBusy) return;
+    setIdeasBusy(true);
+    setIdeasMsg(null);
+    try {
+      setIdeas(await generateContentIdeas());
+    } catch (e) {
+      setIdeasMsg(errMessage(e));
+    } finally {
+      setIdeasBusy(false);
+    }
+  };
+
+  // Per-idea actions: plan it, push it to Buffer Ideas, or hand it to an agent.
+  const ideaToCalendar = async (idea: { title: string; platform: string; hook: string }, publish: boolean) => {
+    const key = `${idea.title}|${publish ? 'buf' : 'plan'}`;
+    setIdeaActionBusy(key);
+    try {
+      const date = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+      await addCalendarItem({ title: idea.title, date, platform: idea.platform || 'instagram', body: idea.hook, publish });
+      setIdeasMsg(publish ? `"${idea.title.slice(0, 40)}" → Buffer Ideas ✓` : `"${idea.title.slice(0, 40)}" planned for ${date} ✓`);
+      await refresh();
+    } catch (e) {
+      setIdeasMsg(errMessage(e));
+    } finally {
+      setIdeaActionBusy(null);
+    }
+  };
+
+  const ideaToTask = async (idea: { title: string; platform: string; format: string; hook: string; why_now: string; pattern_source: string }) => {
+    const key = `${idea.title}|task`;
+    setIdeaActionBusy(key);
+    try {
+      await createHermesTask({
+        title: `Produce content: ${idea.title}`,
+        body: `Platform: ${idea.platform} · Format: ${idea.format}\nHook: ${idea.hook}\nWhy now: ${idea.why_now}\nPattern source: ${idea.pattern_source}\n\nDeliverable: final caption + script/copy ready to post, in the DA Agency / Ghost Legion brand voice (see BRAND_STRATEGY.md).`,
+        triage: true,
+      });
+      setIdeasMsg(`"${idea.title.slice(0, 40)}" → agent task created ✓ (triage)`);
+    } catch (e) {
+      setIdeasMsg(errMessage(e));
+    } finally {
+      setIdeaActionBusy(null);
+    }
+  };
+
   // ── Viral signals — Apify creator watchlist + ranked feed ──
   const [creators, setCreators] = useState<CreatorsResponse | null>(null);
   const [wHandle, setWHandle] = useState('');
@@ -139,6 +194,73 @@ export default function ContentFactory() {
             <Stat label="BLOCKED" value={summary.blocked} tone="warn" big />
           </Panel>
         </div>
+
+        {/* IDEA ENGINE — the synthesis step: trending news × competitor viral
+            patterns × BRAND_STRATEGY.md → this week's content strategy. */}
+        <Panel
+          label="IDEA ENGINE · NEWS × VIRAL × BRAND"
+          className="shrink-0"
+          right={
+            <button onClick={() => void handleGenerateIdeas()} disabled={ideasBusy}
+              className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] px-2 py-0.5 hover:bg-[#f64e6e]/20 disabled:opacity-40">
+              {ideasBusy ? 'SYNTHESIZING…' : ideas?.available ? '↻ REGENERATE' : '▷ GENERATE STRATEGY'}
+            </button>
+          }
+        >
+          {ideasBusy && (
+            <div className="font-mono text-[11px] text-[#707070]">
+              {'>'} fusing {ideas?.inputs?.viral_posts ?? 'scraped'} viral signals + trending AI news + brand strategy — 1-3 min…
+            </div>
+          )}
+          {ideasMsg && <div className="font-mono text-[10px] text-sky-400 mb-2">▸ {ideasMsg}</div>}
+          {!ideasBusy && !ideas?.available && (
+            <div className="font-mono text-[11px] text-[#707070]">
+              {'>'} This is where your content strategy gets made: GENERATE feeds the scraped viral
+              signals (below), today's Sentinel AI news, and BRAND_STRATEGY.md into Hermes and
+              returns ranked ideas — each one can be planned, pushed to Buffer, or handed to an agent.
+            </div>
+          )}
+          {!ideasBusy && ideas?.available && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-[10px] text-[#707070]">
+                  {ideas.generated_at ? new Date(ideas.generated_at).toLocaleString() : ''} · inputs: {ideas.inputs?.viral_posts ?? 0} viral · {ideas.inputs?.news_stories ?? 0} news · {ideas.inputs?.brand_doc ? 'brand doc ✓' : 'no brand doc'}
+                </span>
+              </div>
+              {ideas.strategy_note && (
+                <p className="text-[11px] text-[#b8b8b8] leading-relaxed border-l-2 border-[#f64e6e]/50 pl-3">{ideas.strategy_note}</p>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {(ideas.ideas ?? []).map((idea, i) => (
+                  <div key={i} className="p-2.5 border border-white/[0.07] bg-[#0b0b0d] flex flex-col gap-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[11px] text-white font-medium leading-snug">{idea.title}</span>
+                      <Pill tone="brand">{idea.format}</Pill>
+                    </div>
+                    <div className="text-[11px] text-[#b8b8b8]"><span className="font-mono text-[10px] text-[#f64e6e]">HOOK</span> {idea.hook}</div>
+                    <div className="text-[10px] text-[#707070]"><span className="font-mono text-amber-400">NOW</span> {idea.why_now}</div>
+                    <div className="text-[10px] text-[#707070] font-mono truncate" title={idea.pattern_source}>↻ {idea.pattern_source} · {idea.platform}</div>
+                    <div className="flex gap-1.5 mt-1">
+                      <button onClick={() => void ideaToCalendar(idea, false)} disabled={ideaActionBusy !== null}
+                        className="flex-1 text-[10px] font-mono border border-white/10 text-[#b8b8b8] py-1 hover:border-[#f64e6e] hover:text-[#f64e6e] disabled:opacity-30">
+                        {ideaActionBusy === `${idea.title}|plan` ? '…' : '+ PLAN'}
+                      </button>
+                      <button onClick={() => void ideaToCalendar(idea, true)} disabled={ideaActionBusy !== null}
+                        className="flex-1 text-[10px] font-mono border border-white/10 text-[#b8b8b8] py-1 hover:border-[#f64e6e] hover:text-[#f64e6e] disabled:opacity-30">
+                        {ideaActionBusy === `${idea.title}|buf` ? '…' : '→ BUFFER'}
+                      </button>
+                      <button onClick={() => void ideaToTask(idea)} disabled={ideaActionBusy !== null}
+                        title="Create a kanban task — an agent produces the final caption/script"
+                        className="flex-1 text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1 hover:bg-[#f64e6e]/20 disabled:opacity-30">
+                        {ideaActionBusy === `${idea.title}|task` ? '…' : '⚡ AGENT'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Panel>
 
         {/* Campaigns — capped height with internal scrolling: all content stays
             reachable without the page growing 1000px+ tall. */}

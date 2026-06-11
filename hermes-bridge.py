@@ -1772,6 +1772,8 @@ def generate_ai_digest():
     )
     resp = run_hermes("-z", prompt, timeout=240)
     raw = resp["stdout"].strip()
+    if "HTTP 429" in raw or "usage limit" in raw:
+        raise HTTPException(status_code=503, detail="LLM quota exhausted (Kimi 429). Wait for the quota refresh or add a fallback provider: hermes fallback add")
     # Tolerate accidental fences or leading text around the JSON.
     m = re.search(r"\{.*\}", raw, re.S)
     if not m:
@@ -1788,6 +1790,81 @@ def generate_ai_digest():
     }
     _save_store("ai-digest", digest)
     return {"available": True, **digest}
+
+
+# ── Idea Engine — the synthesis step: trending news × competitor viral
+# patterns × the brand strategy doc → ranked, brand-grounded content ideas. ──
+
+BRAND_DOC = Path(__file__).parent / "BRAND_STRATEGY.md"
+
+
+@app.get("/api/content/ideas")
+def get_content_ideas():
+    ideas = _load_store("content-ideas", None)
+    if not ideas:
+        return {"available": False}
+    return {"available": True, **ideas}
+
+
+@app.post("/api/content/ideas")
+def generate_content_ideas():
+    """Fuse the three live inputs into a content strategy via `hermes -z`:
+    1. Viral creator posts (Apify feed) — what's working in the niche
+    2. Trending AI news (Sentinel) — what's hot right now
+    3. BRAND_STRATEGY.md — who we are and how we sound
+    Slow (LLM): 1-3 min. Cache in the content-ideas store."""
+    feed = _load_store("creators-feed", {"items": []})
+    viral = (feed.get("items") or [])[:12]
+    stories = []
+    latest = SENTINEL_CACHE_DIR / "latest.json"
+    if latest.exists():
+        stories = json.loads(latest.read_text(encoding="utf-8")).get("stories", [])[:12]
+    if not viral and not stories:
+        raise HTTPException(status_code=400, detail="no inputs yet — scrape creators (Content Factory) and/or run the Sentinel cron first")
+
+    brand = ""
+    if BRAND_DOC.exists():
+        brand = BRAND_DOC.read_text(encoding="utf-8", errors="replace")[:3000]
+
+    viral_lines = "\n".join(
+        f"- @{v['creator']} ({v['platform']}, ⚡{v['viral_score']}, {v['likes']}L/{v['comments']}C/{v['views']}V): {v['caption'][:160]}"
+        for v in viral
+    ) or "(no creator signals scraped yet)"
+    news_lines = "\n".join(f"- {s['title']} ({s['source']}, score {s.get('score', 0)})" for s in stories) or "(no news cached)"
+
+    prompt = (
+        "You are the content strategist for the brand described below. Produce STRICT JSON only "
+        "(no markdown fences, no prose outside JSON) with this shape: "
+        '{"strategy_note": "<2-3 sentences: this week\'s content thesis connecting the news cycle and the niche patterns to OUR positioning>", '
+        '"ideas": [{"title": "<punchy working title>", "platform": "instagram|tiktok|linkedin", '
+        '"format": "<reel|carousel|post|thread>", "hook": "<the first 2 seconds / first line>", '
+        '"why_now": "<the trending-news or timing tie-in>", '
+        '"pattern_source": "<which viral pattern or creator signal this remixes, or \'original\'>"}]} '
+        "Give 6 ideas ranked by viral potential. Every idea must be executable by an AI agent fleet brand "
+        "(demos, hot takes, build-in-public, contrarian POVs) and sound like the brand voice.\n\n"
+        f"=== BRAND (excerpt) ===\n{brand}\n\n"
+        f"=== NICHE VIRAL SIGNALS (scraped) ===\n{viral_lines}\n\n"
+        f"=== TRENDING AI NEWS (Sentinel) ===\n{news_lines}"
+    )
+    resp = run_hermes("-z", prompt, timeout=240)
+    raw = resp["stdout"].strip()
+    if "HTTP 429" in raw or "usage limit" in raw:
+        raise HTTPException(status_code=503, detail="LLM quota exhausted (Kimi 429). Wait for the quota refresh or add a fallback provider: hermes fallback add")
+    m = re.search(r"\{.*\}", raw, re.S)
+    if not m:
+        raise HTTPException(status_code=502, detail=f"model returned no JSON: {raw[:200]}")
+    try:
+        parsed = json.loads(m.group(0))
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail=f"model JSON invalid: {e}")
+    result = {
+        "generated_at": datetime.now().isoformat(),
+        "strategy_note": parsed.get("strategy_note", ""),
+        "ideas": parsed.get("ideas", [])[:8],
+        "inputs": {"viral_posts": len(viral), "news_stories": len(stories), "brand_doc": bool(brand)},
+    }
+    _save_store("content-ideas", result)
+    return {"available": True, **result}
 
 @app.get("/api/hermes/sentinel")
 def get_hermes_sentinel():
