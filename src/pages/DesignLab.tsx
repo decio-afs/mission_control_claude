@@ -1,10 +1,11 @@
-// Design Lab — single home for the static design-showcase modules.
+// Design Lab — home for the four showcase modules, now wired to live data.
 //
-// Consolidation: the four DEMO tabs (Intel Deck, Workflow Builder, Archives,
-// Broadcast Uplink) had no Hermes data source and cluttered the top-level nav.
-// They now live here behind internal sub-tabs, preserving the design work
-// without four separate nav entries. The legacy routes redirect to
-// /design-lab?tab=<id>, so deep links and the command palette still land here.
+// History: these tabs (Intel Deck, Workflow Builder, Archives, Broadcast
+// Uplink) started as static design ports. They now render real bridge data —
+// creator intel (Apify pipeline), the Hermes kanban, the Sentinel digest
+// archive, and the channel/gateway matrix — behind internal sub-tabs. The
+// legacy routes redirect to /design-lab?tab=<id>, so deep links and the
+// command palette still land here.
 import { useSearchParams } from 'react-router-dom';
 import IntelligenceDeck from './IntelligenceDeck';
 import WorkflowBuilder from './WorkflowBuilder';
@@ -47,8 +48,8 @@ export default function DesignLab() {
             </button>
           );
         })}
-        <span className="ml-auto shrink-0 font-mono text-[9px] tracking-[0.15em] text-amber-400/70 border border-amber-400/30 px-1.5 py-0.5">
-          DESIGN SHOWCASE · STATIC
+        <span className="ml-auto shrink-0 font-mono text-[10px] tracking-[0.15em] text-emerald-400/70 border border-emerald-400/30 px-1.5 py-0.5">
+          INTEL · LIVE
         </span>
       </div>
 

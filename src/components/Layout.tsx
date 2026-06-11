@@ -1,4 +1,4 @@
-﻿import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useSystemStore } from '../stores/useSystemStore';
@@ -116,11 +116,11 @@ export default function Layout() {
         <div className="h-[50px] px-3 flex items-center gap-2 border-b border-white/10 shrink-0">
           <div className="w-7 h-7 relative" style={{ background: `linear-gradient(135deg, ${accent}, #ff795e)`, clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}>
             <div className="absolute inset-[3px]" style={{ background: '#050505', clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }} />
-            <div className="absolute inset-0 flex items-center justify-center text-[9px] font-mono font-bold" style={{ color: accent }}>G01</div>
+            <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono font-bold" style={{ color: accent }}>G01</div>
           </div>
           <div className="flex flex-col">
             <div className="text-[11px] font-black tracking-[0.18em] text-white leading-tight">MISSION CTL</div>
-            <div className="text-[8px] font-mono text-[#545454] tracking-[0.3em]">GHOST-LEGION</div>
+            <div className="text-[10px] font-mono text-[#545454] tracking-[0.3em]">GHOST-LEGION</div>
           </div>
           <button onClick={() => setMobileOpen(false)} className="lg:hidden ml-auto text-[#545454] hover:text-white text-xs">✕</button>
           <button onClick={() => setCollapsed(true)} title="Collapse navigation" className="hidden lg:block ml-auto text-[#545454] hover:text-white text-sm leading-none">‹</button>
@@ -134,7 +134,7 @@ export default function Layout() {
               <NavLink key={m.id} to={m.path} onClick={() => setMobileOpen(false)}
                 className={`w-full text-left px-3 py-2 flex items-center gap-2 border-l-2 transition-all group ${is ? 'bg-white/[0.03]' : 'border-transparent hover:bg-white/[0.02]'}`}
                 style={{ borderLeftColor: is ? accent : 'transparent' }}>
-                <span className="text-[9px] font-mono text-[#363636] w-5">{m.num}</span>
+                <span className="text-[10px] font-mono text-[#363636] w-5">{m.num}</span>
                 <span className={`text-[11px] font-bold tracking-[0.12em] uppercase ${is ? 'text-white' : 'text-[#b8b8b8] group-hover:text-white'}`}>
                   {m.label}
                 </span>
@@ -166,14 +166,14 @@ export default function Layout() {
               <div key={i} className="w-full aspect-square relative" style={{ background: '#1a1a1a', opacity: 0.3 }} />
             ))}
           </div>
-          <div className="flex justify-between text-[9px] font-mono text-[#545454]">
+          <div className="flex justify-between text-[10px] font-mono text-[#545454]">
             <span><span className="text-emerald-400">●</span> {onlineCount}</span>
             <span><span style={{ color: accent }}>●</span> {busyCount} busy</span>
             <span>{agents.length} total</span>
           </div>
         </div>
 
-        <div className="border-t border-white/10 px-3 py-2 shrink-0 text-[9px] font-mono text-[#363636] leading-relaxed">
+        <div className="border-t border-white/10 px-3 py-2 shrink-0 text-[10px] font-mono text-[#363636] leading-relaxed">
           hermes bridge<br/>
           {vitals.hermesVersion}<br/>
           <span className={vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}>● BRIDGE :8767</span>
@@ -236,7 +236,7 @@ export default function Layout() {
               <span className="text-[10px]">?</span>
             </button>
             <span className="text-[#545454] hidden sm:inline">ZULU</span>
-            <span className="text-white tabular-nums text-[12px] tracking-[0.15em]">
+            <span className="text-white tabular-nums text-[11px] tracking-[0.15em]">
               {now.toISOString().slice(11, 19)}
             </span>
             <span className="text-[#545454] hidden sm:inline">· {now.toISOString().slice(0, 10).replace(/-/g, '.')}</span>

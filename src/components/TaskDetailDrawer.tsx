@@ -134,7 +134,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
             <span className="font-mono text-[10px] text-[#545454]">{taskId}</span>
             {status && <Pill tone={STATUS_TONE[status] || 'neutral'}>{status.toUpperCase()}</Pill>}
           </div>
-          <button onClick={onClose} className="text-[#545454] hover:text-white text-[12px]">✕ ESC</button>
+          <button onClick={onClose} className="text-[#545454] hover:text-white text-[11px]">✕ ESC</button>
         </div>
 
         {!loaded && <div className="p-4 font-mono text-[11px] text-[#545454]">loading task…</div>}
@@ -143,7 +143,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
           <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
             {/* title + body */}
             <div>
-              <div className="text-[14px] text-white leading-snug mb-1">{t.title}</div>
+              <div className="text-[13px] text-white leading-snug mb-1">{t.title}</div>
               {t.body && <div className="border-l-2 border-white/10 pl-2"><MarkdownLite text={t.body} /></div>}
             </div>
 
@@ -160,7 +160,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
             </div>
             {t.skills?.length > 0 && (
               <div className="flex flex-wrap gap-1">
-                {t.skills.map((s) => <span key={s} className="text-[9px] font-mono px-1.5 py-0.5 border border-white/10 text-[#b8b8b8]">#{s}</span>)}
+                {t.skills.map((s) => <span key={s} className="text-[10px] font-mono px-1.5 py-0.5 border border-white/10 text-[#b8b8b8]">#{s}</span>)}
               </div>
             )}
 
@@ -214,7 +214,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
             <Section title={`DEPENDENCIES · ${detail.parents.length}↑ ${detail.children.length}↓`}
               right={(detail.parents.length > 0 || detail.children.length > 0) && (
                 <button onClick={() => setShowGraph(true)}
-                  className="text-[9px] font-mono tracking-[0.1em] px-1.5 py-0.5 border border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e]">⊞ MAP</button>
+                  className="text-[10px] font-mono tracking-[0.1em] px-1.5 py-0.5 border border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e]">⊞ MAP</button>
               )}>
               {detail.parents.length === 0 && detail.children.length === 0 && <div className="text-[10px] font-mono text-[#545454] mb-1">no dependencies</div>}
               {detail.parents.map((p) => <DepRow key={p} id={p} title={titleOf(allTasks, p)} dir="parent" onOpen={() => onOpenTask(p)} onUnlink={() => act('unlink', () => unlinkTasks(p, taskId))} />)}
@@ -252,7 +252,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
               <div className="flex flex-col gap-1.5 mb-1.5">
                 {detail.comments.map((c, i) => (
                   <div key={i} className="border border-white/[0.06] bg-[#080808] p-1.5">
-                    <div className="flex justify-between text-[9px] font-mono text-[#545454] mb-0.5">
+                    <div className="flex justify-between text-[10px] font-mono text-[#545454] mb-0.5">
                       <span className="text-[#b8b8b8]">{c.author}</span><span>{ago(c.created_at)}</span>
                     </div>
                     <div className="text-[10px] text-[#cdd3df] whitespace-pre-wrap leading-snug">{c.body}</div>
@@ -284,7 +284,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
             <Section title={`EVENT TIMELINE · ${detail.events.length}`}>
               <div className="flex flex-col gap-1">
                 {[...detail.events].reverse().map((e, i) => (
-                  <div key={i} className="flex items-baseline gap-2 text-[9px] font-mono">
+                  <div key={i} className="flex items-baseline gap-2 text-[10px] font-mono">
                     <span className="text-[#545454] shrink-0">{ago(e.created_at)}</span>
                     <span className="text-[#f64e6e] shrink-0">{e.kind}</span>
                     <span className="text-[#545454] truncate">{e.payload?.status ? `→ ${String(e.payload.status)}` : ''}</span>
@@ -302,7 +302,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
             <Section title="ASSEMBLED CONTEXT">
               {context === null
                 ? <Btn busy={busy} id="ctx" label="LOAD CONTEXT" cls="border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e] w-full" onClick={async () => { setBusy('ctx'); const r = await getHermesTaskContext(taskId).catch(() => ({ context: '(no context available)' })); setContext(r.context || '(empty)'); setBusy(null); }} />
-                : <pre className="text-[9px] font-mono text-[#9aa3b5] whitespace-pre-wrap max-h-52 overflow-auto bg-[#050505] border border-white/10 p-2">{context}</pre>}
+                : <pre className="text-[10px] font-mono text-[#9aa3b5] whitespace-pre-wrap max-h-52 overflow-auto bg-[#050505] border border-white/10 p-2">{context}</pre>}
             </Section>
           </div>
         )}
@@ -330,7 +330,7 @@ function Btn({ id, label, cls, onClick, disabled, busy }: { id: string; label: s
 function Meta({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
   return (
     <div className="border border-white/[0.06] bg-[#080808] px-2 py-1">
-      <div className="text-[8px] tracking-[0.16em] text-[#545454]">{k}</div>
+      <div className="text-[10px] tracking-[0.16em] text-[#545454]">{k}</div>
       <div className={`text-[10px] truncate ${accent ? 'text-[#f64e6e]' : 'text-[#cdd3df]'}`}>{v}</div>
     </div>
   );
@@ -340,7 +340,7 @@ function Section({ title, children, right }: { title: string; children: React.Re
   return (
     <div className="border-t border-white/10 pt-2">
       <div className="flex items-center justify-between mb-1.5">
-        <div className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">{title}</div>
+        <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-[#545454]">{title}</div>
         {right}
       </div>
       {children}
@@ -356,9 +356,9 @@ function DepRow({ id, title, dir, onOpen, onUnlink }: { id: string; title: strin
   return (
     <div className="flex items-center justify-between border border-white/[0.06] bg-[#080808] px-2 py-1 mb-1">
       <button onClick={onOpen} className="flex items-center gap-1.5 min-w-0 text-left hover:text-[#f64e6e]">
-        <span className="text-[9px] text-[#545454] shrink-0">{dir === 'parent' ? '↑' : '↓'}</span>
+        <span className="text-[10px] text-[#545454] shrink-0">{dir === 'parent' ? '↑' : '↓'}</span>
         <span className="text-[10px] font-mono text-[#b8b8b8] shrink-0">{id}</span>
-        {title && <span className="text-[9px] text-[#545454] truncate">{title}</span>}
+        {title && <span className="text-[10px] text-[#545454] truncate">{title}</span>}
       </button>
       <button onClick={onUnlink} title="Unlink" className="text-[#545454] hover:text-red-400 text-[11px] shrink-0">✕</button>
     </div>

@@ -38,7 +38,7 @@ export default function TaskThroughput({ tasks, nowMs }: { tasks: HermesTask[]; 
             <button
               key={w}
               onClick={() => setHours(w)}
-              className={`px-1.5 py-0.5 border text-[9px] tracking-[0.12em] tabular-nums ${hours === w ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              className={`px-1.5 py-0.5 border text-[10px] tracking-[0.12em] tabular-nums ${hours === w ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
             >{w}H</button>
           ))}
         </div>
@@ -69,7 +69,7 @@ export default function TaskThroughput({ tasks, nowMs }: { tasks: HermesTask[]; 
                   }}
                 />
                 {/* hover count */}
-                <div className="absolute -top-3 inset-x-0 text-center text-[8px] font-mono text-white opacity-0 group-hover:opacity-100 transition-opacity tabular-nums pointer-events-none">
+                <div className="absolute -top-3 inset-x-0 text-center text-[10px] font-mono text-white opacity-0 group-hover:opacity-100 transition-opacity tabular-nums pointer-events-none">
                   {b.done}
                 </div>
               </div>
@@ -79,7 +79,7 @@ export default function TaskThroughput({ tasks, nowMs }: { tasks: HermesTask[]; 
         {/* x-axis hour ticks */}
         <div className="flex gap-[3px] mt-1 shrink-0">
           {tp.buckets.map((b, i) => (
-            <div key={b.startMs} className="flex-1 text-center text-[8px] font-mono text-[#363636] tabular-nums overflow-hidden">
+            <div key={b.startMs} className="flex-1 text-center text-[10px] font-mono text-[#363636] tabular-nums overflow-hidden">
               {i % tickEvery === 0 ? b.label : ''}
             </div>
           ))}
@@ -87,7 +87,7 @@ export default function TaskThroughput({ tasks, nowMs }: { tasks: HermesTask[]; 
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-3 text-[8px] font-mono text-[#545454] shrink-0">
+      <div className="flex items-center gap-3 text-[10px] font-mono text-[#545454] shrink-0">
         <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 bg-[#f64e6e]" /> COMPLETED</span>
         <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 bg-sky-400/30" /> CREATED</span>
         <span className="ml-auto text-[#363636]">{tp.totalCreated} created · UTC hours</span>

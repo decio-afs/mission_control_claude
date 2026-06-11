@@ -1,4 +1,4 @@
-﻿// Operations Center — full Hermes kanban board.
+// Operations Center — full Hermes kanban board.
 //
 // A column-per-status board backed live by `hermes kanban`, with a per-task
 // detail/control slide-over (TaskDetailDrawer) exposing the full verb set:
@@ -232,7 +232,7 @@ export default function OperationsCenter() {
                       <span className="mt-1 w-1.5 h-1.5 shrink-0" style={{ background: col.tone }} />
                       <span className="text-[11px] text-white leading-tight line-clamp-3">{t.title}</span>
                     </div>
-                    <div className="flex items-center justify-between text-[9px] font-mono text-[#545454]">
+                    <div className="flex items-center justify-between text-[10px] font-mono text-[#545454]">
                       <span className="text-[#b8b8b8] truncate">{t.assignee || 'unassigned'}</span>
                       <span className="flex items-center gap-1.5 shrink-0">
                         {t.priority !== 0 && <span title="priority">P{t.priority}</span>}
@@ -242,13 +242,13 @@ export default function OperationsCenter() {
                     </div>
                     {(col.key === 'ready' || col.key === 'running') && (
                       <div className="mt-1.5 flex">
-                        {col.key === 'ready' && <span onClick={(e) => { e.stopPropagation(); void claimHermesTaskById(t.id); }} className="flex-1 text-center text-[9px] font-mono border border-white/10 py-0.5 hover:border-amber-400 hover:text-amber-400 cursor-pointer">CLAIM</span>}
-                        {col.key === 'running' && <span onClick={(e) => { e.stopPropagation(); void completeHermesTaskById(t.id); }} className="flex-1 text-center text-[9px] font-mono border border-white/10 py-0.5 hover:border-emerald-400 hover:text-emerald-400 cursor-pointer">COMPLETE</span>}
+                        {col.key === 'ready' && <span onClick={(e) => { e.stopPropagation(); void claimHermesTaskById(t.id); }} className="flex-1 text-center text-[10px] font-mono border border-white/10 py-0.5 hover:border-amber-400 hover:text-amber-400 cursor-pointer">CLAIM</span>}
+                        {col.key === 'running' && <span onClick={(e) => { e.stopPropagation(); void completeHermesTaskById(t.id); }} className="flex-1 text-center text-[10px] font-mono border border-white/10 py-0.5 hover:border-emerald-400 hover:text-emerald-400 cursor-pointer">COMPLETE</span>}
                       </div>
                     )}
                   </button>
                 ))}
-                {items.length === 0 && <div className="text-[9px] font-mono text-[#363636] px-1 py-2 text-center">empty</div>}
+                {items.length === 0 && <div className="text-[10px] font-mono text-[#363636] px-1 py-2 text-center">empty</div>}
               </div>
             </div>
           );
@@ -347,7 +347,7 @@ export default function OperationsCenter() {
         <Modal title="SCHEDULED JOBS · hermes cron" onClose={() => setCronOpen(false)}>
           {cron.length > 0 && <CronTimeline jobs={cron} nowMs={cronNow} />}
           {cron.length > 0 && (
-            <div className="flex items-center justify-between px-2 text-[8px] font-mono tracking-[0.2em] uppercase text-[#545454]">
+            <div className="flex items-center justify-between px-2 text-[10px] font-mono tracking-[0.2em] uppercase text-[#545454]">
               <span>JOB · SCHEDULE</span><span>NEXT FIRE ▾</span>
             </div>
           )}
@@ -358,12 +358,12 @@ export default function OperationsCenter() {
                   <div className="w-1.5 h-1.5 shrink-0" style={{ background: j.status === 'active' ? '#10b981' : '#545454' }} />
                   <div className="min-w-0">
                     <div className="text-[11px] text-white truncate">{j.name || j.id.slice(0, 12)}</div>
-                    <div className="text-[9px] font-mono text-[#545454] truncate">{sched.label}</div>
+                    <div className="text-[10px] font-mono text-[#545454] truncate">{sched.label}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <CronNextFire sched={sched} nowMs={cronNow} />
-                  <button onClick={() => void runHermesCron(j.id)} className="text-[9px] font-mono border border-white/10 px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">RUN</button>
+                  <button onClick={() => void runHermesCron(j.id)} className="text-[10px] font-mono border border-white/10 px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">RUN</button>
                 </div>
               </div>
             ))}
@@ -403,22 +403,22 @@ function CronNextFire({ sched, nowMs }: { sched: ParsedSchedule; nowMs: number }
     return (
       <span
         title={`Next fire: ${fireLabel(sched.nextMs)} (local)`}
-        className={`text-[9px] font-mono tabular-nums px-1.5 py-1 border whitespace-nowrap ${soon ? 'border-[#f64e6e]/40 text-[#f64e6e] bg-[#f64e6e]/10' : 'border-white/10 text-[#b8b8b8]'}`}
+        className={`text-[10px] font-mono tabular-nums px-1.5 py-1 border whitespace-nowrap ${soon ? 'border-[#f64e6e]/40 text-[#f64e6e] bg-[#f64e6e]/10' : 'border-white/10 text-[#b8b8b8]'}`}
       >
         ▸ {formatCountdown(delta)}
       </span>
     );
   }
   if (sched.kind === 'interval') {
-    return <span title="Interval job — fires on a fixed period" className="text-[9px] font-mono text-[#545454] px-1.5 py-1 whitespace-nowrap">↻ repeats</span>;
+    return <span title="Interval job — fires on a fixed period" className="text-[10px] font-mono text-[#545454] px-1.5 py-1 whitespace-nowrap">↻ repeats</span>;
   }
-  return <span className="text-[9px] font-mono text-[#545454] px-1.5 py-1">—</span>;
+  return <span className="text-[10px] font-mono text-[#545454] px-1.5 py-1">—</span>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">{label}</label>
+      <label className="text-[10px] font-mono tracking-[0.2em] uppercase text-[#545454]">{label}</label>
       {children}
     </div>
   );

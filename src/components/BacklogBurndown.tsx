@@ -62,7 +62,7 @@ export default function BacklogBurndown({ tasks, nowMs }: { tasks: HermesTask[];
             <button
               key={w}
               onClick={() => setHours(w)}
-              className={`px-1.5 py-0.5 border text-[9px] tracking-[0.12em] tabular-nums ${hours === w ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              className={`px-1.5 py-0.5 border text-[10px] tracking-[0.12em] tabular-nums ${hours === w ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
             >{w}H</button>
           ))}
         </div>
@@ -97,7 +97,7 @@ export default function BacklogBurndown({ tasks, nowMs }: { tasks: HermesTask[];
         {/* x-axis hour ticks */}
         <div className="flex mt-1 shrink-0">
           {pts.map((p, i) => (
-            <div key={p.startMs} className="flex-1 text-center text-[8px] font-mono text-[#363636] tabular-nums overflow-hidden">
+            <div key={p.startMs} className="flex-1 text-center text-[10px] font-mono text-[#363636] tabular-nums overflow-hidden">
               {i % tickEvery === 0 ? p.label : ''}
             </div>
           ))}
@@ -105,7 +105,7 @@ export default function BacklogBurndown({ tasks, nowMs }: { tasks: HermesTask[];
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-3 text-[8px] font-mono text-[#545454] shrink-0">
+      <div className="flex items-center gap-3 text-[10px] font-mono text-[#545454] shrink-0">
         <span className="flex items-center gap-1"><span className="inline-block w-2 h-0.5 bg-sky-400" /> CREATED Σ {bt.totalCreated}</span>
         <span className="flex items-center gap-1"><span className="inline-block w-2 h-0.5 bg-emerald-400" /> DONE Σ {bt.totalDone}</span>
         <span className="ml-auto text-[#363636]">cumulative · UTC hours</span>

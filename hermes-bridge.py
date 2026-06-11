@@ -38,6 +38,14 @@ ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Never flash console windows for child processes on Windows. When the bridge
+# itself runs detached from any console (Electron child, dev-server launcher),
+# each CLI subprocess would otherwise allocate its own visible console — the
+# app polls several CLI-backed endpoints every few seconds, which looked like
+# terminals rapidly opening and closing in a loop.
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
+
 def run_hermes(*args: str, timeout: int = 60) -> dict[str, Any]:
     """Run a Hermes CLI command and return structured output."""
     cmd = [HERMES_CMD, *args]
@@ -49,6 +57,7 @@ def run_hermes(*args: str, timeout: int = 60) -> dict[str, Any]:
             timeout=timeout,
             encoding="utf-8",
             errors="replace",
+            creationflags=CREATE_NO_WINDOW,
         )
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=504, detail=f"Hermes command timed out after {timeout}s")
@@ -301,6 +310,15 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@app.get("/api/ping")
+def ping():
+    """Instant liveness probe — NO CLI shell-out. Used by the Electron shell
+    and the Vite dev-server launcher to detect the bridge: /api/hermes/status
+    takes 1-4s (it runs the hermes CLI), which is slower than a launcher's
+    per-attempt probe timeout and made startup look hung."""
+    return {"ok": True, "uptime_seconds": int(time.time() - BRIDGE_STARTED)}
+
 
 @app.get("/api/hermes/status")
 def get_status():
@@ -1270,7 +1288,19 @@ def get_content_pipeline():
             "platform": _detect_platform(title + " " + body),
         })
 
-    # Sort calendar by date
+    # Merge the planned-post calendar (local store, Ayrshare-synced) with the
+    # kanban-derived entries, then sort by date.
+    for item in _load_store("calendar", []):
+        calendar.append({
+            "id": item.get("id"),
+            "title": item.get("title", ""),
+            "date": (item.get("date") or "")[:10],
+            "status": item.get("status", "draft"),
+            "platform": item.get("platform", "?"),
+            # Explicitly planned posts (vs dates derived from kanban tasks) —
+            # the UI surfaces these first in the upcoming list.
+            "planned": True,
+        })
     calendar.sort(key=lambda x: x["date"])
 
     return {
@@ -1333,11 +1363,8 @@ def get_content_ideas():
 def get_content_calendar():
     """Return placeholder content calendar."""
     return {
-        "calendar": [
-            {"date": "2026-06-06", "title": "Post 1", "platform": "instagram", "status": "scheduled"},
-            {"date": "2026-06-07", "title": "Post 2", "platform": "twitter", "status": "scheduled"},
-            {"date": "2026-06-08", "title": "Post 3", "platform": "linkedin", "status": "draft"},
-        ]
+        # Real planned posts from the local calendar store (no demo data).
+        "calendar": _load_store("calendar", []),
     }
 
 @app.post("/api/hermes/content/generate")
@@ -1346,17 +1373,421 @@ def generate_content(payload: GenerateContentPayload):
     import uuid
     return {"job_id": f"gen_{uuid.uuid4().hex[:8]}", "status": "queued"}
 
+# ---------------------------------------------------------------------------
+# Local data stores (.hermes/data/) — real, file-backed pipelines that both the
+# dashboard and Hermes agents (via these endpoints) read and write. No demo data.
+# ---------------------------------------------------------------------------
+
+DATA_DIR = Path(__file__).parent / ".hermes" / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Hermes keeps platform/API keys in its own .env (AppData\Local\hermes\.env on
+# Windows, ~/.hermes/.env elsewhere). Read keys from there too, so the user
+# configures each key exactly once, in the place Hermes already uses.
+HERMES_HOME = Path(os.environ.get("HERMES_HOME", "")) if os.environ.get("HERMES_HOME") else (
+    Path.home() / "AppData" / "Local" / "hermes" if os.name == "nt" else Path.home() / ".hermes"
+)
+
+
+def _env_key(name: str, *aliases: str) -> str:
+    for n in (name, *aliases):
+        if os.environ.get(n):
+            return os.environ[n]
+    env_file = HERMES_HOME / ".env"
+    if env_file.exists():
+        try:
+            for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() in (name, *aliases):
+                    return v.strip().strip('"').strip("'")
+        except Exception:
+            pass
+    return ""
+
+
+def _load_store(name: str, default: Any) -> Any:
+    p = DATA_DIR / f"{name}.json"
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return default
+
+
+def _save_store(name: str, data: Any) -> None:
+    (DATA_DIR / f"{name}.json").write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _http_json(method: str, url: str, payload: Optional[dict] = None,
+               headers: Optional[dict] = None, timeout: int = 60) -> Any:
+    """Minimal stdlib JSON HTTP client (Apify / Ayrshare)."""
+    import urllib.request
+    import urllib.error
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=body, method=method)
+    req.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")[:400]
+        raise HTTPException(status_code=502, detail=f"{url.split('/')[2]} HTTP {e.code}: {detail}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"request to {url.split('/')[2]} failed: {e}")
+
+
+# ── Leads — real local pipeline (agents POST here; CRM sync can come later) ──
+
+class LeadPayload(BaseModel):
+    name: str
+    source: Optional[str] = "manual"
+    status: Optional[str] = "new"
+    score: Optional[int] = 50
+    company: Optional[str] = None
+    contact: Optional[str] = None
+    notes: Optional[str] = None
+
+
 @app.get("/api/hermes/leads")
 def get_leads():
-    """Return placeholder leads."""
-    return {
-        "leads": [
-            {"id": "1", "name": "Lead 1", "source": "website", "status": "new", "score": 85},
-            {"id": "2", "name": "Lead 2", "source": "referral", "status": "contacted", "score": 72},
-            {"id": "3", "name": "Lead 3", "source": "social", "status": "qualified", "score": 91},
-            {"id": "4", "name": "Lead 4", "source": "website", "status": "new", "score": 64},
-        ]
+    """Real leads from the local store (agents add via POST /api/hermes/leads)."""
+    return {"leads": _load_store("leads", []), "source": "local-store"}
+
+
+@app.post("/api/hermes/leads")
+def add_lead(payload: LeadPayload):
+    import uuid
+    leads = _load_store("leads", [])
+    lead = {
+        "id": f"lead_{uuid.uuid4().hex[:8]}",
+        "created_at": time.time(),
+        **payload.model_dump(),
     }
+    leads.insert(0, lead)
+    _save_store("leads", leads)
+    return {"lead": lead}
+
+
+class LeadUpdatePayload(BaseModel):
+    status: Optional[str] = None
+    score: Optional[int] = None
+    notes: Optional[str] = None
+
+
+@app.put("/api/hermes/leads/{lead_id}")
+def update_lead(lead_id: str, payload: LeadUpdatePayload):
+    leads = _load_store("leads", [])
+    for lead in leads:
+        if lead.get("id") == lead_id:
+            for k, v in payload.model_dump(exclude_none=True).items():
+                lead[k] = v
+            _save_store("leads", leads)
+            return {"lead": lead}
+    raise HTTPException(status_code=404, detail=f"lead {lead_id} not found")
+
+
+@app.delete("/api/hermes/leads/{lead_id}")
+def delete_lead(lead_id: str):
+    leads = _load_store("leads", [])
+    kept = [l for l in leads if l.get("id") != lead_id]
+    if len(kept) == len(leads):
+        raise HTTPException(status_code=404, detail=f"lead {lead_id} not found")
+    _save_store("leads", kept)
+    return {"deleted": lead_id}
+
+
+# ── Content calendar — local store + optional social scheduling ──────────────
+# Buffer's MODERN GraphQL API (graph.buffer.com) accepts the account's OIDC
+# token; its public surface is the Ideas workflow — we push planned content
+# into Buffer Ideas, where it gets dragged onto the posting queue. (The legacy
+# REST API rejects OIDC tokens.) Ayrshare remains a direct-scheduling fallback.
+
+BUFFER_TOKEN = _env_key("BUFFER_ACCESS_TOKEN", "BUFFER_TOKEN")
+BUFFER_ORG_ID = _env_key("BUFFER_ORGANIZATION_ID", "BUFFER_ORG_ID")
+AYRSHARE_KEY = _env_key("AYRSHARE_API_KEY", "AYRSHARE_KEY")
+BUFFER_GRAPHQL = "https://api.buffer.com/"
+
+
+def _buffer_graphql(query: str, variables: Optional[dict] = None) -> dict:
+    data = _http_json("POST", BUFFER_GRAPHQL,
+                      payload={"query": query, **({"variables": variables} if variables else {})},
+                      headers={"Authorization": f"Bearer {BUFFER_TOKEN}"}, timeout=45)
+    if data.get("errors"):
+        raise HTTPException(status_code=502, detail=f"buffer graphql: {data['errors'][0].get('message', data['errors'][0])}")
+    return data.get("data") or {}
+
+
+class CalendarItemPayload(BaseModel):
+    title: str
+    date: str  # ISO date or datetime
+    platform: str = "instagram"
+    body: Optional[str] = None
+    status: Optional[str] = "draft"  # draft | scheduled | posted
+    media_urls: Optional[list[str]] = None
+    # When true and AYRSHARE_API_KEY is set, schedule the post via Ayrshare.
+    publish: Optional[bool] = False
+
+
+@app.get("/api/content/calendar")
+def get_content_calendar():
+    """Real calendar: local store, plus the scheduler's queue when configured.
+    Provider preference: Buffer, then Ayrshare."""
+    items = _load_store("calendar", [])
+    scheduler: dict[str, Any] = {
+        "provider": "buffer" if (BUFFER_TOKEN and BUFFER_ORG_ID) else "ayrshare" if AYRSHARE_KEY else None,
+        "configured": bool((BUFFER_TOKEN and BUFFER_ORG_ID) or AYRSHARE_KEY),
+        "history": [],
+    }
+    try:
+        if BUFFER_TOKEN and BUFFER_ORG_ID:
+            # Ideas pushed from here are tracked in the local store (status
+            # 'idea-sent'); Buffer's public GraphQL surface is push-oriented,
+            # so the queue itself is managed inside Buffer.
+            scheduler["history"] = [
+                {"id": i.get("buffer_id"), "title": i.get("title", "")[:90],
+                 "date": i.get("date"), "platform": i.get("platform", "?"), "status": i.get("status", "idea-sent")}
+                for i in items if i.get("buffer_id")
+            ]
+        elif AYRSHARE_KEY:
+            hist = _http_json("GET", "https://api.ayrshare.com/api/history",
+                              headers={"Authorization": f"Bearer {AYRSHARE_KEY}"}, timeout=30)
+            posts = hist if isinstance(hist, list) else hist.get("history", hist.get("posts", []))
+            for p in (posts or [])[:50]:
+                scheduler["history"].append({
+                    "id": p.get("id"),
+                    "title": (p.get("post") or "")[:90],
+                    "date": p.get("scheduleDate") or p.get("created"),
+                    "platform": ",".join(p.get("platforms", [])) or "?",
+                    "status": p.get("status", "posted"),
+                })
+    except HTTPException as e:
+        scheduler["error"] = str(e.detail)
+    return {"calendar": items, "scheduler": scheduler}
+
+
+@app.post("/api/content/calendar")
+def add_calendar_item(payload: CalendarItemPayload):
+    import uuid
+    items = _load_store("calendar", [])
+    item = {
+        "id": f"cal_{uuid.uuid4().hex[:8]}",
+        "created_at": time.time(),
+        **payload.model_dump(exclude={"publish"}),
+    }
+    if payload.publish:
+        if BUFFER_TOKEN and BUFFER_ORG_ID:
+            # Push into Buffer Ideas via the modern GraphQL API. The idea text
+            # carries the planned date/platform so it's actionable inside Buffer.
+            idea_text = (payload.body or payload.title) + f"\n\n[planned: {payload.date} · {payload.platform} · via Mission Control]"
+            # Inline-args form mirrors Buffer's documented example exactly
+            # (avoids guessing their GraphQL input type names for variables).
+            mutation = (
+                "mutation CreateIdea { createIdea(input: { "
+                f"organizationId: {json.dumps(BUFFER_ORG_ID)}, "
+                f"content: {{ title: {json.dumps(payload.title)} text: {json.dumps(idea_text)} }} "
+                "}) { ... on Idea { id content { title text } } } }"
+            )
+            data = _buffer_graphql(mutation)
+            idea = data.get("createIdea") or {}
+            if not idea.get("id"):
+                raise HTTPException(status_code=502, detail=f"buffer createIdea returned no id: {json.dumps(idea)[:200]}")
+            item["status"] = "idea-sent"
+            item["buffer_id"] = idea["id"]
+        elif AYRSHARE_KEY:
+            resp = _http_json("POST", "https://api.ayrshare.com/api/post", payload={
+                "post": payload.body or payload.title,
+                "platforms": [payload.platform],
+                "scheduleDate": payload.date,
+                **({"mediaUrls": payload.media_urls} if payload.media_urls else {}),
+            }, headers={"Authorization": f"Bearer {AYRSHARE_KEY}"}, timeout=60)
+            item["status"] = "scheduled"
+            item["ayrshare_id"] = resp.get("id")
+        else:
+            raise HTTPException(status_code=400, detail="no scheduler configured — set BUFFER_ACCESS_TOKEN (preferred) or AYRSHARE_API_KEY in ~/.hermes/.env")
+    items.append(item)
+    items.sort(key=lambda x: x.get("date", ""))
+    _save_store("calendar", items)
+    return {"item": item}
+
+
+@app.delete("/api/content/calendar/{item_id}")
+def delete_calendar_item(item_id: str):
+    items = _load_store("calendar", [])
+    kept = [i for i in items if i.get("id") != item_id]
+    if len(kept) == len(items):
+        raise HTTPException(status_code=404, detail=f"calendar item {item_id} not found")
+    _save_store("calendar", kept)
+    return {"deleted": item_id}
+
+
+# ── Creator intel — Apify scraping of niche creators for viral-content signals ─
+
+APIFY_TOKEN = _env_key("APIFY_API_TOKEN", "APIFY_TOKEN")
+# Actor per platform; run-sync-get-dataset-items returns scraped items directly.
+# instagram-post-scraper returns POST items (likes/comments per post) — the
+# profile scraper only returns account objects, useless for viral ranking.
+APIFY_ACTORS = {
+    "instagram": "apify~instagram-post-scraper",
+    "tiktok": "clockworks~tiktok-scraper",
+}
+
+
+class CreatorPayload(BaseModel):
+    handle: str
+    platform: str = "instagram"
+    niche: Optional[str] = None
+
+
+@app.get("/api/creators")
+def get_creators():
+    """Watchlist + last scraped viral-signal feed."""
+    return {
+        "configured": bool(APIFY_TOKEN),
+        "watchlist": _load_store("creators-watchlist", []),
+        "feed": _load_store("creators-feed", {"scraped_at": None, "items": []}),
+    }
+
+
+@app.post("/api/creators/watch")
+def watch_creator(payload: CreatorPayload):
+    wl = _load_store("creators-watchlist", [])
+    handle = payload.handle.lstrip("@").strip()
+    if any(w["handle"] == handle and w["platform"] == payload.platform for w in wl):
+        raise HTTPException(status_code=409, detail=f"@{handle} already on the watchlist")
+    wl.append({"handle": handle, "platform": payload.platform, "niche": payload.niche, "added_at": time.time()})
+    _save_store("creators-watchlist", wl)
+    return {"watchlist": wl}
+
+
+@app.delete("/api/creators/watch/{platform}/{handle}")
+def unwatch_creator(platform: str, handle: str):
+    wl = _load_store("creators-watchlist", [])
+    kept = [w for w in wl if not (w["handle"] == handle and w["platform"] == platform)]
+    _save_store("creators-watchlist", kept)
+    return {"watchlist": kept}
+
+
+@app.post("/api/creators/scrape")
+def scrape_creators():
+    """Run Apify scrapers over the watchlist and rank posts by engagement.
+    Slow (Apify actor runs take 1-4 min) — call on demand or from a cron."""
+    if not APIFY_TOKEN:
+        raise HTTPException(status_code=400, detail="APIFY_API_TOKEN not configured in the bridge environment")
+    wl = _load_store("creators-watchlist", [])
+    if not wl:
+        raise HTTPException(status_code=400, detail="watchlist is empty — add creators first")
+
+    items: list[dict] = []
+    errors: list[str] = []
+    by_platform: dict[str, list[str]] = {}
+    for w in wl:
+        by_platform.setdefault(w["platform"], []).append(w["handle"])
+
+    for platform, handles in by_platform.items():
+        actor = APIFY_ACTORS.get(platform)
+        if not actor:
+            errors.append(f"no Apify actor mapped for platform '{platform}'")
+            continue
+        if platform == "instagram":
+            run_input = {"username": handles, "resultsLimit": 12}
+        else:  # tiktok
+            run_input = {"profiles": handles, "resultsPerPage": 12, "shouldDownloadVideos": False}
+        try:
+            data = _http_json(
+                "POST",
+                f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items?token={APIFY_TOKEN}&timeout=240",
+                payload=run_input, timeout=280,
+            )
+            raw_items = data if isinstance(data, list) else []
+            # Profile-shaped objects carry their posts under latestPosts — expand.
+            expanded: list[dict] = []
+            for it in raw_items:
+                if isinstance(it.get("latestPosts"), list):
+                    expanded.extend(it["latestPosts"])
+                else:
+                    expanded.append(it)
+            for it in expanded:
+                likes = it.get("likesCount") or it.get("diggCount") or 0
+                comments = it.get("commentsCount") or it.get("commentCount") or 0
+                views = it.get("videoViewCount") or it.get("playCount") or 0
+                items.append({
+                    "platform": platform,
+                    "creator": it.get("ownerUsername") or it.get("authorMeta", {}).get("name") or "?",
+                    "caption": (it.get("caption") or it.get("text") or "")[:280],
+                    "url": it.get("url") or it.get("webVideoUrl") or "",
+                    "likes": likes, "comments": comments, "views": views,
+                    "posted_at": it.get("timestamp") or it.get("createTime") or None,
+                    # crude viral score: engagement weighted toward velocity-friendly signals
+                    "viral_score": int(likes + comments * 8 + views * 0.02),
+                })
+        except HTTPException as e:
+            errors.append(f"{platform}: {e.detail}")
+
+    items.sort(key=lambda x: x["viral_score"], reverse=True)
+    feed = {"scraped_at": datetime.now().isoformat(), "items": items[:120], "errors": errors}
+    _save_store("creators-feed", feed)
+    return feed
+
+
+# ── Consolidated AI digest — LLM-synthesized from Sentinel, ranked for virality ─
+
+DIGEST_MAX_AGE_H = 12
+
+
+@app.get("/api/hermes/ai-digest")
+def get_ai_digest():
+    """Cached consolidated digest (regenerate with POST /api/hermes/ai-digest)."""
+    digest = _load_store("ai-digest", None)
+    if not digest:
+        return {"available": False, "reason": "not generated yet — POST /api/hermes/ai-digest"}
+    return {"available": True, **digest}
+
+
+@app.post("/api/hermes/ai-digest")
+def generate_ai_digest():
+    """Synthesize Sentinel's raw story links into ONE consolidated digest with
+    viral-potential content ideas, via `hermes -z`. Slow (LLM): 1-3 min."""
+    latest = SENTINEL_CACHE_DIR / "latest.json"
+    if not latest.exists():
+        raise HTTPException(status_code=404, detail="no Sentinel digest cached yet — run the Sentinel cron first")
+    stories = json.loads(latest.read_text(encoding="utf-8")).get("stories", [])[:25]
+    if not stories:
+        raise HTTPException(status_code=404, detail="Sentinel cache has no stories")
+    story_lines = "\n".join(f"- {s['title']} ({s['source']}, score {s.get('score', 0)}) {s['url']}" for s in stories)
+    prompt = (
+        "You are the AI-news editor for a content creator in the AI/autonomous-agents niche. "
+        "From the headlines below, produce STRICT JSON (no markdown fences, no prose) with this shape: "
+        '{"summary": "<one tight paragraph consolidating today\'s AI news narrative>", '
+        '"ideas": [{"title": "<content idea headline>", "angle": "<the specific viral hook/angle>", '
+        '"why_viral": "<why this can go viral now>", "source_url": "<most relevant url>"}]} '
+        "Pick the 5-7 stories with the highest viral potential for short-form content. Headlines:\n" + story_lines
+    )
+    resp = run_hermes("-z", prompt, timeout=240)
+    raw = resp["stdout"].strip()
+    # Tolerate accidental fences or leading text around the JSON.
+    m = re.search(r"\{.*\}", raw, re.S)
+    if not m:
+        raise HTTPException(status_code=502, detail=f"model returned no JSON: {raw[:200]}")
+    try:
+        parsed = json.loads(m.group(0))
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail=f"model JSON invalid: {e}")
+    digest = {
+        "generated_at": datetime.now().isoformat(),
+        "summary": parsed.get("summary", ""),
+        "ideas": parsed.get("ideas", [])[:8],
+        "story_count": len(stories),
+    }
+    _save_store("ai-digest", digest)
+    return {"available": True, **digest}
 
 @app.get("/api/hermes/sentinel")
 def get_hermes_sentinel():
@@ -1371,6 +1802,7 @@ def get_hermes_sentinel():
                     capture_output=True,
                     text=True,
                     timeout=120,
+                    creationflags=CREATE_NO_WINDOW,
                 )
             except Exception:
                 pass
@@ -1405,6 +1837,7 @@ def get_sentinel_digest():
                     capture_output=True,
                     text=True,
                     timeout=120,
+                    creationflags=CREATE_NO_WINDOW,
                 )
             except Exception:
                 pass
@@ -1448,6 +1881,579 @@ def get_sentinel_digest_by_date(date: str):
             return json.load(f)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse digest: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# Capability endpoints — full Hermes CLI surface for Mission Control
+# ---------------------------------------------------------------------------
+# All parsers are tolerant: they extract what they can from the human-readable
+# CLI tables and ALWAYS include the raw text so the UI can fall back to it.
+
+_BOX_VERT = ("│", "┃", "|")
+
+
+def _split_table_row(line: str) -> list[str]:
+    """Split a box-drawing table row into trimmed cells."""
+    for ch in _BOX_VERT[:2]:
+        if ch in line:
+            return [c.strip() for c in line.strip().strip(ch).split(ch)]
+    return []
+
+
+def _cols(line: str) -> list[str]:
+    """Split a plain table row on runs of 2+ spaces."""
+    return [c.strip() for c in re.split(r"\s{2,}", line.strip()) if c.strip()]
+
+
+@app.get("/api/hermes/overview")
+def get_hermes_overview():
+    """Parsed `hermes status` — model, API keys, messaging platforms, gateway."""
+    resp = run_hermes("status", timeout=90)
+    raw = resp["stdout"]
+    out: dict[str, Any] = {"model": None, "provider": None, "platforms": [],
+                           "gateway": {"running": False, "pids": []},
+                           "jobs": None, "sessions": None, "api_keys": [], "raw": raw}
+    section = ""
+    for line in raw.splitlines():
+        s = line.strip()
+        low = s.lower()
+        if not s:
+            continue
+        # Section headers are emoji-prefixed titles without ':' key-value shape.
+        if "api key" in low and ":" not in s:
+            section = "keys"; continue
+        if "messaging platforms" in low:
+            section = "platforms"; continue
+        if "gateway service" in low:
+            section = "gateway"; continue
+        if "scheduled jobs" in low:
+            section = "jobs"; continue
+        if "sessions" in low and ":" not in s:
+            section = "sessions"; continue
+        if "auth providers" in low or "api-key providers" in low or "terminal backend" in low or "environment" in low:
+            section = "env" if "environment" in low else "other"; continue
+
+        m = re.match(r"^(Model|Provider):\s+(.*)$", s)
+        if m:
+            out[m.group(1).lower()] = m.group(2).strip()
+            continue
+        if section == "keys":
+            km = re.match(r"^([\w ./()-]+?)\s{2,}(.+)$", s)
+            if km:
+                val = km.group(2)
+                out["api_keys"].append({
+                    "name": km.group(1).strip(),
+                    "set": "not set" not in val,
+                })
+            continue
+        if section == "platforms":
+            pm = re.match(r"^([\w ()-]+?)\s{2,}(.+)$", s)
+            if pm:
+                val = pm.group(2)
+                home = re.search(r"home:\s*([^)]+)\)", val)
+                out["platforms"].append({
+                    "name": pm.group(1).strip(),
+                    "configured": "configured" in val and "not configured" not in val,
+                    "home": home.group(1).strip() if home else None,
+                })
+            continue
+        if section == "gateway":
+            if low.startswith("status:"):
+                out["gateway"]["running"] = "running" in low
+            pid_m = re.search(r"PID\(s\):\s+([\d, ]+)", s) or re.search(r"PID:\s*(\d+)", s)
+            if pid_m:
+                out["gateway"]["pids"] = [int(p) for p in re.findall(r"\d+", pid_m.group(1))]
+            continue
+        if section == "jobs":
+            jm = re.match(r"^Jobs:\s+(.*)$", s)
+            if jm:
+                out["jobs"] = jm.group(1)
+            continue
+        if section == "sessions":
+            sm = re.match(r"^Active:\s+(.*)$", s)
+            if sm:
+                out["sessions"] = sm.group(1)
+            continue
+    return out
+
+
+@app.get("/api/hermes/skills")
+def get_hermes_skills():
+    """Parsed `hermes skills list` — installed skills with category/source/status."""
+    resp = run_hermes("skills", "list", timeout=90)
+    raw = resp["stdout"]
+    skills = []
+    for line in raw.splitlines():
+        cells = _split_table_row(line)
+        if len(cells) >= 5 and cells[0] and cells[0] != "Name" and not set(cells[0]) <= set("-+"):
+            skills.append({
+                "name": cells[0], "category": cells[1], "source": cells[2],
+                "trust": cells[3], "enabled": cells[4].lower() == "enabled",
+            })
+    summary = None
+    sm = re.search(r"(\d+) hub-installed, (\d+) builtin, (\d+) local\s+\W\s+(\d+) enabled, (\d+) disabled", raw)
+    if sm:
+        summary = {"hub": int(sm.group(1)), "builtin": int(sm.group(2)), "local": int(sm.group(3)),
+                   "enabled": int(sm.group(4)), "disabled": int(sm.group(5))}
+    return {"skills": skills, "summary": summary, "raw": raw}
+
+
+@app.get("/api/hermes/mcp")
+def get_hermes_mcp():
+    """Parsed `hermes mcp list` — configured MCP servers."""
+    resp = run_hermes("mcp", "list", timeout=90)
+    raw = resp["stdout"]
+    servers = []
+    in_table = False
+    for line in raw.splitlines():
+        s = line.rstrip()
+        if re.match(r"^\s*Name\s{2,}Transport", s):
+            in_table = True
+            continue
+        if in_table:
+            if not s.strip() or set(s.strip()) <= set("- "):
+                if servers:
+                    break
+                continue
+            cells = _cols(s)
+            if len(cells) >= 4:
+                servers.append({"name": cells[0], "transport": cells[1], "tools": cells[2],
+                                "enabled": "enabled" in cells[3].lower()})
+    return {"servers": servers, "raw": raw}
+
+
+@app.post("/api/hermes/mcp/{name}/test")
+def test_hermes_mcp(name: str):
+    """`hermes mcp test <name>` — connection probe."""
+    resp = run_hermes("mcp", "test", name, timeout=120)
+    return {"message": resp["stdout"], "ok": resp["success"]}
+
+
+@app.get("/api/hermes/plugins")
+def get_hermes_plugins():
+    """Parsed `hermes plugins list --plain` — status/source/version/name rows."""
+    resp = run_hermes("plugins", "list", "--plain", timeout=90)
+    raw = resp["stdout"]
+    plugins = []
+    for line in raw.splitlines():
+        # e.g. "not enabled  bundled  1.0.0    browser-browser-use"
+        m = re.match(r"^(enabled|not enabled|disabled)\s{2,}(\S+)\s{2,}(\S+)\s{2,}(\S+)\s*$", line.strip())
+        if m:
+            plugins.append({"status": m.group(1), "source": m.group(2),
+                            "version": m.group(3), "name": m.group(4),
+                            "enabled": m.group(1) == "enabled"})
+    return {"plugins": plugins, "raw": raw}
+
+
+@app.post("/api/hermes/plugins/{name}/enable")
+def enable_hermes_plugin(name: str):
+    resp = run_hermes("plugins", "enable", name, timeout=120)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/plugins/{name}/disable")
+def disable_hermes_plugin(name: str):
+    resp = run_hermes("plugins", "disable", name, timeout=120)
+    return {"message": resp["stdout"]}
+
+
+GATEWAY_API_PORT = int(os.environ.get("HERMES_GATEWAY_API_PORT", "8642"))
+
+
+def _gateway_api_alive() -> bool:
+    """Authoritative gateway liveness: its api_server answering on 8642.
+    Process scans lie — a TTY-less direct-spawned gateway can hang forever
+    without ever binding the port, and transient `hermes gateway *` CLI calls
+    match the CLI's own process heuristics."""
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", GATEWAY_API_PORT), timeout=1.5):
+            return True
+    except OSError:
+        return False
+
+
+@app.get("/api/hermes/gateway")
+def get_hermes_gateway():
+    """Gateway service status + per-profile gateway list."""
+    # SERIAL on purpose. `hermes gateway status` finds the gateway by scanning
+    # process command lines — when `gateway list` runs concurrently (an earlier
+    # latency optimization), status matches its own sibling CLI invocation and
+    # reports a phantom "Gateway process running (PID: <the list call>)". That
+    # phantom made the UI show BOOTING forever and suppressed auto-recovery.
+    status = run_hermes("gateway", "status", timeout=60)
+    listing = run_hermes("gateway", "list", timeout=60)
+    raw_status, raw_list = status["stdout"], listing["stdout"]
+    service = {
+        # Match "Gateway process running (PID: n)" specifically — the scheduled
+        # task's own "Status: Running" line false-positives a bare substring.
+        "running": bool(re.search(r"process running", raw_status, re.I)),
+        "api_listening": _gateway_api_alive(),
+        "manager": None,
+        "pids": [int(p) for p in re.findall(r"process running \(PID:?\s*(\d+)", raw_status, re.I)],
+    }
+    mm = re.search(r"(Scheduled Task registered|Manager):\s*(.+)", raw_status)
+    if mm:
+        service["manager"] = mm.group(2).strip()
+    gateways = []
+    for line in raw_list.splitlines():
+        m = re.match(r"^\s+\S?\s*([\w-]+)(\s+\(current\))?\s+\W\s+(.*)$", line.rstrip())
+        if m and m.group(1).lower() != "gateways":
+            tail = m.group(3)
+            pid = re.search(r"PID\s+(\d+)", tail)
+            gateways.append({
+                "name": m.group(1),
+                "current": bool(m.group(2)),
+                "running": pid is not None,
+                "pid": int(pid.group(1)) if pid else None,
+            })
+    return {"service": service, "gateways": gateways, "raw": raw_status + "\n" + raw_list}
+
+
+class GatewayActionPayload(BaseModel):
+    action: str  # start | stop | restart
+
+
+@app.post("/api/hermes/gateway/action")
+def gateway_action(payload: GatewayActionPayload):
+    if payload.action not in ("start", "stop", "restart"):
+        raise HTTPException(status_code=400, detail="action must be start|stop|restart")
+    # Hard-won lessons encoded here:
+    #  * `hermes gateway start` run from a TTY-less bridge can take the CLI's
+    #    direct-spawn fallback, producing a gateway that hangs forever without
+    #    logging or binding its port — a zombie that then poisons the CLI's
+    #    process-scan "already running" checks. So on Windows we start via the
+    #    Scheduled Task directly (clean pythonw environment, proven path).
+    #  * Liveness is judged ONLY by the gateway api port answering — process
+    #    scans match transient `hermes gateway *` CLI calls and hung zombies.
+    #  * A cold boot can take 60s+ under load; we wait a bounded 20s and
+    #    return pending=True so the UI keeps polling instead of blocking.
+    def _quiet_cli(*cli_args: str, timeout: int) -> None:
+        subprocess.run(
+            [HERMES_CMD, *cli_args],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+            creationflags=CREATE_NO_WINDOW,
+        )
+
+    try:
+        if payload.action in ("stop", "restart"):
+            _quiet_cli("gateway", "stop", timeout=90)
+        if payload.action in ("start", "restart"):
+            started_via_task = False
+            if os.name == "nt":
+                # /End first: if a previous task instance is wedged in the
+                # "Running" state (dead pythonw, lingering cmd wrapper), /Run
+                # is a silent no-op with result 267009. /End on a not-running
+                # task errors harmlessly.
+                subprocess.run(
+                    ["schtasks", "/End", "/TN", "Hermes_Gateway"],
+                    capture_output=True, text=True, timeout=30,
+                    creationflags=CREATE_NO_WINDOW,
+                )
+                time.sleep(1)
+                r = subprocess.run(
+                    ["schtasks", "/Run", "/TN", "Hermes_Gateway"],
+                    capture_output=True, text=True, timeout=30,
+                    creationflags=CREATE_NO_WINDOW,
+                )
+                started_via_task = r.returncode == 0
+            if not started_via_task:
+                _quiet_cli("gateway", "start", timeout=120)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail=f"gateway {payload.action} timed out")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Hermes CLI / schtasks not found")
+
+    if payload.action == "stop":
+        return {"message": "gateway stop: drained", "running": _gateway_api_alive(), "pending": False}
+
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        if _gateway_api_alive():
+            return {"message": f"gateway {payload.action}: api answering on :{GATEWAY_API_PORT}", "running": True, "pending": False}
+        time.sleep(1.5)
+    return {
+        "message": f"gateway {payload.action} issued — still booting (can take 60s+ under load)",
+        "running": False,
+        "pending": True,
+    }
+
+
+@app.get("/api/hermes/send/targets")
+def get_send_targets():
+    """Parsed `hermes send --list` — configured delivery targets per platform."""
+    resp = run_hermes("send", "--list", timeout=60)
+    raw = resp["stdout"]
+    platforms: list[dict[str, Any]] = []
+    current: Optional[dict[str, Any]] = None
+    for line in raw.splitlines():
+        hm = re.match(r"^([A-Za-z][\w ]+):\s*$", line.strip())
+        if hm and "target" not in hm.group(1).lower():
+            current = {"platform": hm.group(1), "targets": []}
+            platforms.append(current)
+            continue
+        if current and line.startswith("  ") and line.strip():
+            t = line.strip()
+            if not t.lower().startswith(("use these", "bare platform")):
+                current["targets"].append(t)
+    return {"platforms": platforms, "raw": raw}
+
+
+class SendMessagePayload(BaseModel):
+    target: str
+    message: str
+    subject: Optional[str] = None
+
+
+@app.post("/api/hermes/send")
+def send_hermes_message(payload: SendMessagePayload):
+    """`hermes send --to <target> --json <message>` — direct platform delivery."""
+    args = ["send", "--to", payload.target, "--json"]
+    if payload.subject:
+        args += ["--subject", payload.subject]
+    args.append(payload.message)
+    resp = run_hermes(*args, timeout=90)
+    return {"result": resp["data"], "message": resp["stdout"]}
+
+
+@app.get("/api/hermes/webhooks")
+def get_hermes_webhooks():
+    """`hermes webhook list` — subscriptions, or enabled=false with setup hint."""
+    resp = run_hermes("webhook", "list", timeout=60)
+    raw = resp["stdout"]
+    enabled = "not enabled" not in raw.lower()
+    subs = []
+    if enabled:
+        for line in raw.splitlines():
+            cells = _split_table_row(line) or _cols(line)
+            if len(cells) >= 2 and cells[0].lower() not in ("id", "route", "name"):
+                subs.append({"cells": cells})
+    return {"enabled": enabled, "subscriptions": subs, "raw": raw}
+
+
+@app.get("/api/hermes/memory")
+def get_hermes_memory():
+    """Parsed `hermes memory status` — active provider + installed providers."""
+    resp = run_hermes("memory", "status", timeout=60)
+    raw = resp["stdout"]
+    out: dict[str, Any] = {"provider": None, "plugin_installed": False,
+                           "available": False, "providers": [], "raw": raw}
+    for line in raw.splitlines():
+        s = line.strip()
+        m = re.match(r"^Provider:\s+(\S+)", s)
+        if m:
+            out["provider"] = m.group(1)
+        if s.lower().startswith("plugin:"):
+            out["plugin_installed"] = "installed" in s.lower()
+        if s.lower().startswith("status:"):
+            out["available"] = "available" in s.lower()
+        pm = re.match(r"^\W?\s*([\w-]+)\s+\(([^)]+)\)(.*)$", s)
+        if pm and pm.group(2) and ("key" in pm.group(2).lower() or "local" in pm.group(2).lower()):
+            out["providers"].append({
+                "name": pm.group(1), "auth": pm.group(2),
+                "active": "active" in pm.group(3).lower(),
+            })
+    return out
+
+
+@app.get("/api/hermes/curator")
+def get_hermes_curator():
+    """Parsed `hermes curator status` — runs, cadence, skill activity."""
+    resp = run_hermes("curator", "status", timeout=60)
+    raw = resp["stdout"]
+    out: dict[str, Any] = {"enabled": "ENABLED" in raw, "runs": None, "last_run": None,
+                           "interval": None, "skills_total": None, "active": None,
+                           "stale": None, "archived": None, "most_active": [], "raw": raw}
+    for line in raw.splitlines():
+        s = line.strip()
+        for key, field in (("runs:", "runs"), ("last run:", "last_run"), ("interval:", "interval")):
+            if s.lower().startswith(key):
+                out[field] = s.split(":", 1)[1].strip()
+        tm = re.match(r"^agent-created skills:\s+(\d+) total", s)
+        if tm:
+            out["skills_total"] = int(tm.group(1))
+        for field in ("active", "stale", "archived"):
+            fm = re.match(rf"^{field}\s+(\d+)$", s)
+            if fm:
+                out[field] = int(fm.group(1))
+    # "most active (top 5):" rows: name  activity=N use=N view=N patches=N last_activity=X
+    in_most = False
+    for line in raw.splitlines():
+        if "most active" in line.lower():
+            in_most = True
+            continue
+        if in_most:
+            am = re.match(r"^\s+([\w-]+)\s+activity=\s*(\d+).*last_activity=(.+)$", line)
+            if am:
+                out["most_active"].append({"name": am.group(1), "activity": int(am.group(2)),
+                                           "last_activity": am.group(3).strip()})
+            elif line.strip() and not line.startswith("  "):
+                break
+            if len(out["most_active"]) >= 5:
+                break
+    return out
+
+
+@app.get("/api/hermes/insights")
+def get_hermes_insights(days: int = 30):
+    """Parsed `hermes insights --days N` — usage analytics."""
+    resp = run_hermes("insights", "--days", str(days), timeout=180)
+    raw = resp["stdout"]
+    out: dict[str, Any] = {"days": days, "overview": {}, "models": [], "platforms": [],
+                           "top_tools": [], "weekday_activity": [], "peak_hours": None, "raw": raw}
+    # Overview pairs can appear two per line; scan globally.
+    for key, field in (
+        ("Sessions", "sessions"), ("Messages", "messages"), ("Tool calls", "tool_calls"),
+        ("User messages", "user_messages"), ("Input tokens", "input_tokens"),
+        ("Output tokens", "output_tokens"), ("Total tokens", "total_tokens"),
+        ("Active time", "active_time"), ("Avg session", "avg_session"),
+        ("Avg msgs/session", "avg_msgs_per_session"),
+    ):
+        m = re.search(rf"{re.escape(key)}:\s+([~\d,.\w%/ ]+?)(?:\s{{2,}}|$)", raw, re.M)
+        if m:
+            val = m.group(1).strip()
+            num = val.replace(",", "")
+            out["overview"][field] = int(num) if num.isdigit() else val
+    section = ""
+    for line in raw.splitlines():
+        low = line.lower()
+        if "models used" in low:
+            section = "models"; continue
+        if "platforms" in low and "---" not in low:
+            section = "platforms"; continue
+        if "top tools" in low:
+            section = "tools"; continue
+        if "top skills" in low or "activity patterns" in low:
+            section = "activity" if "activity" in low else ""
+            continue
+        if "notable sessions" in low:
+            section = ""; continue
+        s = line.strip()
+        if not s or set(s) <= set("-– ") or s.lower().startswith(("model ", "platform ", "tool ", "peak hours", "active days", "best streak", "... and")):
+            pm = re.match(r"^Peak hours:\s+(.*)$", s)
+            if pm:
+                out["peak_hours"] = pm.group(1)
+            continue
+        if section == "models":
+            m = re.match(r"^(\S+)\s{2,}([\d,]+)\s{2,}([\d,]+)$", s)
+            if m:
+                out["models"].append({"model": m.group(1), "sessions": int(m.group(2).replace(",", "")),
+                                      "tokens": int(m.group(3).replace(",", ""))})
+        elif section == "platforms":
+            m = re.match(r"^(\S+)\s{2,}([\d,]+)\s{2,}([\d,]+)\s{2,}([\d,]+)$", s)
+            if m:
+                out["platforms"].append({"platform": m.group(1), "sessions": int(m.group(2).replace(",", "")),
+                                         "messages": int(m.group(3).replace(",", "")),
+                                         "tokens": int(m.group(4).replace(",", ""))})
+        elif section == "tools":
+            m = re.match(r"^(\S+)\s{2,}([\d,]+)\s{2,}([\d.]+)%$", s)
+            if m:
+                out["top_tools"].append({"tool": m.group(1), "calls": int(m.group(2).replace(",", "")),
+                                         "pct": float(m.group(3))})
+        elif section == "activity":
+            m = re.match(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\S*\s*(\d+)$", s)
+            if m:
+                out["weekday_activity"].append({"day": m.group(1), "sessions": int(m.group(2))})
+    return out
+
+
+@app.get("/api/hermes/doctor")
+def get_hermes_doctor():
+    """`hermes doctor` — config/dependency diagnostics, classified per line."""
+    resp = run_hermes("doctor", timeout=180)
+    raw = resp["stdout"] + ("\n" + resp["stderr"] if resp["stderr"] else "")
+    checks = []
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        level = None
+        if re.match(r"^(✓|✔|OK\b|\[ok\])", s, re.I):
+            level = "ok"
+        elif re.match(r"^(⚠|WARN|warning)", s, re.I) or "warning" in s.lower():
+            level = "warn"
+        elif re.match(r"^(✗|✘|×|FAIL|ERROR)", s, re.I):
+            level = "fail"
+        if level:
+            checks.append({"level": level, "text": s.lstrip("✓✔✗✘×⚠ ").strip()})
+    counts = {lvl: sum(1 for c in checks if c["level"] == lvl) for lvl in ("ok", "warn", "fail")}
+    return {"checks": checks, "counts": counts, "raw": raw}
+
+
+@app.get("/api/hermes/logs")
+def get_hermes_logs(name: str = "agent", lines: int = 80, level: Optional[str] = None, since: Optional[str] = None):
+    """`hermes logs <name> -n <lines>` — tail of agent/errors/gateway/gui logs."""
+    if name not in ("agent", "errors", "gateway", "gui", "desktop"):
+        raise HTTPException(status_code=400, detail="name must be agent|errors|gateway|gui|desktop")
+    args = ["logs", name, "-n", str(max(1, min(lines, 500)))]
+    if level:
+        args += ["--level", level]
+    if since:
+        args += ["--since", since]
+    resp = run_hermes(*args, timeout=60)
+    return {"name": name, "lines": resp["stdout"].splitlines()}
+
+
+@app.get("/api/hermes/model")
+def get_hermes_model():
+    """Current model/provider (from status) + fallback chain."""
+    overview = get_hermes_overview()
+    fb = run_hermes("fallback", "list", timeout=60)
+    fb_raw = fb["stdout"]
+    fallbacks = []
+    if "no fallback providers" not in fb_raw.lower():
+        for line in fb_raw.splitlines():
+            m = re.match(r"^\s*(?:#?\d+[.)]?\s+)?(\S.*)$", line.strip())
+            if m and m.group(1) and "add one with" not in m.group(1).lower():
+                fallbacks.append(m.group(1))
+    return {"model": overview["model"], "provider": overview["provider"],
+            "fallbacks": fallbacks, "raw": fb_raw}
+
+
+@app.get("/api/hermes/auth")
+def get_hermes_auth():
+    """Parsed `hermes auth list` — pooled provider credentials."""
+    resp = run_hermes("auth", "list", timeout=60)
+    raw = resp["stdout"]
+    providers = []
+    current = None
+    for line in raw.splitlines():
+        hm = re.match(r"^(\S+) \((\d+) credentials?\):", line.strip())
+        if hm:
+            current = {"provider": hm.group(1), "count": int(hm.group(2)), "credentials": []}
+            providers.append(current)
+            continue
+        cm = re.match(r"^#(\d+)\s+(\S+)\s+(\S+)\s+(\S+)", line.strip())
+        if cm and current:
+            current["credentials"].append({"index": int(cm.group(1)), "label": cm.group(2),
+                                           "kind": cm.group(3), "source": cm.group(4)})
+    return {"providers": providers, "raw": raw}
+
+
+@app.get("/api/hermes/checkpoints")
+def get_hermes_checkpoints():
+    """`hermes checkpoints status` — shadow-repo disk usage."""
+    resp = run_hermes("checkpoints", "status", timeout=60)
+    return {"raw": resp["stdout"]}
+
+
+@app.get("/api/hermes/pairing")
+def get_hermes_pairing():
+    """`hermes pairing list` — pending + approved DM users."""
+    resp = run_hermes("pairing", "list", timeout=60)
+    return {"raw": resp["stdout"]}
+
+
+@app.get("/api/hermes/security/audit")
+def run_security_audit():
+    """`hermes security audit` — OSV.dev supply-chain scan (slow, on demand)."""
+    resp = run_hermes("security", "audit", timeout=300)
+    raw = resp["stdout"]
+    vulns = len(re.findall(r"(CVE-\d{4}-\d+|GHSA-[\w-]+|OSV-[\w-]+)", raw))
+    return {"vulnerabilities": vulns, "raw": raw}
 
 
 # ---------------------------------------------------------------------------

@@ -141,7 +141,7 @@ export default function TaskSearch() {
       >
         {/* Search row */}
         <div className="flex items-center gap-2 px-3 h-[44px] border-b border-white/10 bg-[#080808]">
-          <span className="text-[#f64e6e] font-mono text-[12px]">⌕</span>
+          <span className="text-[#f64e6e] font-mono text-[11px]">⌕</span>
           <input
             ref={inputRef}
             value={query}
@@ -150,7 +150,7 @@ export default function TaskSearch() {
             placeholder="Find a task by title, id, assignee, or status…"
             className="flex-1 bg-transparent outline-none text-[13px] text-white placeholder:text-[#545454] font-mono"
           />
-          <span className="text-[9px] font-mono text-[#363636] border border-white/10 px-1.5 py-0.5 rounded-sm">ESC</span>
+          <span className="text-[10px] font-mono text-[#363636] border border-white/10 px-1.5 py-0.5 rounded-sm">ESC</span>
         </div>
 
         {/* Status filter chips */}
@@ -159,7 +159,7 @@ export default function TaskSearch() {
             <button
               key={f}
               onClick={() => { setStatusFilter(f); setActive(0); }}
-              className={`px-2 py-0.5 text-[9px] font-mono tracking-[0.15em] border ${
+              className={`px-2 py-0.5 text-[10px] font-mono tracking-[0.15em] border ${
                 statusFilter === f ? 'border-[#f64e6e] text-[#f64e6e] bg-[#f64e6e]/5' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'
               }`}
             >
@@ -187,7 +187,7 @@ export default function TaskSearch() {
               >
                 <Pill tone={statusTone(t.status)} className="shrink-0">{t.status.toUpperCase()}</Pill>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[12px] text-white truncate">{t.title}</div>
+                  <div className="text-[11px] text-white truncate">{t.title}</div>
                   <div className="text-[10px] font-mono text-[#545454] truncate">
                     {t.id} · {t.assignee || 'unassigned'} · P{t.priority}
                   </div>
@@ -201,7 +201,7 @@ export default function TaskSearch() {
         {/* Footer hint */}
         <div className="flex items-center justify-between px-3 h-[28px] border-t border-white/10 bg-[#080808]">
           <Label className="text-[#363636]">TASK SEARCH · ⌘F</Label>
-          <div className="flex items-center gap-3 text-[9px] font-mono text-[#545454]">
+          <div className="flex items-center gap-3 text-[10px] font-mono text-[#545454]">
             <span>↑↓ navigate</span>
             <span>↵ open in ops</span>
             <span>{results.length} results</span>

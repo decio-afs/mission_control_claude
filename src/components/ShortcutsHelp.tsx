@@ -110,7 +110,7 @@ export default function ShortcutsHelp() {
             <span className="text-[#f64e6e] font-mono text-[13px]">?</span>
             <Label className="text-[#b8b8b8] truncate">KEYBOARD SHORTCUTS</Label>
           </div>
-          <span className="text-[9px] font-mono text-[#363636] border border-white/10 px-1.5 py-0.5 rounded-sm shrink-0">ESC</span>
+          <span className="text-[10px] font-mono text-[#363636] border border-white/10 px-1.5 py-0.5 rounded-sm shrink-0">ESC</span>
         </div>
 
         {/* Groups */}
@@ -126,8 +126,8 @@ export default function ShortcutsHelp() {
                     <span className="flex items-center gap-1 shrink-0 pt-0.5">
                       {s.keys.map((k, ki) => (
                         <span key={ki} className="inline-flex items-center">
-                          {ki > 0 && <span className="text-[#363636] text-[9px] mx-0.5 font-mono">/</span>}
-                          <kbd className="font-mono text-[9px] text-[#e8e8e8] bg-white/[0.04] border border-white/15 rounded-sm px-1.5 py-0.5 leading-none whitespace-nowrap">
+                          {ki > 0 && <span className="text-[#363636] text-[10px] mx-0.5 font-mono">/</span>}
+                          <kbd className="font-mono text-[10px] text-[#e8e8e8] bg-white/[0.04] border border-white/15 rounded-sm px-1.5 py-0.5 leading-none whitespace-nowrap">
                             {k}
                           </kbd>
                         </span>
@@ -147,7 +147,7 @@ export default function ShortcutsHelp() {
         {/* Footer hint */}
         <div className="flex items-center justify-between px-3 h-[28px] border-t border-white/10 bg-[#080808] shrink-0">
           <Label className="text-[#363636]">MISSION CONTROL · LEGEND</Label>
-          <div className="flex items-center gap-3 text-[9px] font-mono text-[#545454]">
+          <div className="flex items-center gap-3 text-[10px] font-mono text-[#545454]">
             <span>press <span className="text-[#b8b8b8]">?</span> to toggle</span>
             <span>Esc to close</span>
           </div>

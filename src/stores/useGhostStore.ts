@@ -34,6 +34,28 @@ export interface AgentActivity {
   detail?: string;
 }
 
+/** Rolling fleet telemetry — one sample per successful topology poll. */
+export interface FleetHistory {
+  running: number[];
+  queue: number[];
+  online: number[];
+}
+
+/** Synthetic-but-derived load score in [5,98] — shared by the deck UI and the
+ * history sampler so the sparkline plots exactly what the gauges show. */
+export function agentLoad(n: GhostNode): number {
+  const online = n.status === 'active' || n.status === 'online';
+  const r = n.tasks_running ?? 0, q = n.queue_depth ?? 0;
+  const load = 0.1 + r * 0.22 + q * 0.04 + (online ? 0.08 : 0);
+  return Math.round(Math.max(0.05, Math.min(0.98, load)) * 100);
+}
+
+const HISTORY_CAP = 48;
+const pushCapped = (arr: number[], v: number) => {
+  arr.push(v);
+  if (arr.length > HISTORY_CAP) arr.shift();
+};
+
 interface GhostStore {
   nodes: GhostNode[];
   isConnected: boolean;
@@ -41,6 +63,9 @@ interface GhostStore {
   error: string | null;
   lastSync: Date | null;
   agentActivity: AgentActivity[];
+  /** Real sampled history (per topology poll) for fleet + per-agent sparklines. */
+  history: FleetHistory;
+  agentLoadHistory: Record<string, number[]>;
   fetchTopology: () => Promise<void>;
   createAgent: (payload: AgentCreateRequest) => Promise<boolean>;
   updateAgent: (id: string, payload: AgentUpdateRequest) => Promise<boolean>;
@@ -107,13 +132,33 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
   error: null,
   lastSync: null,
   agentActivity: [],
+  history: { running: [], queue: [], online: [] },
+  agentLoadHistory: {},
 
   fetchTopology: async () => {
     set({ isLoading: true });
     try {
       const { agents } = await getHermesAgents();
+      const nodes = mapAgentsToTopology(agents || []);
+
+      // Sample real telemetry once per poll so the deck's sparklines plot
+      // actual history instead of decorative noise.
+      const live = nodes.filter((n) => n.type !== 'squad' && n.type !== 'core');
+      const history = { ...get().history };
+      pushCapped(history.running, live.reduce((s, n) => s + (n.tasks_running ?? 0), 0));
+      pushCapped(history.queue, live.reduce((s, n) => s + (n.queue_depth ?? 0), 0));
+      pushCapped(history.online, live.filter((n) => n.status === 'active' || n.status === 'online').length);
+      const agentLoadHistory = { ...get().agentLoadHistory };
+      for (const n of live) {
+        const arr = [...(agentLoadHistory[n.id] ?? [])];
+        pushCapped(arr, agentLoad(n));
+        agentLoadHistory[n.id] = arr;
+      }
+
       set({
-        nodes: mapAgentsToTopology(agents || []),
+        nodes,
+        history,
+        agentLoadHistory,
         isConnected: true,
         error: null,
         isLoading: false,

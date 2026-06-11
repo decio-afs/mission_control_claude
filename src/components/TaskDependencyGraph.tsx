@@ -170,12 +170,12 @@ export default function TaskDependencyGraph({ rootId, onClose, onOpenTask }: {
                 <button onClick={() => setCenterId(rootId)}
                   className="font-mono text-[10px] tracking-[0.1em] px-2 py-1 border border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e]">↺ RECENTER</button>
               )}
-              <button onClick={onClose} className="text-[#545454] hover:text-white text-[12px] font-mono">✕ ESC</button>
+              <button onClick={onClose} className="text-[#545454] hover:text-white text-[11px] font-mono">✕ ESC</button>
             </div>
           </div>
 
           {/* legend */}
-          <div className="shrink-0 px-4 py-2 flex items-center gap-x-4 gap-y-1 flex-wrap border-b border-white/[0.06] text-[9px] font-mono text-[#545454]">
+          <div className="shrink-0 px-4 py-2 flex items-center gap-x-4 gap-y-1 flex-wrap border-b border-white/[0.06] text-[10px] font-mono text-[#545454]">
             <span className="tracking-[0.16em] uppercase">{layout.nodes.length} TASKS · {layout.edges.length} LINKS · {layout.depthsSorted.length} LEVELS</span>
             {Object.entries(counts).map(([s, n]) => (
               <span key={s} className="inline-flex items-center gap-1">
@@ -196,7 +196,7 @@ export default function TaskDependencyGraph({ rootId, onClose, onOpenTask }: {
               <div className="h-full flex flex-col items-center justify-center gap-2 font-mono text-[11px] text-[#545454]">
                 <span className="text-2xl opacity-30">⊘</span>
                 <span>This task has no linked dependencies.</span>
-                <span className="text-[9px] text-[#363636]">Link parents/children from the drawer's DEPENDENCIES section.</span>
+                <span className="text-[10px] text-[#363636]">Link parents/children from the drawer's DEPENDENCIES section.</span>
               </div>
             )}
             {!noDeps && layout.nodes.length > 0 && (
@@ -237,8 +237,8 @@ export default function TaskDependencyGraph({ rootId, onClose, onOpenTask }: {
                       >
                         <div className="flex items-center gap-1.5 mb-0.5">
                           <i className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: c, boxShadow: `0 0 5px ${c}` }} />
-                          <span className="font-mono text-[9px] text-[#545454] truncate">{n.id}</span>
-                          {isCenter && <span className="ml-auto font-mono text-[7px] tracking-[0.16em] text-[#f64e6e] shrink-0">ROOT</span>}
+                          <span className="font-mono text-[10px] text-[#545454] truncate">{n.id}</span>
+                          {isCenter && <span className="ml-auto font-mono text-[10px] tracking-[0.16em] text-[#f64e6e] shrink-0">ROOT</span>}
                           {!isCenter && (
                             <span
                               role="button"
@@ -252,8 +252,8 @@ export default function TaskDependencyGraph({ rootId, onClose, onOpenTask }: {
                         </div>
                         <div className="text-[10px] text-[#cdd3df] leading-tight line-clamp-2">{n.task?.title || <span className="text-[#545454] italic">unknown task</span>}</div>
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="font-mono text-[8px] uppercase tracking-[0.12em]" style={{ color: c }}>{n.task?.status ?? '—'}</span>
-                          {n.task?.assignee && <span className="font-mono text-[8px] text-[#545454] truncate">· {n.task.assignee}</span>}
+                          <span className="font-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: c }}>{n.task?.status ?? '—'}</span>
+                          {n.task?.assignee && <span className="font-mono text-[10px] text-[#545454] truncate">· {n.task.assignee}</span>}
                         </div>
                       </button>
                     </div>

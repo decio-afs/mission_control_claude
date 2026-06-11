@@ -87,23 +87,23 @@ export default function WorkerLogStream({ taskId, isRunning }: { taskId: string;
           {streaming ? '⏸ PAUSE' : '▶ LIVE'}
         </button>
         {streaming && (
-          <span className="flex items-center gap-1 text-[9px] font-mono text-emerald-400">
+          <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-400">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             STREAMING · {POLL_MS / 1000}s
           </span>
         )}
         {!streaming && !isRunning && (
-          <span className="text-[9px] font-mono text-[#545454]">task idle — tail is static</span>
+          <span className="text-[10px] font-mono text-[#545454]">task idle — tail is static</span>
         )}
         {!streaming && (
           <button onClick={loadOnce} disabled={busy}
-            className="ml-auto text-[9px] font-mono text-[#545454] hover:text-[#f64e6e] disabled:opacity-30">
+            className="ml-auto text-[10px] font-mono text-[#545454] hover:text-[#f64e6e] disabled:opacity-30">
             {busy ? '…' : '⟳ REFRESH'}
           </button>
         )}
       </div>
       <pre ref={preRef} onScroll={onScroll}
-        className="text-[9px] font-mono text-[#9aa3b5] whitespace-pre-wrap max-h-52 overflow-auto bg-[#050505] border border-white/10 p-2">
+        className="text-[10px] font-mono text-[#9aa3b5] whitespace-pre-wrap max-h-52 overflow-auto bg-[#050505] border border-white/10 p-2">
         {log}
       </pre>
     </div>

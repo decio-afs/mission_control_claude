@@ -1,86 +1,184 @@
-﻿// Archives — mission history browser + query editor. Ported from the zip design.
-// NOTE: static demo data (no Hermes source).
-import { useState } from 'react';
+// Archives — Sentinel digest archive browser. Live data from the bridge:
+// /api/sentinel/archive (index) + /api/sentinel/digest/<date> (stories).
+import { useEffect, useState } from 'react';
 import { Panel, Label } from '../components/cyberpunk/ui';
-import { SQUAD_META, DEMO_NOTE } from '../lib/legionData';
-import DemoBadge from '../components/DemoBadge';
+import {
+  getSentinelArchive, getSentinelDigestByDate, errMessage,
+  type SentinelArchiveEntry, type SentinelDigest,
+} from '../lib/api';
 
-const rows: string[][] = [
-  ['M-18422', 'carousel · micro-SaaS', 'DROPKICK', 'CONT', '04:21:11', 'ok', '184 eng', '$0.42'],
-  ['M-18421', 'archive · Q2 briefs', 'MNEMOSYNE', 'INFRA', '04:18:09', 'ok', '2104 rows', '$0.08'],
-  ['M-18420', 'trend-ingest · neural-CAD', 'PROPHET', 'INTEL', '04:17:55', 'ok', '3 drafts', '$0.31'],
-  ['M-18419', 'security-scan · gateway', 'OVERWATCH', 'SEC', '04:15:02', 'ok', '0 flags', '$0.04'],
-  ['M-18418', 'script · speedrun reel', 'THE HOOK', 'CONT', '04:12:44', 'ok', '3 variants', '$0.22'],
-  ['M-18417', 'relay · event-bridge', 'SWITCHBOARD', 'INFRA', '04:10:01', 'ok', '47/s', '$0.01'],
-  ['M-18416', 'longform draft · local-LLMs', 'GHOSTWRITER', 'CONT', '04:04:30', 'ok', '2800 words', '$0.94'],
-  ['M-18415', 'sentiment · EU AI Act', 'MORNINGSTAR', 'INTEL', '04:01:12', 'warn', 'mixed', '$0.18'],
-];
-
-const nav: [string, string][] = [
-  ['▸ missions', '18,422'], ['  closed', '17,041'], ['  active', '    12'],
-  ['▸ trends', ' 9,284'], ['▸ briefings', '   184'], ['▸ content', ' 3,920'],
-  ['▸ archives', '12,841'], ['▸ mnemosyne', 'learning'],
-];
+const fmtSize = (bytes: number) =>
+  bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`;
 
 export default function Archives() {
-  const [query, setQuery] = useState('SELECT * FROM missions WHERE status = "closed" ORDER BY closed_at DESC LIMIT 50;');
+  const [entries, setEntries] = useState<SentinelArchiveEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [selected, setSelected] = useState<string | null>(null);
+  // Keyed by date so "loading" is derived (selected !== loaded date) instead of
+  // a synchronous setState in the fetch effect (react-hooks/set-state-in-effect).
+  const [loaded, setLoaded] = useState<{ date: string; digest: SentinelDigest | null; error: string | null } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    getSentinelArchive()
+      .then((a) => {
+        if (!alive) return;
+        const list = a.digests ?? [];
+        setEntries(list);
+        setError(null);
+        if (list.length > 0) setSelected(list[0].date);
+      })
+      .catch((e) => { if (alive) setError(errMessage(e)); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!selected) return;
+    let alive = true;
+    getSentinelDigestByDate(selected)
+      .then((d) => { if (alive) setLoaded({ date: selected, digest: d, error: null }); })
+      .catch((e) => { if (alive) setLoaded({ date: selected, digest: null, error: errMessage(e) }); });
+    return () => { alive = false; };
+  }, [selected]);
+
+  const digestLoading = !!selected && loaded?.date !== selected;
+  const digest = !digestLoading ? loaded?.digest ?? null : null;
+  const digestError = !digestLoading ? loaded?.error ?? null : null;
+  const stories = digest?.stories ?? [];
+  const maxScore = stories.length ? Math.max(...stories.map((s) => s.score)) : 0;
 
   return (
     <div className="h-full grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-2 p-2 relative">
-      <Panel label="NAVIGATOR">
-        <div className="flex flex-col gap-0.5 text-[10px] font-mono">
-          {nav.map(([k, v]) => (
-            <div key={k} className="flex justify-between px-2 py-1 hover:bg-white/5 cursor-pointer text-[#b8b8b8] hover:text-white">
-              <span>{k}</span><span className="text-[#545454] tabular-nums">{v}</span>
+      <Panel label="ARCHIVE INDEX" right={`${entries.length} digests`}>
+        <div className="flex flex-col gap-0.5 text-[10px] font-mono overflow-auto h-full">
+          {loading && <div className="px-2 py-1 text-[#545454]">loading archive…</div>}
+          {!loading && error && <div className="px-2 py-1 text-red-400">bridge error · {error}</div>}
+          {!loading && !error && entries.length === 0 && (
+            <div className="px-2 py-1 text-[#545454]">
+              no archived digests yet — Sentinel writes one per day after its first run
             </div>
-          ))}
-        </div>
-        <div className="mt-3 border-t border-white/10 pt-2">
-          <Label className="text-[#545454]">MNEMOSYNE · LEARNING</Label>
-          <div className="mt-2 flex flex-col gap-1">
-            {['prompt-tuning · 72% → 81%', 'retrieval-k · 5 → 8', 'voice · weaver++', 'reject-rate · 93%'].map((x) => (
-              <div key={x} className="text-[10px] font-mono text-[#b8b8b8] flex items-center gap-1">
-                <span className="w-1 h-1 bg-[#ff795e]" />{x}
-              </div>
-            ))}
-          </div>
+          )}
+          {entries.map((e) => {
+            const is = e.date === selected;
+            return (
+              <button
+                key={e.date}
+                onClick={() => setSelected(e.date)}
+                className={`flex justify-between px-2 py-1 text-left cursor-pointer ${
+                  is ? 'bg-[#f64e6e]/10 text-[#f64e6e]' : 'hover:bg-white/5 text-[#b8b8b8] hover:text-white'
+                }`}
+              >
+                <span>{is ? '▸ ' : '  '}{e.date}</span>
+                <span className={`tabular-nums ${is ? 'text-[#f64e6e]/70' : 'text-[#545454]'}`}>{fmtSize(e.size)}</span>
+              </button>
+            );
+          })}
         </div>
       </Panel>
 
       <div className="flex flex-col gap-2 min-h-0">
-        <Panel label="QUERY EDITOR" className="h-[100px] shrink-0" right={<div className="flex gap-2"><span className="text-[#545454]">postgres · ops</span><button className="text-[#f64e6e]">▸ RUN</button></div>}>
-          <textarea value={query} onChange={(e) => setQuery(e.target.value)}
-            className="w-full h-full bg-[#030306] border border-white/5 text-[11px] font-mono text-white p-2 resize-none focus:outline-none focus:border-[#f64e6e]"
-            spellCheck={false} />
+        <Panel label="DIGEST META" className="h-[100px] shrink-0" right={selected ?? undefined}>
+          {!selected && <div className="text-[10px] font-mono text-[#545454]">select a digest from the archive index</div>}
+          {selected && (
+            <div className="grid grid-cols-3 gap-3 h-full">
+              <div>
+                <Label className="text-[#545454]">STORIES</Label>
+                <div className="text-[13px] font-mono font-bold text-white tabular-nums mt-1">
+                  {digestLoading ? '…' : digest?.total_stories ?? stories.length}
+                </div>
+              </div>
+              <div>
+                <Label className="text-[#545454]">SOURCES</Label>
+                <div className="text-[13px] font-mono font-bold text-white tabular-nums mt-1">
+                  {digestLoading ? '…' : digest?.sources?.length ?? '—'}
+                </div>
+              </div>
+              <div className="min-w-0">
+                <Label className="text-[#545454]">GENERATED</Label>
+                <div className="text-[11px] font-mono text-[#b8b8b8] mt-1 truncate">
+                  {digestLoading ? '…' : digest?.generated_at ?? '—'}
+                </div>
+              </div>
+            </div>
+          )}
         </Panel>
-        <Panel label="RESULTS · 8 of 17,041">
+
+        <Panel label={selected ? `STORIES · ${selected}` : 'STORIES'} right={stories.length ? `${stories.length} rows` : undefined}>
           <div className="overflow-auto h-full">
-            <table className="w-full text-[10px] font-mono">
-              <thead>
-                <tr className="text-[#545454] text-left">
-                  {['ID', 'MISSION', 'AGENT', 'SQUAD', 'CLOSED', 'ST', 'OUTPUT', 'COST'].map((h) => (
-                    <th key={h} className="font-normal py-1 pr-3">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-t border-white/5 hover:bg-white/5">
-                    {r.map((c, j) => (
-                      <td key={j}
-                        className={`py-1.5 pr-3 ${j === 5 ? (c === 'ok' ? 'text-emerald-400' : 'text-amber-400') : j === 0 ? 'text-[#545454]' : j === 1 ? 'text-white' : j === 3 ? '' : 'text-[#b8b8b8]'}`}
-                        style={j === 3 ? { color: SQUAD_META[c]?.color } : {}}>
-                        {c}
-                      </td>
-                    ))}
+            {digestLoading && (
+              <div className="h-full flex items-center justify-center text-[11px] font-mono text-[#545454]">
+                loading digest…
+              </div>
+            )}
+            {!digestLoading && digestError && (
+              <div className="h-full flex items-center justify-center text-[11px] font-mono text-red-400">
+                failed to load digest · {digestError}
+              </div>
+            )}
+            {!digestLoading && !digestError && !selected && (
+              <div className="h-full flex items-center justify-center text-[11px] font-mono text-[#545454]">
+                no digest selected
+              </div>
+            )}
+            {!digestLoading && !digestError && selected && stories.length === 0 && (
+              <div className="h-full flex items-center justify-center text-[11px] font-mono text-[#545454]">
+                digest has no stories
+              </div>
+            )}
+            {!digestLoading && !digestError && stories.length > 0 && (
+              <table className="w-full text-[10px] font-mono">
+                <thead>
+                  <tr className="text-[#545454] text-left">
+                    <th className="font-normal py-1 pr-3">#</th>
+                    <th className="font-normal py-1 pr-3">TITLE</th>
+                    <th className="font-normal py-1 pr-3">SOURCE</th>
+                    <th className="font-normal py-1 pr-3 text-right">SCORE</th>
+                    <th className="font-normal py-1"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {stories.map((s, i) => (
+                    <tr key={`${s.url}-${i}`} className="border-t border-white/5 hover:bg-white/5">
+                      <td className="py-1.5 pr-3 text-[#545454] tabular-nums">{i + 1}</td>
+                      <td className="py-1.5 pr-3 text-white">
+                        {s.url ? (
+                          <a href={s.url} target="_blank" rel="noreferrer" className="hover:text-[#f64e6e]">{s.title}</a>
+                        ) : s.title}
+                      </td>
+                      <td className="py-1.5 pr-3 text-[#b8b8b8]">{s.source}</td>
+                      <td className="py-1.5 pr-3 text-right">
+                        <div className="flex items-center gap-1 justify-end">
+                          <div className="w-16 h-1.5 bg-white/10 relative">
+                            <div
+                              className="absolute inset-y-0 left-0"
+                              style={{
+                                width: `${maxScore ? Math.min(100, (s.score / maxScore) * 100) : 0}%`,
+                                background: s.score >= maxScore * 0.85 ? '#f64e6e' : s.score >= maxScore * 0.5 ? '#f59e0b' : '#545454',
+                              }}
+                            />
+                          </div>
+                          <span className="tabular-nums text-white w-8 text-right">{Math.round(s.score)}</span>
+                        </div>
+                      </td>
+                      <td className="py-1.5">
+                        {s.url ? (
+                          <a
+                            href={s.url} target="_blank" rel="noreferrer"
+                            className="text-[10px] border border-white/10 px-1.5 py-0.5 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e]"
+                          >OPEN ▸</a>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </Panel>
       </div>
-      <DemoBadge label={DEMO_NOTE} />
     </div>
   );
 }

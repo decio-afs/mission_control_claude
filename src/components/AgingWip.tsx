@@ -77,7 +77,7 @@ export default function AgingWip({ tasks, nowMs }: { tasks: HermesTask[]; nowMs:
                   className="w-full transition-[height] duration-300"
                   style={{ height: `${h}%`, minHeight: b.count > 0 ? 2 : 0, background: bucketColor(b.loSec), opacity: 0.8 }}
                 />
-                <div className="absolute -top-3 inset-x-0 text-center text-[8px] font-mono text-white opacity-0 group-hover:opacity-100 transition-opacity tabular-nums pointer-events-none">
+                <div className="absolute -top-3 inset-x-0 text-center text-[10px] font-mono text-white opacity-0 group-hover:opacity-100 transition-opacity tabular-nums pointer-events-none">
                   {b.count}
                 </div>
               </div>
@@ -86,7 +86,7 @@ export default function AgingWip({ tasks, nowMs }: { tasks: HermesTask[]; nowMs:
         </div>
         <div className="flex gap-[3px] mt-1">
           {ag.buckets.map((b) => (
-            <div key={b.label} className="flex-1 text-center text-[8px] font-mono text-[#363636] overflow-hidden whitespace-nowrap">
+            <div key={b.label} className="flex-1 text-center text-[10px] font-mono text-[#363636] overflow-hidden whitespace-nowrap">
               {b.label}
             </div>
           ))}
@@ -95,7 +95,7 @@ export default function AgingWip({ tasks, nowMs }: { tasks: HermesTask[]; nowMs:
 
       {/* Oldest open offenders — click to open in Operations */}
       <div className="flex-1 min-h-0 flex flex-col">
-        <div className="text-[8px] font-mono text-[#545454] tracking-[0.15em] mb-1 shrink-0">OLDEST OPEN · click to open</div>
+        <div className="text-[10px] font-mono text-[#545454] tracking-[0.15em] mb-1 shrink-0">OLDEST OPEN · click to open</div>
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col gap-0.5">
           {ag.oldest.map((t) => {
             const stale = t.ageSec >= STALE_SEC;
@@ -108,8 +108,8 @@ export default function AgingWip({ tasks, nowMs }: { tasks: HermesTask[]; nowMs:
               >
                 <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_DOT[t.status] || '#b8b8b8' }} />
                 <span className="text-[10px] font-mono text-[#b8b8b8] truncate min-w-0 flex-1">{t.title}</span>
-                {t.assignee && <span className="hidden md:inline text-[9px] font-mono text-[#545454] truncate max-w-[90px] shrink-0">{t.assignee}</span>}
-                <span className={`text-[9px] font-mono tabular-nums shrink-0 ${stale ? 'text-red-400' : 'text-amber-400'}`}>{fmtDuration(t.ageSec)}</span>
+                {t.assignee && <span className="hidden md:inline text-[10px] font-mono text-[#545454] truncate max-w-[90px] shrink-0">{t.assignee}</span>}
+                <span className={`text-[10px] font-mono tabular-nums shrink-0 ${stale ? 'text-red-400' : 'text-amber-400'}`}>{fmtDuration(t.ageSec)}</span>
               </button>
             );
           })}

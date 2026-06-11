@@ -154,14 +154,14 @@ export default function WarRoom() {
               <span className="text-[10px] text-[#545454]">ms</span>
             </div>
             <Sparkline data={latencyHistory.length > 1 ? latencyHistory : [0, 0]} color="#10b981" height={36} />
-            <div className="text-[9px] font-mono text-[#545454] truncate">{vitals.hermesVersion}</div>
+            <div className="text-[10px] font-mono text-[#545454] truncate">{vitals.hermesVersion}</div>
           </div>
         </Panel>
         <Panel label="QUEUE DEPTH" className="h-[118px]">
           <div className="flex flex-col justify-between h-full">
             <div className="flex items-baseline gap-1"><span className="text-2xl font-mono font-bold text-white tabular-nums">{queueDepth}</span><span className="text-[10px] text-[#545454]">queued</span></div>
             <div className="text-[10px] font-mono text-amber-400">{summary?.running ?? 0} running</div>
-            <div className="text-[9px] font-mono text-[#545454]">{summary?.blocked ?? 0} blocked</div>
+            <div className="text-[10px] font-mono text-[#545454]">{summary?.blocked ?? 0} blocked</div>
           </div>
         </Panel>
         <Panel label="BUSY AGENTS" className="h-[118px]">
@@ -172,7 +172,7 @@ export default function WarRoom() {
                 <div key={a.id} className="w-2 h-6" title={a.name} style={{ background: (a.tasks_running ?? 0) > 0 ? '#f64e6e' : a.status === 'online' ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.05)' }} />
               ))}
             </div>
-            <div className="text-[9px] font-mono text-[#545454]">{onlineAgents.length} online</div>
+            <div className="text-[10px] font-mono text-[#545454]">{onlineAgents.length} online</div>
           </div>
         </Panel>
         <Panel label="SCHEDULED" className="h-[118px]">
@@ -193,23 +193,23 @@ export default function WarRoom() {
             <span className="flex items-center gap-1">
               <button
                 onClick={() => setTaskView('status')}
-                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'status' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+                className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${taskView === 'status' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
               >STATUS</button>
               <button
                 onClick={() => setTaskView('flow')}
-                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'flow' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+                className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${taskView === 'flow' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
               >FLOW</button>
               <button
                 onClick={() => setTaskView('burn')}
-                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'burn' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+                className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${taskView === 'burn' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
               >BURN</button>
               <button
                 onClick={() => setTaskView('sla')}
-                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'sla' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+                className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${taskView === 'sla' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
               >SLA</button>
               <button
                 onClick={() => setTaskView('aging')}
-                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'aging' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+                className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${taskView === 'aging' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
               >AGE</button>
               <span className={`hidden xl:inline ${vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}`}>● {vitals.hermesOnline ? 'LIVE' : 'OFFLINE'}</span>
             </span>
@@ -245,11 +245,11 @@ export default function WarRoom() {
             <span className="flex items-center gap-2">
               <button
                 onClick={() => setAgentView('load')}
-                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${agentView === 'load' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+                className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${agentView === 'load' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
               >LOAD</button>
               <button
                 onClick={() => setAgentView('perf')}
-                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${agentView === 'perf' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+                className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${agentView === 'perf' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
               >PERF</button>
               <span className="hidden sm:inline">{agentView === 'load' ? 'running · queue' : `${agentMetrics.length} ranked`}</span>
             </span>
@@ -285,11 +285,11 @@ export default function WarRoom() {
           <span className="flex items-center gap-2">
             <button
               onClick={() => setFeed('tasks')}
-              className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${feed === 'tasks' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${feed === 'tasks' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
             >TASKS</button>
             <button
               onClick={() => setFeed('signal')}
-              className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${feed === 'signal' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${feed === 'signal' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
             >SIGNAL</button>
             <span>{feed === 'tasks' ? `${hermesTasks.length} tasks` : `${activities.length} signals`}</span>
           </span>

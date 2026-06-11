@@ -478,6 +478,11 @@ export const BRIDGE_ENDPOINTS: BridgeEndpoint[] = [
   { key: 'briefing', label: 'Briefing',        path: '/api/hermes/briefing' },
   { key: 'sentinel', label: 'Sentinel Digest', path: '/api/sentinel/digest' },
   { key: 'leads',    label: 'Leads',           path: '/api/hermes/leads' },
+  { key: 'skills',   label: 'Skills',          path: '/api/hermes/skills' },
+  { key: 'mcp',      label: 'MCP Servers',     path: '/api/hermes/mcp' },
+  { key: 'gateway',  label: 'Gateway',         path: '/api/hermes/gateway' },
+  { key: 'memory',   label: 'Memory',          path: '/api/hermes/memory' },
+  { key: 'logs',     label: 'Logs',            path: '/api/hermes/logs?name=agent&lines=5' },
 ];
 
 /** Probe a single bridge path; returns HTTP status + round-trip latency. */
@@ -569,5 +574,251 @@ export async function getSentinelArchive(): Promise<SentinelArchive> {
 
 export async function getSentinelDigestByDate(date: string): Promise<SentinelDigest> {
   const { data } = await bridge.get(`/api/sentinel/digest/${date}`);
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Capability surface — full Hermes CLI coverage (Arsenal / Uplink / Systems)
+// ---------------------------------------------------------------------------
+
+export interface HermesOverview {
+  model: string | null;
+  provider: string | null;
+  platforms: { name: string; configured: boolean; home: string | null }[];
+  gateway: { running: boolean; pids: number[] };
+  jobs: string | null;
+  sessions: string | null;
+  api_keys: { name: string; set: boolean }[];
+  raw: string;
+}
+
+export interface HermesSkill { name: string; category: string; source: string; trust: string; enabled: boolean }
+export interface SkillsSummary { hub: number; builtin: number; local: number; enabled: number; disabled: number }
+export interface HermesMcpServer { name: string; transport: string; tools: string; enabled: boolean }
+export interface HermesPlugin { status: string; source: string; version: string; name: string; enabled: boolean }
+export interface HermesGatewayInfo {
+  service: {
+    running: boolean;
+    /** Authoritative liveness — the gateway's api_server answering on :8642.
+     * `running` comes from process scans, which hung zombies can fool. */
+    api_listening?: boolean;
+    manager: string | null;
+    pids: number[];
+  };
+  gateways: { name: string; current: boolean; running: boolean; pid: number | null }[];
+  raw: string;
+}
+export interface SendTargets { platforms: { platform: string; targets: string[] }[]; raw: string }
+export interface HermesWebhooks { enabled: boolean; subscriptions: { cells: string[] }[]; raw: string }
+export interface HermesMemoryStatus {
+  provider: string | null; plugin_installed: boolean; available: boolean;
+  providers: { name: string; auth: string; active: boolean }[]; raw: string;
+}
+export interface HermesCuratorStatus {
+  enabled: boolean; runs: string | null; last_run: string | null; interval: string | null;
+  skills_total: number | null; active: number | null; stale: number | null; archived: number | null;
+  most_active: { name: string; activity: number; last_activity: string }[]; raw: string;
+}
+export interface HermesInsights {
+  days: number;
+  overview: Record<string, number | string>;
+  models: { model: string; sessions: number; tokens: number }[];
+  platforms: { platform: string; sessions: number; messages: number; tokens: number }[];
+  top_tools: { tool: string; calls: number; pct: number }[];
+  weekday_activity: { day: string; sessions: number }[];
+  peak_hours: string | null;
+  raw: string;
+}
+export interface HermesDoctor {
+  checks: { level: 'ok' | 'warn' | 'fail'; text: string }[];
+  counts: { ok: number; warn: number; fail: number };
+  raw: string;
+}
+export interface HermesModelInfo { model: string | null; provider: string | null; fallbacks: string[]; raw: string }
+export interface HermesAuthInfo {
+  providers: { provider: string; count: number; credentials: { index: number; label: string; kind: string; source: string }[] }[];
+  raw: string;
+}
+
+export async function getHermesOverview(): Promise<HermesOverview> {
+  const { data } = await bridge.get('/api/hermes/overview', { timeout: 95000 });
+  return data;
+}
+export async function getHermesSkills(): Promise<{ skills: HermesSkill[]; summary: SkillsSummary | null; raw: string }> {
+  const { data } = await bridge.get('/api/hermes/skills', { timeout: 95000 });
+  return data;
+}
+export async function getHermesMcp(): Promise<{ servers: HermesMcpServer[]; raw: string }> {
+  const { data } = await bridge.get('/api/hermes/mcp', { timeout: 95000 });
+  return data;
+}
+export async function testHermesMcp(name: string): Promise<{ message: string; ok: boolean }> {
+  const { data } = await bridge.post(`/api/hermes/mcp/${encodeURIComponent(name)}/test`, {}, { timeout: 125000 });
+  return data;
+}
+export async function getHermesPlugins(): Promise<{ plugins: HermesPlugin[]; raw: string }> {
+  const { data } = await bridge.get('/api/hermes/plugins', { timeout: 95000 });
+  return data;
+}
+export async function setHermesPlugin(name: string, enable: boolean): Promise<{ message: string }> {
+  const { data } = await bridge.post(`/api/hermes/plugins/${encodeURIComponent(name)}/${enable ? 'enable' : 'disable'}`, {}, { timeout: 125000 });
+  return data;
+}
+export async function getHermesGateway(): Promise<HermesGatewayInfo> {
+  const { data } = await bridge.get('/api/hermes/gateway', { timeout: 95000 });
+  return data;
+}
+export async function gatewayAction(action: 'start' | 'stop' | 'restart'): Promise<{ message: string; running: boolean; pending: boolean }> {
+  const { data } = await bridge.post('/api/hermes/gateway/action', { action }, { timeout: 125000 });
+  return data;
+}
+export async function getSendTargets(): Promise<SendTargets> {
+  const { data } = await bridge.get('/api/hermes/send/targets', { timeout: 65000 });
+  return data;
+}
+export async function sendPlatformMessage(payload: { target: string; message: string; subject?: string }): Promise<{ result: unknown; message: string }> {
+  const { data } = await bridge.post('/api/hermes/send', payload, { timeout: 95000 });
+  return data;
+}
+export async function getHermesWebhooks(): Promise<HermesWebhooks> {
+  const { data } = await bridge.get('/api/hermes/webhooks', { timeout: 65000 });
+  return data;
+}
+export async function getHermesMemory(): Promise<HermesMemoryStatus> {
+  const { data } = await bridge.get('/api/hermes/memory', { timeout: 65000 });
+  return data;
+}
+export async function getHermesCurator(): Promise<HermesCuratorStatus> {
+  const { data } = await bridge.get('/api/hermes/curator', { timeout: 65000 });
+  return data;
+}
+export async function getHermesInsights(days = 30): Promise<HermesInsights> {
+  const { data } = await bridge.get('/api/hermes/insights', { params: { days }, timeout: 185000 });
+  return data;
+}
+export async function getHermesDoctor(): Promise<HermesDoctor> {
+  const { data } = await bridge.get('/api/hermes/doctor', { timeout: 185000 });
+  return data;
+}
+export async function getHermesLogs(name = 'agent', lines = 80, level?: string, since?: string): Promise<{ name: string; lines: string[] }> {
+  const { data } = await bridge.get('/api/hermes/logs', { params: { name, lines, ...(level ? { level } : {}), ...(since ? { since } : {}) }, timeout: 65000 });
+  return data;
+}
+export async function getHermesModel(): Promise<HermesModelInfo> {
+  const { data } = await bridge.get('/api/hermes/model', { timeout: 125000 });
+  return data;
+}
+export async function getHermesAuth(): Promise<HermesAuthInfo> {
+  const { data } = await bridge.get('/api/hermes/auth', { timeout: 65000 });
+  return data;
+}
+export async function getHermesCheckpoints(): Promise<{ raw: string }> {
+  const { data } = await bridge.get('/api/hermes/checkpoints', { timeout: 65000 });
+  return data;
+}
+export async function getHermesPairing(): Promise<{ raw: string }> {
+  const { data } = await bridge.get('/api/hermes/pairing', { timeout: 65000 });
+  return data;
+}
+export async function runSecurityAudit(): Promise<{ vulnerabilities: number; raw: string }> {
+  const { data } = await bridge.get('/api/hermes/security/audit', { timeout: 305000 });
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Real data pipelines — leads, content calendar (Ayrshare), creator intel
+// (Apify), consolidated AI digest. All file-backed on the bridge; no demo data.
+// ---------------------------------------------------------------------------
+
+export interface Lead {
+  id: string; name: string; source: string; status: string; score: number;
+  company?: string | null; contact?: string | null; notes?: string | null; created_at?: number;
+}
+export async function getLeads(): Promise<{ leads: Lead[]; source: string }> {
+  const { data } = await bridge.get('/api/hermes/leads');
+  return data;
+}
+export async function addLead(payload: { name: string; source?: string; status?: string; score?: number; company?: string; contact?: string; notes?: string }): Promise<{ lead: Lead }> {
+  const { data } = await bridge.post('/api/hermes/leads', payload);
+  return data;
+}
+export async function updateLead(id: string, payload: { status?: string; score?: number; notes?: string }): Promise<{ lead: Lead }> {
+  const { data } = await bridge.put(`/api/hermes/leads/${id}`, payload);
+  return data;
+}
+export async function deleteLead(id: string): Promise<{ deleted: string }> {
+  const { data } = await bridge.delete(`/api/hermes/leads/${id}`);
+  return data;
+}
+
+export interface CalendarItem {
+  id: string; title: string; date: string; platform: string; status: string;
+  body?: string | null; buffer_id?: string | null; ayrshare_id?: string;
+}
+export interface CalendarResponse {
+  calendar: CalendarItem[];
+  scheduler: {
+    provider: 'buffer' | 'ayrshare' | null;
+    configured: boolean;
+    history: { id?: string; title: string; date?: string | null; platform: string; status: string }[];
+    error?: string;
+  };
+}
+export async function getCalendar(): Promise<CalendarResponse> {
+  const { data } = await bridge.get('/api/content/calendar', { timeout: 45000 });
+  return data;
+}
+export async function addCalendarItem(payload: { title: string; date: string; platform?: string; body?: string; status?: string; publish?: boolean }): Promise<{ item: CalendarItem }> {
+  const { data } = await bridge.post('/api/content/calendar', payload, { timeout: 65000 });
+  return data;
+}
+export async function deleteCalendarItem(id: string): Promise<{ deleted: string }> {
+  const { data } = await bridge.delete(`/api/content/calendar/${id}`);
+  return data;
+}
+
+export interface CreatorWatch { handle: string; platform: string; niche?: string | null }
+export interface CreatorPost {
+  platform: string; creator: string; caption: string; url: string;
+  likes: number; comments: number; views: number; posted_at: string | number | null; viral_score: number;
+}
+export interface CreatorsResponse {
+  configured: boolean;
+  watchlist: CreatorWatch[];
+  feed: { scraped_at: string | null; items: CreatorPost[]; errors?: string[] };
+}
+export async function getCreators(): Promise<CreatorsResponse> {
+  const { data } = await bridge.get('/api/creators');
+  return data;
+}
+export async function watchCreator(handle: string, platform: string, niche?: string): Promise<{ watchlist: CreatorWatch[] }> {
+  const { data } = await bridge.post('/api/creators/watch', { handle, platform, niche });
+  return data;
+}
+export async function unwatchCreator(platform: string, handle: string): Promise<{ watchlist: CreatorWatch[] }> {
+  const { data } = await bridge.delete(`/api/creators/watch/${platform}/${encodeURIComponent(handle)}`);
+  return data;
+}
+export async function scrapeCreators(): Promise<CreatorsResponse['feed']> {
+  // Apify actor runs take minutes.
+  const { data } = await bridge.post('/api/creators/scrape', {}, { timeout: 300000 });
+  return data;
+}
+
+export interface AiDigest {
+  available: boolean;
+  generated_at?: string;
+  summary?: string;
+  ideas?: { title: string; angle: string; why_viral: string; source_url: string }[];
+  story_count?: number;
+  reason?: string;
+}
+export async function getAiDigest(): Promise<AiDigest> {
+  const { data } = await bridge.get('/api/hermes/ai-digest');
+  return data;
+}
+export async function generateAiDigest(): Promise<AiDigest> {
+  // LLM synthesis — slow.
+  const { data } = await bridge.post('/api/hermes/ai-digest', {}, { timeout: 250000 });
   return data;
 }

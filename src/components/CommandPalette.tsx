@@ -61,7 +61,7 @@ export default function CommandPalette() {
   const listRef = useRef<HTMLDivElement>(null);
 
   const { nodes } = useGhostStore();
-  const { tasks } = useTaskStore();
+  const { hermesTasks } = useTaskStore();
   const openDrilldown = useAgentDrilldownStore((s) => s.open);
 
   const close = () => { setOpen(false); setQuery(''); setActive(0); };
@@ -109,13 +109,13 @@ export default function CommandPalette() {
         keywords: `${n.name} ${n.squad || ''} ${n.type} agent`,
       }));
 
-    const tsk: Item[] = tasks.slice(0, 60).map((t) => ({
+    const tsk: Item[] = hermesTasks.slice(0, 60).map((t) => ({
       kind: 'task',
       id: `task-${t.id}`,
-      title: t.name,
-      sub: `${String(t.status).toUpperCase()} · ${t.agentName}`,
+      title: t.title,
+      sub: `${String(t.status).toUpperCase()} · ${t.assignee || 'unassigned'}`,
       path: '/operations',
-      keywords: `${t.name} ${t.agentName} ${t.status} task`,
+      keywords: `${t.title} ${t.assignee || ''} ${t.status} task`,
     }));
 
     const actions: Item[] = [
@@ -125,7 +125,7 @@ export default function CommandPalette() {
     ];
 
     return [...mods, ...actions, ...agents, ...tsk];
-  }, [nodes, tasks]);
+  }, [nodes, hermesTasks]);
 
   const results = useMemo(() => {
     if (!query.trim()) {
@@ -190,7 +190,7 @@ export default function CommandPalette() {
       >
         {/* Search row */}
         <div className="flex items-center gap-2 px-3 h-[44px] border-b border-white/10 bg-[#080808]">
-          <span className="text-[#f64e6e] font-mono text-[12px]">▸</span>
+          <span className="text-[#f64e6e] font-mono text-[11px]">▸</span>
           <input
             ref={inputRef}
             value={query}
@@ -199,7 +199,7 @@ export default function CommandPalette() {
             placeholder="Jump to module, agent, or task…"
             className="flex-1 bg-transparent outline-none text-[13px] text-white placeholder:text-[#545454] font-mono"
           />
-          <span className="text-[9px] font-mono text-[#363636] border border-white/10 px-1.5 py-0.5 rounded-sm">ESC</span>
+          <span className="text-[10px] font-mono text-[#363636] border border-white/10 px-1.5 py-0.5 rounded-sm">ESC</span>
         </div>
 
         {/* Results */}
@@ -222,7 +222,7 @@ export default function CommandPalette() {
               >
                 <Pill tone={meta.tone} className="shrink-0">{meta.tag}</Pill>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[12px] text-white truncate">{item.title}</div>
+                  <div className="text-[11px] text-white truncate">{item.title}</div>
                   <div className="text-[10px] font-mono text-[#545454] truncate">{item.sub}</div>
                 </div>
                 {is && <span className="text-[10px] font-mono text-[#f64e6e] shrink-0">↵</span>}
@@ -234,7 +234,7 @@ export default function CommandPalette() {
         {/* Footer hint */}
         <div className="flex items-center justify-between px-3 h-[28px] border-t border-white/10 bg-[#080808]">
           <Label className="text-[#363636]">COMMAND PALETTE</Label>
-          <div className="flex items-center gap-3 text-[9px] font-mono text-[#545454]">
+          <div className="flex items-center gap-3 text-[10px] font-mono text-[#545454]">
             <span>↑↓ navigate</span>
             <span>↵ open</span>
             <span>{results.length} results</span>

@@ -95,7 +95,7 @@ export default function NotifyCenter({ accent }: { accent: string }) {
         <span className="text-[10px] hidden md:inline">{enabled ? 'NOTIFY' : 'MUTED'}</span>
         {badge && (
           <span
-            className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] px-1 flex items-center justify-center rounded-full text-[8px] font-bold leading-none text-[#050505]"
+            className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] px-1 flex items-center justify-center rounded-full text-[10px] font-bold leading-none text-[#050505]"
             style={{ background: accent }}
           >
             {badge}
@@ -114,7 +114,7 @@ export default function NotifyCenter({ accent }: { accent: string }) {
               Notifications
             </span>
             {history.length > 0 && (
-              <span className="font-mono text-[9px] text-[#545454]">{history.length}</span>
+              <span className="font-mono text-[10px] text-[#545454]">{history.length}</span>
             )}
             <button
               onClick={() => { void toggle(); }}
@@ -128,7 +128,7 @@ export default function NotifyCenter({ accent }: { accent: string }) {
                       ? 'Desktop toasts ON — click to mute'
                       : 'Desktop toasts OFF — click to enable'
               }
-              className={`ml-auto font-mono text-[9px] tracking-[0.12em] uppercase border rounded-sm px-1.5 py-0.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+              className={`ml-auto font-mono text-[10px] tracking-[0.12em] uppercase border rounded-sm px-1.5 py-0.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                 enabled ? 'text-white' : 'text-[#545454] hover:text-white border-white/10 hover:border-white/30'
               }`}
               style={enabled ? { color: accent, borderColor: accent } : undefined}
@@ -139,7 +139,7 @@ export default function NotifyCenter({ accent }: { accent: string }) {
 
           {/* Permission hint */}
           {(permission === 'denied' || permission === 'unsupported') && (
-            <div className="px-3 py-1.5 border-b border-white/10 text-[9px] font-mono text-amber-400/80 leading-relaxed">
+            <div className="px-3 py-1.5 border-b border-white/10 text-[10px] font-mono text-amber-400/80 leading-relaxed">
               {permission === 'unsupported'
                 ? 'Desktop toasts unavailable here — in-app history still records completions.'
                 : 'Desktop toasts blocked by the OS — in-app history still records completions.'}
@@ -151,7 +151,7 @@ export default function NotifyCenter({ accent }: { accent: string }) {
             {history.length === 0 ? (
               <div className="px-3 py-6 text-center text-[10px] font-mono text-[#545454]">
                 No completed tasks yet this session.
-                <div className="mt-1 text-[9px] text-[#363636]">
+                <div className="mt-1 text-[10px] text-[#363636]">
                   Finished &amp; failed tasks will appear here.
                 </div>
               </div>
@@ -171,7 +171,7 @@ export default function NotifyCenter({ accent }: { accent: string }) {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-[11px] text-white truncate">{e.title}</span>
-                      <span className="block mt-0.5 font-mono text-[9px] text-[#545454] tracking-[0.06em]">
+                      <span className="block mt-0.5 font-mono text-[10px] text-[#545454] tracking-[0.06em]">
                         <span className={failed ? 'text-red-400/80' : 'text-emerald-400/80'}>
                           {failed ? 'FAILED' : 'DONE'}
                         </span>
@@ -188,12 +188,12 @@ export default function NotifyCenter({ accent }: { accent: string }) {
           {/* Footer */}
           {history.length > 0 && (
             <div className="flex items-center px-3 py-1.5 border-t border-white/10">
-              <span className="font-mono text-[9px] text-[#363636] tracking-[0.1em]">
+              <span className="font-mono text-[10px] text-[#363636] tracking-[0.1em]">
                 SESSION LOG
               </span>
               <button
                 onClick={clearHistory}
-                className="ml-auto font-mono text-[9px] tracking-[0.1em] uppercase text-[#545454] hover:text-white transition-colors"
+                className="ml-auto font-mono text-[10px] tracking-[0.1em] uppercase text-[#545454] hover:text-white transition-colors"
               >
                 Clear
               </button>

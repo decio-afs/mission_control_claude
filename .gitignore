@@ -40,3 +40,7 @@ Thumbs.db
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# Mission Control runtime data (bridge-managed local stores)
+.hermes/data/
+.hermes/cli-inventory.txt

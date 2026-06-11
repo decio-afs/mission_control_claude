@@ -168,7 +168,7 @@ function AgentForm({
       <div className="flex flex-wrap gap-1">
         {MODELS.map((m) => (
           <button key={m} onClick={() => setModel(m)}
-            className={`text-[9px] font-mono px-2 py-1 border ${model === m ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'}`}>
+            className={`text-[10px] font-mono px-2 py-1 border ${model === m ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'}`}>
             {m.toUpperCase()}
           </button>
         ))}
@@ -177,7 +177,7 @@ function AgentForm({
       <div className="flex flex-wrap gap-1">
         {SKILLS.map((s) => (
           <button key={s} onClick={() => toggleSkill(s)}
-            className={`text-[9px] font-mono px-2 py-1 border ${skills.includes(s) ? 'border-emerald-400 text-emerald-400' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'}`}>
+            className={`text-[10px] font-mono px-2 py-1 border ${skills.includes(s) ? 'border-emerald-400 text-emerald-400' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'}`}>
             {s.toUpperCase()}
           </button>
         ))}

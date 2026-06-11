@@ -1,6 +1,39 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useHealthStore } from '../stores/useHealthStore';
+import { getHermesGateway, gatewayAction, errMessage } from '../lib/api';
 import { Label, Pill } from './cyberpunk/ui';
+
+// Exposed by electron/preload.cjs in the desktop build; absent in a browser tab.
+declare global {
+  interface Window {
+    missionControl?: {
+      desktop: boolean;
+      bridgePort: string;
+      startBridge?: () => Promise<{ ok: boolean; already: boolean }>;
+    };
+  }
+}
+
+// One auto-start attempt per app session — opening the panel again later
+// shouldn't keep respawning a bridge that exits immediately.
+let autoStartAttempted = false;
+// Same one-shot guard for the messaging gateway (Telegram + kanban dispatcher).
+let autoGatewayAttempted = false;
+
+// Two spawn paths, one per runtime:
+//  - Electron desktop: preload IPC (window.missionControl.startBridge)
+//  - `npm run dev` in a browser: the Vite dev-server middleware at /__bridge/start
+// A static production build served outside Electron has neither — the panel
+// falls back to showing the manual command.
+async function spawnBridge(): Promise<{ ok: boolean; already: boolean }> {
+  if (window.missionControl?.startBridge) return window.missionControl.startBridge();
+  const res = await fetch('/__bridge/start', { method: 'POST' });
+  if (!res.ok) throw new Error(`launcher responded ${res.status}`);
+  return res.json();
+}
+
+const SPAWN_AVAILABLE = typeof window !== 'undefined' &&
+  (typeof window.missionControl?.startBridge === 'function' || import.meta.env.DEV);
 
 function fmtUptime(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -31,6 +64,9 @@ function latencyTone(ms: number): string {
 
 export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) {
   const { meta, endpoints, probing, error, lastRun, runDiagnostics } = useHealthStore();
+  const [starting, setStarting] = useState(false);
+  const [startMsg, setStartMsg] = useState<string | null>(null);
+  const startingRef = useRef(false);
 
   // Run a fresh probe each time the panel opens.
   useEffect(() => {
@@ -39,6 +75,114 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
 
   const okCount = endpoints.filter((e) => e.ok).length;
   const allOk = okCount === endpoints.length;
+  // "Down" = a completed probe run where nothing answered (vs. partial outage).
+  const bridgeDown = lastRun !== null && !probing && okCount === 0;
+  const canSpawn = SPAWN_AVAILABLE;
+
+  const handleStartBridge = async () => {
+    if (startingRef.current || !canSpawn) return;
+    startingRef.current = true;
+    setStarting(true);
+    setStartMsg('spawning hermes-bridge.py…');
+    try {
+      const r = await spawnBridge();
+      setStartMsg(r.already ? 'bridge already running — re-probing' : r.ok ? 'bridge is up — re-probing' : 'bridge failed to come up — check the app logs');
+      if (r.ok) await runDiagnostics();
+    } catch (e) {
+      setStartMsg(`start failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
+    }
+  };
+
+  // Auto-start: the first time in a session the opening probe finds the bridge
+  // dead (desktop build only), bring it up without requiring a click.
+  useEffect(() => {
+    if (bridgeDown && canSpawn && !autoStartAttempted) {
+      autoStartAttempted = true;
+      void handleStartBridge();
+    }
+    // handleStartBridge is stable enough for this one-shot; re-running on each
+    // probe is exactly the trigger we want.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bridgeDown, canSpawn]);
+
+  // ── Messaging gateway (Telegram bots + the embedded kanban dispatcher) ──
+  // The gateway is a separate Hermes service; if it dies, messaging AND agent
+  // task dispatch silently stop. Check it whenever the panel has a live bridge,
+  // and auto-start it once per session if it's down.
+  // up = api port answering (authoritative); booting = process exists or a
+  // start is pending but the api isn't up yet (cold boot can take 60s+).
+  const [gw, setGw] = useState<{ up: boolean; booting: boolean; pids: number[] } | null | 'unknown'>('unknown');
+  const [gwBusy, setGwBusy] = useState(false);
+  const [gwMsg, setGwMsg] = useState<string | null>(null);
+  const settleTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const checkGateway = useCallback(async (): Promise<'up' | 'booting' | 'down' | null> => {
+    try {
+      const g = await getHermesGateway();
+      const up = g.service.api_listening === true;
+      const booting = !up && g.service.running;
+      setGw({ up, booting, pids: g.service.pids });
+      return up ? 'up' : booting ? 'booting' : 'down';
+    } catch {
+      setGw(null); // bridge reachable but gateway status unavailable
+      return null;
+    }
+  }, []);
+
+  // Poll until the gateway settles (BOOTING → RUNNING or DOWN). Capped backoff
+  // so a cold 60s+ boot is tracked without hammering the CLI.
+  const watchUntilSettled = useCallback(() => {
+    settleTimers.current.forEach(clearTimeout);
+    settleTimers.current = [10, 25, 45, 75, 110].map((s) =>
+      setTimeout(() => {
+        void checkGateway().then((st) => {
+          if (st === 'up') {
+            settleTimers.current.forEach(clearTimeout);
+            settleTimers.current = [];
+            setGwMsg(null);
+          }
+        });
+      }, s * 1000),
+    );
+  }, [checkGateway]);
+
+  useEffect(() => () => settleTimers.current.forEach(clearTimeout), []);
+
+  const handleStartGateway = useCallback(async () => {
+    setGwBusy(true);
+    setGwMsg('starting gateway via its service task…');
+    try {
+      // The bridge starts via the Windows Scheduled Task (clean environment)
+      // and reports liveness from the gateway's api port — see the bridge for
+      // the zombie/phantom-PID war stories that led here.
+      const r = await gatewayAction('restart');
+      setGwMsg(r.message?.slice(0, 110) ?? null);
+      await checkGateway();
+      if (!r.running) watchUntilSettled();
+    } catch (e) {
+      setGwMsg(`gateway restart failed: ${errMessage(e)}`);
+    } finally {
+      setGwBusy(false);
+    }
+  }, [checkGateway, watchUntilSettled]);
+
+  useEffect(() => {
+    // Wait for a completed probe run with a reachable bridge — the gateway
+    // verbs go through the bridge, so there's nothing to do before that.
+    if (probing || lastRun === null || okCount === 0) return;
+    void (async () => {
+      const state = await checkGateway();
+      if (state === 'down' && !autoGatewayAttempted) {
+        autoGatewayAttempted = true;
+        await handleStartGateway();
+      } else if (state === 'booting') {
+        watchUntilSettled();
+      }
+    })();
+  }, [probing, lastRun, okCount, checkGateway, handleStartGateway, watchUntilSettled]);
 
   return (
     <div className="fixed inset-0 z-[5000] flex items-start justify-center bg-black/70 backdrop-blur-sm pt-[8vh] px-4" onClick={onClose}>
@@ -55,6 +199,15 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
             </Pill>
           </div>
           <div className="flex items-center gap-3">
+            {bridgeDown && canSpawn && (
+              <button
+                onClick={() => void handleStartBridge()}
+                disabled={starting}
+                className="text-[10px] font-mono border border-emerald-400/40 bg-emerald-400/10 text-emerald-400 px-2 py-0.5 hover:bg-emerald-400/20 disabled:opacity-50"
+              >
+                {starting ? 'STARTING…' : '▶ START BRIDGE'}
+              </button>
+            )}
             <button
               onClick={() => void runDiagnostics()}
               disabled={probing}
@@ -62,7 +215,7 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
             >
               {probing ? 'PROBING…' : 'RE-RUN'}
             </button>
-            <button onClick={onClose} className="text-[#545454] hover:text-white text-[12px]">✕</button>
+            <button onClick={onClose} className="text-[#545454] hover:text-white text-[11px]">✕</button>
           </div>
         </div>
 
@@ -84,7 +237,53 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
             </div>
           )}
 
-          {error && (
+          {bridgeDown && (
+            <div className="text-[10px] font-mono border border-amber-400/30 bg-amber-400/5 px-2 py-1.5 text-amber-400">
+              ⚠ BRIDGE OFFLINE — no endpoint answered.
+              {canSpawn
+                ? ' Use ▶ START BRIDGE above — hermes-bridge.py relaunches automatically.'
+                : ' Start it from a terminal: npm run bridge — then RE-RUN.'}
+            </div>
+          )}
+
+          {startMsg && (
+            <div className="text-[10px] font-mono text-sky-400 border border-sky-400/30 bg-sky-400/5 px-2 py-1.5">
+              ▸ {startMsg}
+            </div>
+          )}
+
+          {/* Messaging gateway — Telegram bots + the embedded kanban dispatcher.
+              Auto-started once per session if the check finds it down. */}
+          <div className="flex items-center justify-between gap-2 border border-white/[0.08] bg-[#080808] px-2 py-1.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="text-[#545454] shrink-0">GATEWAY</Label>
+              {gw === 'unknown' && <span className="text-[10px] font-mono text-[#707070]">checking…</span>}
+              {gw === null && <Pill tone="warn">STATUS UNAVAILABLE</Pill>}
+              {gw !== null && gw !== 'unknown' && (
+                <Pill tone={gw.up ? 'good' : gw.booting ? 'warn' : 'bad'}>
+                  {gw.up ? `RUNNING${gw.pids.length ? ` · PID ${gw.pids[0]}` : ''}` : gw.booting ? 'BOOTING…' : 'DOWN'}
+                </Pill>
+              )}
+              <span className="text-[10px] font-mono text-[#707070] truncate hidden sm:inline">telegram bots · kanban dispatcher</span>
+            </div>
+            {gw !== 'unknown' && gw !== null && !gw.up && !gw.booting && (
+              <button
+                onClick={() => void handleStartGateway()}
+                disabled={gwBusy}
+                className="text-[10px] font-mono border border-emerald-400/40 bg-emerald-400/10 text-emerald-400 px-2 py-0.5 hover:bg-emerald-400/20 disabled:opacity-50 shrink-0"
+              >
+                {gwBusy ? 'STARTING…' : '▶ START GATEWAY'}
+              </button>
+            )}
+          </div>
+
+          {gwMsg && (
+            <div className="text-[10px] font-mono text-sky-400 border border-sky-400/30 bg-sky-400/5 px-2 py-1.5">
+              ▸ {gwMsg}
+            </div>
+          )}
+
+          {error && !bridgeDown && (
             <div className="text-[10px] font-mono text-red-400 border border-red-400/30 bg-red-400/5 px-2 py-1.5">
               ⚠ bridge meta: {error}
             </div>
@@ -92,7 +291,7 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
 
           {/* Endpoint table */}
           <div className="border border-white/[0.08]">
-            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-2 py-1.5 border-b border-white/10 bg-[#080808] text-[9px] font-mono uppercase tracking-[0.18em] text-[#545454]">
+            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-2 py-1.5 border-b border-white/10 bg-[#080808] text-[10px] font-mono uppercase tracking-[0.18em] text-[#545454]">
               <span>Endpoint</span>
               <span className="text-right w-14">HTTP</span>
               <span className="text-right w-16">Latency</span>
@@ -105,8 +304,8 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${e.checkedAt ? (e.ok ? 'bg-emerald-400' : 'bg-red-400') : 'bg-[#363636]'}`} />
                     <span className="text-[#d8d8d8] truncate">{e.label}</span>
                   </div>
-                  <div className="text-[9px] text-[#444] truncate pl-3.5">{e.path}</div>
-                  {e.error && <div className="text-[9px] text-red-400/80 truncate pl-3.5">{e.error}</div>}
+                  <div className="text-[10px] text-[#444] truncate pl-3.5">{e.path}</div>
+                  {e.error && <div className="text-[10px] text-red-400/80 truncate pl-3.5">{e.error}</div>}
                 </div>
                 <span className={`text-right w-14 tabular-nums ${e.ok ? 'text-emerald-400' : 'text-red-400'}`}>
                   {e.checkedAt ? (e.status || 'ERR') : '—'}
@@ -119,7 +318,7 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
             ))}
           </div>
 
-          <div className="text-[9px] font-mono text-[#444] flex justify-between">
+          <div className="text-[10px] font-mono text-[#444] flex justify-between">
             <span>Probes run client-side from the app · localhost:{meta?.port ?? '8767'}</span>
             <span>last run {fmtAgo(lastRun)}</span>
           </div>

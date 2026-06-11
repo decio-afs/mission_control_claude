@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   getHermesTasks,
+  getContentPipeline,
   errMessage,
   type HermesTask,
   type ContentCampaign,
@@ -8,10 +9,10 @@ import {
   type ContentCalendarItem,
 } from '../lib/api';
 
-// The bridge has no /api/content/pipeline endpoint, so the Content Factory is
-// fed by live Hermes kanban tasks: content-flavoured tasks become campaigns,
-// the ones that are ready become the draft queue, and every item is placed on a
-// calendar by its creation date.
+// Primary source: the bridge's /api/content/pipeline — kanban-derived
+// campaigns/drafts PLUS the planned-post calendar store (Buffer-synced).
+// If that call fails, fall back to deriving everything client-side from the
+// raw kanban tasks so the Factory still renders real Hermes data.
 
 interface ContentStore {
   campaigns: ContentCampaign[];
@@ -74,6 +75,21 @@ export const useContentStore = create<ContentStore>((set) => ({
 
   refresh: async () => {
     set({ isLoading: true });
+    // Preferred path: the bridge pipeline (includes planned posts).
+    try {
+      const pipeline = await getContentPipeline();
+      set({
+        campaigns: pipeline.campaigns ?? [],
+        drafts: pipeline.drafts ?? [],
+        calendar: pipeline.calendar ?? [],
+        error: null,
+        isLoading: false,
+        lastSync: new Date(),
+      });
+      return;
+    } catch {
+      // fall through to the client-side kanban derivation
+    }
     try {
       const { tasks } = await getHermesTasks();
       const all = tasks || [];

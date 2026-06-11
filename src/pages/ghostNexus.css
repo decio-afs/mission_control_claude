@@ -21,11 +21,12 @@
   --line-soft: rgba(255, 255, 255, 0.06);
   --line-hard: color-mix(in oklab, var(--accent) 34%, transparent);
 
-  /* text */
+  /* text — dim/faint lifted from #545454/#363636: timestamps and labels sit
+     under a scanline overlay + vignette, so they need the extra contrast. */
   --txt:       #FFFFFF;
   --txt-2:     #b8b8b8;
-  --txt-dim:   #545454;
-  --txt-faint: #363636;
+  --txt-dim:   #707070;
+  --txt-faint: #585858;
 
   /* accents — brand coral on near-black (see AGENTS.md design system) */
   --accent:    #f64e6e;
@@ -51,7 +52,7 @@
   background: var(--bg);
   color: var(--txt);
   font-family: var(--font-ui);
-  font-size: 15px;
+  font-size: 16px;
   letter-spacing: 0.02em;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -96,7 +97,7 @@
 .nexus .col-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 16px; border-bottom: 1px solid var(--line);
-  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.24em; color: var(--txt-dim); text-transform: uppercase;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.24em; color: var(--txt-dim); text-transform: uppercase;
 }
 .nexus .col-head .n { color: var(--accent); }
 .nexus .col-body { flex: 1; min-height: 0; overflow-y: auto; }
@@ -123,13 +124,13 @@
 .nexus .ragent .ico { width: 30px; height: 30px; border-radius: var(--r); display: grid; place-items: center; border: 1px solid color-mix(in oklab, var(--c) 40%, transparent); background: color-mix(in oklab, var(--c) 10%, var(--solid)); }
 .nexus .ragent .ico svg { width: 17px; height: 17px; stroke: var(--c); fill: none; stroke-width: 1.6; filter: drop-shadow(0 0 4px var(--c)); }
 .nexus .ragent .meta { min-width: 0; }
-.nexus .ragent .nm { font-weight: 600; font-size: 13.5px; letter-spacing: 0.08em; color: var(--txt); display: flex; align-items: center; gap: 7px; }
-.nexus .ragent .rl { font-family: var(--font-mono); font-size: 9.5px; color: var(--txt-dim); letter-spacing: 0.12em; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nexus .ragent .nm { font-weight: 600; font-size: 13px; letter-spacing: 0.08em; color: var(--txt); display: flex; align-items: center; gap: 7px; }
+.nexus .ragent .rl { font-family: var(--font-mono); font-size: 10px; color: var(--txt-dim); letter-spacing: 0.12em; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nexus .ragent .stat { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .nexus .ragent .load { font-family: var(--font-mono); font-size: 10px; color: var(--c); }
-.nexus .s-badge { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.16em; padding: 2px 5px; border-radius: 2px; text-transform: uppercase; border: 1px solid color-mix(in oklab, var(--c) 40%, transparent); color: var(--c); }
+.nexus .s-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; padding: 2px 5px; border-radius: 2px; text-transform: uppercase; border: 1px solid color-mix(in oklab, var(--c) 40%, transparent); color: var(--c); }
 .nexus .rail-foot { border-top: 1px solid var(--line); padding: 13px 15px; }
-.nexus .mini-label { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.2em; color: var(--txt-dim); margin-bottom: 9px; text-transform: uppercase; }
+.nexus .mini-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.2em; color: var(--txt-dim); margin-bottom: 9px; text-transform: uppercase; }
 .nexus .bars { display: flex; flex-direction: column; gap: 9px; }
 .nexus .bar { display: grid; grid-template-columns: 54px 1fr 38px; gap: 9px; align-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--txt-2); }
 .nexus .bar .track { height: 5px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
@@ -140,7 +141,7 @@
 .nexus .stage { position: relative; overflow: hidden; }
 .nexus .stage-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--line); gap: 16px; }
 .nexus .stage-title { display: flex; align-items: baseline; gap: 13px; min-width: 0; }
-.nexus .stage-title b { font-size: 14px; letter-spacing: 0.22em; color: var(--txt); white-space: nowrap; }
+.nexus .stage-title b { font-size: 13px; letter-spacing: 0.22em; color: var(--txt); white-space: nowrap; }
 .nexus .stage-title span { font-family: var(--font-mono); font-size: 10px; color: var(--txt-dim); letter-spacing: 0.16em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nexus .stage-stats { display: flex; gap: 8px; margin-left: auto; }
 .nexus .chip { display: flex; align-items: center; gap: 8px; padding: 6px 11px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r); font-family: var(--font-mono); font-size: 11px; color: var(--txt-2); white-space: nowrap; }
@@ -161,11 +162,11 @@
 .nexus:not([data-layout="grid"]) .stage-body { cursor: grab; }
 .nexus .stage-body.grabbing { cursor: grabbing; }
 .nexus .zoomctl { position: absolute; right: 18px; bottom: 52px; z-index: 6; display: flex; flex-direction: column; gap: 6px; align-items: center; }
-.nexus .zoomctl button { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(10,10,10,0.92); color: var(--accent); cursor: pointer; font-family: var(--font-mono); font-size: 17px; line-height: 1; display: grid; place-items: center; transition: border-color .14s, box-shadow .14s, color .14s; }
+.nexus .zoomctl button { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(10,10,10,0.92); color: var(--accent); cursor: pointer; font-family: var(--font-mono); font-size: 16px; line-height: 1; display: grid; place-items: center; transition: border-color .14s, box-shadow .14s, color .14s; }
 .nexus .zoomctl button:hover { border-color: var(--line-hard); box-shadow: 0 0 16px -4px var(--accent); }
 .nexus .zoomctl button:active { transform: translateY(1px); }
-.nexus .zoomctl .zreset { font-size: 14px; color: var(--txt-2); }
-.nexus .zlvl { font-family: var(--font-mono); font-size: 9px; color: var(--txt-dim); letter-spacing: .12em; margin-top: 2px; }
+.nexus .zoomctl .zreset { font-size: 13px; color: var(--txt-2); }
+.nexus .zlvl { font-family: var(--font-mono); font-size: 10px; color: var(--txt-dim); letter-spacing: .12em; margin-top: 2px; }
 .nexus[data-layout="grid"] .zoomctl { display: none; }
 
 .nexus .ring { position: absolute; inset: 0; margin: auto; border-radius: 50%; border: 1px dashed var(--line); will-change: transform; animation: nxSpin var(--rdur, 120s) linear infinite; }
@@ -175,9 +176,9 @@
 @keyframes nxSpin { to { transform: rotate(360deg); } }
 
 .nexus .spoke { position: absolute; top: 50%; left: 50%; height: 1px; width: 50%; transform-origin: 0 0; transform: rotate(var(--a)); background: linear-gradient(90deg, color-mix(in oklab, var(--c,var(--accent)) 50%, transparent), transparent 85%); opacity: .5; }
-/* packet rides the spoke via GPU transform (not animating `left`, which would
-   force a layout + paint every frame × every spoke). */
-.nexus .spoke::after { content: ''; position: absolute; top: -1.5px; left: 0; width: 4px; height: 4px; border-radius: 50%; background: var(--c, var(--accent)); box-shadow: 0 0 8px var(--c, var(--accent)); transform: translateX(0); animation: nxPacket var(--pdur, 3.2s) linear infinite; }
+/* Packets ONLY on .live spokes (agents with running tasks) — the data-flow
+   visual now encodes actual work. GPU transform, not `left`, for cheap frames. */
+.nexus .spoke.live::after { content: ''; position: absolute; top: -1.5px; left: 0; width: 4px; height: 4px; border-radius: 50%; background: var(--c, var(--accent)); box-shadow: 0 0 8px var(--c, var(--accent)); transform: translateX(0); animation: nxPacket var(--pdur, 3.2s) linear infinite; }
 @keyframes nxPacket { 0% { transform: translateX(0); opacity: 0; } 12% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(calc(var(--orbit, 480px) * 0.46)); opacity: 0; } }
 
 .nexus .node { position: absolute; top: 50%; left: 50%; width: 0; height: 0; }
@@ -186,7 +187,7 @@
 .nexus .node .upr { transform: rotate(calc(-1 * var(--a))); }
 
 .nexus .agent-node { --c: var(--c-cyan); position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 7px; cursor: pointer; width: 96px; }
-.nexus .agent-node .orb { width: 54px; height: 54px; border-radius: 50%; position: relative; display: grid; place-items: center; border: 1px solid color-mix(in oklab, var(--c) 55%, transparent); background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--c) 26%, var(--solid)), var(--solid) 72%); box-shadow: 0 0 0 4px color-mix(in oklab, var(--c) 8%, transparent), 0 0 22px -4px var(--c); transition: transform .16s, box-shadow .16s; }
+.nexus .agent-node .orb { width: 54px; height: 54px; border-radius: 50%; position: relative; display: grid; place-items: center; border: 1px solid color-mix(in oklab, var(--c) 55%, transparent); background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--c) 26%, var(--solid)), var(--solid) 72%); box-shadow: 0 0 0 4px color-mix(in oklab, var(--c) 8%, transparent), 0 0 22px -4px var(--c); transition: transform .16s, box-shadow .16s, filter .7s ease; }
 .nexus .agent-node .orb svg { width: 24px; height: 24px; stroke: var(--c); fill: none; stroke-width: 1.5; filter: drop-shadow(0 0 5px var(--c)); }
 .nexus .agent-node .orb::before { content: ''; position: absolute; inset: -6px; border-radius: 50%; border: 1.5px solid transparent; border-top-color: var(--c); border-right-color: color-mix(in oklab,var(--c) 40%,transparent); animation: nxSpin 3.2s linear infinite; opacity: .9; }
 .nexus .agent-node.st-idle .orb::before { animation-duration: 9s; opacity: .4; }
@@ -194,12 +195,43 @@
 .nexus .agent-node:hover .orb { transform: scale(1.12); box-shadow: 0 0 0 5px color-mix(in oklab, var(--c) 14%, transparent), 0 0 34px -2px var(--c); }
 .nexus .agent-node.sel .orb { box-shadow: 0 0 0 6px color-mix(in oklab, var(--c) 18%, transparent), 0 0 40px 0 var(--c); }
 .nexus .agent-node .lab { text-align: center; }
-.nexus .agent-node .lab b { font-size: 12px; letter-spacing: 0.14em; color: var(--txt); display: block; text-shadow: 0 0 10px color-mix(in oklab,var(--c) 40%, transparent); }
-.nexus .agent-node .lab span { font-family: var(--font-mono); font-size: 8.5px; color: var(--txt-dim); letter-spacing: 0.1em; }
+.nexus .agent-node .lab b { font-size: 11px; letter-spacing: 0.14em; color: var(--txt); display: block; text-shadow: 0 0 10px color-mix(in oklab,var(--c) 40%, transparent); }
+.nexus .agent-node .lab span { font-family: var(--font-mono); font-size: 10px; color: var(--txt-dim); letter-spacing: 0.1em; }
+
+/* ── power states ───────────────────────────────────────────────────────────
+   Agents are gray ("powered down") unless they're actually executing; the .7s
+   filter transition makes an agent visibly light up in its squad color the
+   moment it claims work, and fade back down when it finishes. */
+.nexus .agent-node.dim .orb { filter: grayscale(1) brightness(.55); box-shadow: 0 0 0 4px rgba(255,255,255,0.02); }
+.nexus .agent-node.dim .orb::before { animation: none; opacity: .15; }
+.nexus .agent-node.dim .lab b { color: var(--txt-dim); text-shadow: none; }
+.nexus .agent-node.dim .lab span { color: var(--txt-faint); }
+.nexus .agent-node.dim:hover .orb { filter: grayscale(.45) brightness(.85); }
+.nexus .agent-node.dim.sel .orb { filter: grayscale(.35) brightness(.9); box-shadow: 0 0 0 5px color-mix(in oklab, var(--c) 12%, transparent); }
+.nexus .agent-node.on-air .orb { box-shadow: 0 0 0 5px color-mix(in oklab, var(--c) 14%, transparent), 0 0 30px -2px var(--c); }
+.nexus .spoke.dimmed { opacity: .12; filter: grayscale(1); }
+.nexus .ragent.dim .ico { filter: grayscale(.85) brightness(.65); transition: filter .7s ease; }
+.nexus .ragent.dim::before { opacity: .15; }
+.nexus .ragent.dim .load, .nexus .ragent.dim .s-badge { color: var(--txt-dim); border-color: var(--line); }
+.nexus .acard.dim .ci { filter: grayscale(.85) brightness(.65); transition: filter .7s ease; }
+.nexus .acard.dim::before { opacity: .2; }
 
 /* ===== living orb core ===== */
 .nexus .core { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: clamp(176px, 21vw, 256px); height: clamp(176px, 21vw, 256px); --warm: #ff795e; z-index: 3; }
-.nexus .core > .layer { position: absolute; inset: 0; margin: auto; border-radius: 50%; }
+.nexus .core > .layer { position: absolute; inset: 0; margin: auto; border-radius: 50%; transition: filter .9s ease, opacity .9s ease; }
+
+/* Core power states — STANDBY dims the whole orb to embers; it brightens back
+   to full brand coral while the orchestrator is thinking (directive in flight)
+   or the fleet is executing. THINKING also speeds the radar sweep + hot pulse
+   so "the brain is working" reads from across the room. */
+.nexus .core.standby > .layer { filter: grayscale(.7) brightness(.45); }
+.nexus .core.standby .orb-halo { opacity: .25; }
+.nexus .core.standby .orb-sweep { opacity: .12; }
+.nexus .core.standby .orb-hot { opacity: .35; }
+.nexus .core.standby .core-label b { text-shadow: none; color: var(--txt-2); }
+.nexus .core.standby .core-label span { color: var(--txt-dim); }
+.nexus .core.thinking .orb-sweep { animation-duration: 1.6s; opacity: .8; }
+.nexus .core.thinking .orb-hot { animation-duration: 1.1s; }
 .nexus .orb-halo { background: radial-gradient(circle, color-mix(in oklab,var(--accent) 30%,transparent) 0%, color-mix(in oklab,var(--warm) 12%,transparent) 38%, transparent 66%); filter: blur(5px); transform: scale(1.4); animation: nxOrbBreathe 4.6s ease-in-out infinite; }
 @keyframes nxOrbBreathe { 0%,100% { opacity:.7; transform:scale(1.32); } 50% { opacity:1; transform:scale(1.46); } }
 /* coarser ticks than the original 0.7°/5° (~72 stripes) — far cheaper to
@@ -218,13 +250,13 @@
 .nexus .orb-hot .flare-h, .nexus .orb-hot .flare-v { position:absolute; background: linear-gradient(var(--ang,90deg), transparent, #ffd9e0 48%, #ffffff 50%, #ffd9e0 52%, transparent); filter: blur(.3px); }
 .nexus .orb-hot .flare-h { width: 260%; height: 1.5px; opacity:.7; }
 .nexus .orb-hot .flare-v { height: 230%; width: 1.5px; --ang:0deg; opacity:.6; }
-.nexus .core-stat { position: absolute; font-family: var(--font-mono); font-size: 9px; color: var(--txt-2); letter-spacing: 0.1em; white-space: nowrap; z-index: 4; }
+.nexus .core-stat { position: absolute; font-family: var(--font-mono); font-size: 10px; color: var(--txt-2); letter-spacing: 0.1em; white-space: nowrap; z-index: 4; }
 .nexus .cs-top { top: -6px; left: 50%; transform: translateX(-50%); color: var(--accent); }
 .nexus .cs-bl  { bottom: 2px; left: -4px; }
 .nexus .cs-br  { bottom: 2px; right: -4px; color: var(--accent-2); }
 .nexus .core-label { position: absolute; top: calc(100% + 12px); left: 50%; transform: translateX(-50%); text-align: center; white-space: nowrap; z-index: 4; }
 .nexus .core-label b { font-size: clamp(15px, 1.7vw, 21px); letter-spacing: 0.32em; color: #ffffff; display: block; text-shadow: 0 0 18px var(--accent); }
-.nexus .core-label span { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.24em; color: var(--accent-2); }
+.nexus .core-label span { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.24em; color: var(--accent-2); }
 
 .nexus .stage-foot { position: absolute; bottom: 0; left: 0; right: 0; display: flex; gap: 24px; padding: 11px 20px; border-top: 1px solid var(--line); background: linear-gradient(0deg, rgba(8,8,8,.85), transparent); font-family: var(--font-mono); font-size: 10px; color: var(--txt-dim); letter-spacing: 0.12em; }
 .nexus .stage-foot b { color: var(--txt-2); }
@@ -239,9 +271,9 @@
 .nexus .acard .ch { display: flex; align-items: center; gap: 11px; margin-bottom: 13px; }
 .nexus .acard .ci { width: 36px; height: 36px; border-radius: var(--r); display: grid; place-items: center; border: 1px solid color-mix(in oklab,var(--c) 45%, transparent); background: color-mix(in oklab,var(--c) 10%, var(--solid)); }
 .nexus .acard .ci svg { width: 20px; height: 20px; stroke: var(--c); fill: none; stroke-width: 1.5; filter: drop-shadow(0 0 4px var(--c)); }
-.nexus .acard .cn b { font-size: 14px; letter-spacing: 0.1em; color: var(--txt); }
-.nexus .acard .cn span { display: block; font-family: var(--font-mono); font-size: 9px; color: var(--txt-dim); letter-spacing: 0.1em; margin-top: 2px; }
-.nexus .acard .ctask { font-size: 12px; color: var(--txt-2); line-height: 1.5; min-height: 36px; margin-bottom: 13px; }
+.nexus .acard .cn b { font-size: 13px; letter-spacing: 0.1em; color: var(--txt); }
+.nexus .acard .cn span { display: block; font-family: var(--font-mono); font-size: 10px; color: var(--txt-dim); letter-spacing: 0.1em; margin-top: 2px; }
+.nexus .acard .ctask { font-size: 11px; color: var(--txt-2); line-height: 1.5; min-height: 36px; margin-bottom: 13px; }
 .nexus .acard .cfoot { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--txt-dim); }
 .nexus .acard .cfoot .lo { color: var(--c); }
 .nexus .spark { display: block; width: 100%; height: 30px; margin-bottom: 12px; }
@@ -250,10 +282,10 @@
 .nexus .panel-detail { border-bottom: 1px solid var(--line); }
 .nexus .vitals { padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .nexus .vital { border: 1px solid var(--line); border-radius: var(--r); padding: 11px 12px; position: relative; overflow: hidden; background: var(--surface); }
-.nexus .vital .vl { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em; color: var(--txt-dim); text-transform: uppercase; }
+.nexus .vital .vl { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; color: var(--txt-dim); text-transform: uppercase; }
 /* reserve room for the absolutely-positioned .vspark (60px @ right:8px) and
    ellipsize so a long value can't run under the sparkline or escape the cell. */
-.nexus .vital .vv { font-size: 22px; font-weight: 700; color: var(--txt); margin-top: 5px; letter-spacing: 0.02em; padding-right: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nexus .vital .vv { font-size: 20px; font-weight: 700; color: var(--txt); margin-top: 5px; letter-spacing: 0.02em; padding-right: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nexus .vital .vv small { font-size: 11px; font-weight: 400; color: var(--txt-dim); font-family: var(--font-mono); margin-left: 3px; }
 .nexus .vital .vspark { position: absolute; right: 8px; bottom: 8px; width: 60px; height: 22px; opacity: .9; }
 .nexus .vital.up .vv { color: var(--accent-2); }
@@ -266,24 +298,35 @@
 .nexus .detail .dh .di { --c: var(--c-cyan); width: 42px; height: 42px; border-radius: var(--r); display: grid; place-items: center; border: 1px solid color-mix(in oklab,var(--c) 45%, transparent); background: color-mix(in oklab,var(--c) 12%, var(--solid)); flex-shrink: 0; }
 .nexus .detail .dh .di svg { width: 24px; height: 24px; stroke: var(--c); fill: none; stroke-width: 1.5; filter: drop-shadow(0 0 5px var(--c)); }
 .nexus .detail .dh .dt { min-width: 0; }
-.nexus .detail .dh .dt b { font-size: 17px; letter-spacing: 0.12em; color: var(--txt); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nexus .detail .dh .dt b { font-size: 16px; letter-spacing: 0.12em; color: var(--txt); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nexus .detail .dh .dt span { font-family: var(--font-mono); font-size: 10px; color: var(--txt-dim); letter-spacing: 0.12em; }
 .nexus .detail .dclose { margin-left: auto; background: transparent; border: 1px solid var(--line); color: var(--txt-dim); cursor: pointer; font-family: var(--font-mono); font-size: 10px; padding: 5px 9px; border-radius: 2px; letter-spacing: 0.1em; white-space: nowrap; flex-shrink: 0; }
 .nexus .detail .dh .dclose + .dclose { margin-left: 0; }
 .nexus .detail .dclose:hover { color: var(--txt); border-color: var(--line-hard); }
 .nexus .dtask { border: 1px solid var(--line); border-radius: var(--r); padding: 11px 13px; background: var(--surface); margin-bottom: 13px; }
-.nexus .dtask .tl { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em; color: var(--txt-dim); text-transform: uppercase; margin-bottom: 6px; }
+.nexus .dtask .tl { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; color: var(--txt-dim); text-transform: uppercase; margin-bottom: 6px; }
 .nexus .dtask .tx { font-size: 13px; color: var(--txt); line-height: 1.5; }
 .nexus .prog { height: 4px; background: rgba(255,255,255,0.07); border-radius: 99px; overflow: hidden; margin-top: 11px; }
 .nexus .prog i { display: block; height: 100%; background: linear-gradient(90deg,var(--accent-2),var(--accent)); box-shadow: 0 0 8px var(--accent); border-radius: 99px; }
 .nexus .dstats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; margin-bottom: 13px; }
 .nexus .dstat { border: 1px solid var(--line); border-radius: var(--r); padding: 9px 10px; background: var(--surface); min-width: 0; }
-.nexus .dstat .l { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.12em; color: var(--txt-dim); text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nexus .dstat .l { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; color: var(--txt-dim); text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* min-width:0 on the cell + ellipsis here so a wide value (e.g. 100%) can't blow
    out the 3-col 1fr grid on the narrow (≤1320px) detail panel. */
 .nexus .dstat .v { font-size: 16px; font-weight: 700; color: var(--txt); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ── live open-task list in the detail panel (click → board focus) ── */
+.nexus .dtask-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 13px; }
+.nexus .dtask-row { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r); cursor: pointer; text-align: left; min-width: 0; font-family: inherit; transition: border-color .14s, background .14s; }
+.nexus .dtask-row:hover { border-color: var(--line-hard); background: color-mix(in oklab, var(--accent) 6%, var(--surface)); }
+.nexus .dtask-row .tk { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; flex-shrink: 0; }
+.nexus .dtask-row .tt { font-size: 11px; color: var(--txt-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.nexus .dtask-more { font-family: var(--font-mono); font-size: 10px; color: var(--txt-dim); letter-spacing: 0.08em; padding: 2px 2px 0; }
+.nexus .dsel { font-family: var(--font-mono); font-size: 10px; background: var(--surface); border: 1px solid var(--line); color: var(--txt-2); border-radius: var(--r); padding: 8px 6px; min-width: 0; outline: none; }
+.nexus .dsel:focus { border-color: var(--line-hard); }
+.nexus .dnote { font-family: var(--font-mono); font-size: 10px; color: var(--accent-3); margin: 8px 0 0; }
+
 .nexus .dtags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
-.nexus .dtag { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; padding: 4px 8px; border-radius: 2px; border: 1px solid var(--line); color: var(--txt-2); background: var(--surface); }
+.nexus .dtag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; padding: 4px 8px; border-radius: 2px; border: 1px solid var(--line); color: var(--txt-2); background: var(--surface); }
 .nexus .dctrl { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 /* Two stacked control rows (orchestrator directives + registry CRUD) sat flush,
    reading as one cramped 6-button block. Separate the second group cleanly. */
@@ -298,13 +341,13 @@
 .nexus .feed-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .nexus .feed-head { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.2em; color: var(--txt-dim); text-transform: uppercase; }
 .nexus .feed-head .live { display: flex; align-items: center; gap: 7px; color: var(--c-red); }
-.nexus .feed { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; }
+.nexus .feed { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px; font-family: var(--font-mono); font-size: 11px; line-height: 1.5; }
 .nexus .fline { display: grid; grid-template-columns: auto auto auto 1fr; gap: 9px; padding: 3px 4px; align-items: baseline; border-bottom: 1px solid rgba(255,255,255,0.025); }
 .nexus .fline.fresh { animation: nxFeedIn .5s ease both; }
 @keyframes nxFeedIn { 0% { background: color-mix(in oklab, var(--accent) 22%, transparent); } 100% { background: transparent; } }
 .nexus .fline .ts { color: var(--txt-faint); }
 .nexus .fline .ag { color: var(--txt-2); font-weight: 600; min-width: 56px; }
-.nexus .fline .kk { font-size: 8.5px; letter-spacing: 0.08em; padding: 1px 5px; border-radius: 2px; text-transform: uppercase; align-self: center; }
+.nexus .fline .kk { font-size: 10px; letter-spacing: 0.08em; padding: 1px 5px; border-radius: 2px; text-transform: uppercase; align-self: center; }
 .nexus .fline .tx { color: var(--txt-2); text-wrap: pretty; word-break: break-word; }
 .nexus .kk.exec { color: var(--accent); border: 1px solid color-mix(in oklab,var(--accent) 35%,transparent); }
 .nexus .kk.ok   { color: var(--accent-2); border: 1px solid color-mix(in oklab,var(--accent-2) 35%,transparent); }
@@ -327,28 +370,26 @@
    430px detail panel both on screen the centre column gets narrow (esp. ≤1320px),
    so the nowrap row used to overflow. Now it wraps cleanly instead of clipping. */
 .nexus .commandbar { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 12px 20px; border-top: 1px solid var(--line); background: linear-gradient(0deg, rgba(8,8,8,.98), rgba(8,8,8,.86)); position: relative; z-index: 2; }
-.nexus .cmd-pre { display: flex; align-items: center; gap: 9px; font-family: var(--font-mono); font-size: 12px; color: var(--accent); white-space: nowrap; }
+.nexus .cmd-pre { display: flex; align-items: center; gap: 9px; font-family: var(--font-mono); font-size: 11px; color: var(--accent); white-space: nowrap; }
 .nexus .cmd-pre .pr { color: var(--accent-2); }
 .nexus .cmd-input { flex: 1 1 200px; min-width: 200px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 15px; color: var(--txt); font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.02em; outline: none; transition: border-color .15s, box-shadow .15s; }
 .nexus .cmd-input::placeholder { color: var(--txt-faint); }
 .nexus .cmd-input:focus { border-color: var(--line-hard); box-shadow: 0 0 0 1px var(--line-hard), 0 0 24px -10px var(--accent); }
 .nexus .chips { display: flex; flex-wrap: wrap; gap: 7px; }
-.nexus .qchip { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; color: var(--txt-2); padding: 8px 11px; border: 1px solid var(--line); border-radius: var(--r); cursor: pointer; white-space: nowrap; background: var(--surface); transition: border-color .14s, color .14s; }
+.nexus .qchip { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--txt-2); padding: 8px 11px; border: 1px solid var(--line); border-radius: var(--r); cursor: pointer; white-space: nowrap; background: var(--surface); transition: border-color .14s, color .14s; }
 .nexus .qchip:hover { border-color: var(--line-hard); color: var(--accent); }
-.nexus .cmd-send { font-family: var(--font-ui); font-weight: 700; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; padding: 11px 20px; border-radius: var(--r); cursor: pointer; border: 1px solid var(--accent); color: #0A0A0A; background: linear-gradient(180deg, var(--accent), color-mix(in oklab,var(--accent) 70%, #000)); box-shadow: 0 0 22px -6px var(--accent); transition: transform .08s, box-shadow .15s; }
+.nexus .cmd-send { font-family: var(--font-ui); font-weight: 700; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; padding: 11px 20px; border-radius: var(--r); cursor: pointer; border: 1px solid var(--accent); color: #0A0A0A; background: linear-gradient(180deg, var(--accent), color-mix(in oklab,var(--accent) 70%, #000)); box-shadow: 0 0 22px -6px var(--accent); transition: transform .08s, box-shadow .15s; }
 .nexus .cmd-send:hover { box-shadow: 0 0 30px -4px var(--accent); }
 .nexus .cmd-send:active { transform: translateY(1px); }
 .nexus .cmd-send:disabled { opacity: .5; cursor: not-allowed; }
 
 .nexus .nx-error { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 30; padding: 5px 12px; border: 1px solid color-mix(in oklab, var(--c-red) 50%, transparent); background: rgba(20,6,12,0.9); color: var(--c-red); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; border-radius: var(--r); }
 
-/* glitch text */
-.nexus .glitch { position: relative; }
-.nexus .glitch:hover::before, .nexus .glitch:hover::after { content: attr(data-t); position: absolute; left: 0; top: 0; width: 100%; overflow: hidden; }
-.nexus .glitch:hover::before { color: var(--accent); clip-path: inset(0 0 60% 0); animation: nxGl1 .35s steps(2) infinite; }
-.nexus .glitch:hover::after  { color: var(--c-red); clip-path: inset(60% 0 0 0); animation: nxGl2 .35s steps(2) infinite; }
-@keyframes nxGl1 { to { transform: translate(-2px, -1px); } }
-@keyframes nxGl2 { to { transform: translate(2px, 1px); } }
+/* Agent-name hover: a clean squad-tint instead of the old two-layer glitch
+   flicker, which made names unreadable exactly when the user was aiming at
+   them (and flickered regardless of prefers-reduced-motion). */
+.nexus .glitch { position: relative; transition: color .14s, text-shadow .14s; }
+.nexus .agent-node:hover .glitch { color: var(--c, var(--accent)); text-shadow: 0 0 12px var(--c, var(--accent)); }
 
 @media (max-width: 1320px) { .nexus .main { grid-template-columns: 248px minmax(0,1fr) 380px; } }
 @media (max-width: 1080px) {

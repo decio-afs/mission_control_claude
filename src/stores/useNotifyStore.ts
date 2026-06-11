@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+// Live-data context (bloodhound): this store does NOT fetch from the bridge
+// directly — it subscribes to useTaskStore.hermesTasks via TaskNotifier.tsx and
+// records terminal transitions into session history.
 
 // Global state for completed-task notifications. The watcher lives in
 // TaskNotifier.tsx (mounted once in Layout); this store owns the on/off
@@ -7,6 +10,9 @@ import { create } from 'zustand';
 // Center dropdown off the topbar bell). The history is recorded for every
 // terminal transition regardless of the OS-notification toggle, so the operator
 // can always review what finished even with desktop toasts muted.
+//
+// It does NOT fetch directly from the bridge; instead it subscribes to
+// useTaskStore.hermesTasks (already live) via TaskNotifier.tsx.
 const LS_KEY = 'mc-notify-enabled';
 const HISTORY_CAP = 60;
 

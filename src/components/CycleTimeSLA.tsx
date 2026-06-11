@@ -46,19 +46,19 @@ export default function CycleTimeSLA({ tasks, nowMs }: { tasks: HermesTask[]; no
           <button
             onClick={() => setMetric('lead')}
             title="Lead time: created → completed (total time in system)"
-            className={`px-1.5 py-0.5 border text-[9px] tracking-[0.12em] ${metric === 'lead' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+            className={`px-1.5 py-0.5 border text-[10px] tracking-[0.12em] ${metric === 'lead' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
           >LEAD</button>
           <button
             onClick={() => setMetric('cycle')}
             title="Cycle time: started → completed (active working time)"
-            className={`px-1.5 py-0.5 border text-[9px] tracking-[0.12em] ${metric === 'cycle' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+            className={`px-1.5 py-0.5 border text-[10px] tracking-[0.12em] ${metric === 'cycle' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
           >CYCLE</button>
           <span className="w-px h-3 bg-white/10 mx-0.5" />
           {WINDOWS.map((w) => (
             <button
               key={w}
               onClick={() => setHours(w)}
-              className={`px-1.5 py-0.5 border text-[9px] tracking-[0.12em] tabular-nums ${hours === w ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              className={`px-1.5 py-0.5 border text-[10px] tracking-[0.12em] tabular-nums ${hours === w ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
             >{w}H</button>
           ))}
         </div>
@@ -95,7 +95,7 @@ export default function CycleTimeSLA({ tasks, nowMs }: { tasks: HermesTask[]; no
                         opacity: 0.85,
                       }}
                     />
-                    <div className="absolute -top-3 inset-x-0 text-center text-[8px] font-mono text-white opacity-0 group-hover:opacity-100 transition-opacity tabular-nums pointer-events-none">
+                    <div className="absolute -top-3 inset-x-0 text-center text-[10px] font-mono text-white opacity-0 group-hover:opacity-100 transition-opacity tabular-nums pointer-events-none">
                       {b.count}
                     </div>
                   </div>
@@ -105,7 +105,7 @@ export default function CycleTimeSLA({ tasks, nowMs }: { tasks: HermesTask[]; no
             {/* x-axis duration-bucket labels */}
             <div className="flex gap-[3px] mt-1 shrink-0">
               {buckets.map((b) => (
-                <div key={b.label} className="flex-1 text-center text-[8px] font-mono text-[#363636] overflow-hidden whitespace-nowrap">
+                <div key={b.label} className="flex-1 text-center text-[10px] font-mono text-[#363636] overflow-hidden whitespace-nowrap">
                   {b.label}
                 </div>
               ))}
@@ -115,7 +115,7 @@ export default function CycleTimeSLA({ tasks, nowMs }: { tasks: HermesTask[]; no
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-3 text-[8px] font-mono text-[#545454] shrink-0">
+      <div className="flex items-center gap-3 text-[10px] font-mono text-[#545454] shrink-0">
         <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 bg-[#f64e6e]" /> {metric === 'lead' ? 'LEAD created→done' : 'CYCLE started→done'}</span>
         <span className="tabular-nums">n={stats.count}</span>
         {stats.count > 0 && <span className="hidden sm:inline tabular-nums">mean {fmtDuration(stats.mean)} · max {fmtDuration(stats.max)}</span>}

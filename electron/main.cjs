@@ -3,7 +3,7 @@
 //   1. Launch the Hermes bridge (hermes-bridge.py) as a child process.
 //   2. Wait for the bridge to answer, then open the desktop window.
 //   3. Tear the bridge down when the app quits.
-const { app, BrowserWindow, shell, session } = require('electron');
+const { app, BrowserWindow, shell, session, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
@@ -53,11 +53,34 @@ function startBridge() {
   });
 }
 
+// Renderer-triggered bridge (re)start — used by the Bridge Diagnostics panel
+// when its probes find the bridge down (e.g. it crashed and the auto-restart
+// guard gave up, or it was killed externally). Manual intent resets the
+// crash-loop counter so a deliberate start always gets its full retry budget.
+ipcMain.handle('bridge:start', async () => {
+  if (bridgeProc && !bridgeProc.killed) {
+    return { ok: true, already: true };
+  }
+  // The bridge may be running outside our supervision (npm run bridge) — don't
+  // spawn a second copy onto the same port.
+  if (await waitForBridge(0)) {
+    return { ok: true, already: true };
+  }
+  restarts = 0;
+  if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
+  startBridge();
+  const ok = await waitForBridge(20);
+  return { ok, already: false };
+});
+
 function waitForBridge(retries = 40) {
+  // Probe /api/ping (instant, no CLI shell-out). The old /api/hermes/status
+  // probe ran the hermes CLI per request (1-4s) — slower than the 1s probe
+  // timeout, so every attempt timed out and the window opened ~60s late.
   return new Promise((resolve) => {
     const attempt = (n) => {
       const req = http.get(
-        { host: '127.0.0.1', port: BRIDGE_PORT, path: '/api/hermes/status', timeout: 1000 },
+        { host: '127.0.0.1', port: BRIDGE_PORT, path: '/api/ping', timeout: 1500 },
         (res) => { res.resume(); resolve(true); },
       );
       req.on('error', () => (n <= 0 ? resolve(false) : setTimeout(() => attempt(n - 1), 500)));
@@ -115,8 +138,14 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
-    startBridge();
-    await waitForBridge();
+    // Reuse a bridge that's already up (npm run bridge, the dev-server
+    // launcher, or a previous session) instead of double-binding port 8767.
+    if (await waitForBridge(2)) {
+      console.log('[mc] bridge already running on port ' + BRIDGE_PORT + ' — reusing it');
+    } else {
+      startBridge();
+      await waitForBridge();
+    }
     await createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

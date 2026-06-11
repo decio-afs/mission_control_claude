@@ -1,4 +1,4 @@
-﻿// Static "Ghost Legion" design data for the showcase modules ported from the
+// Static "Ghost Legion" design data for the showcase modules ported from the
 // original Mission Control design (Intel, Factory, Briefing, Builder, Archives,
 // Broadcast). These modules have NO Hermes data source, so they render this
 // curated demo data to preserve the full design. The Hermes-backed modules

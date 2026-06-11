@@ -150,7 +150,7 @@ export function Ring({ value, max = 100, size = 56, stroke = 4, color = '#f64e6e
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <div className="font-mono text-sm font-bold text-white tabular-nums">{Math.round(value)}</div>
-        {label && <div className="text-[8px] font-mono text-[#545454] uppercase tracking-widest">{label}</div>}
+        {label && <div className="text-[10px] font-mono text-[#545454] uppercase tracking-widest">{label}</div>}
       </div>
     </div>
   );

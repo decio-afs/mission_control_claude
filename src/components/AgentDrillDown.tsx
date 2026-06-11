@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useAgentDrilldownStore } from '../stores/useAgentDrilldownStore';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskStore } from '../stores/useTaskStore';
@@ -145,7 +145,7 @@ export default function AgentDrillDown() {
               <Label className="text-[#b8b8b8]">ASSIGNED TASKS</Label>
               <div className="flex gap-1.5">
                 {Object.entries(taskCounts).map(([st, n]) => (
-                  <span key={st} className="text-[9px] font-mono text-[#545454]">{st} {n}</span>
+                  <span key={st} className="text-[10px] font-mono text-[#545454]">{st} {n}</span>
                 ))}
               </div>
             </div>
@@ -153,11 +153,11 @@ export default function AgentDrillDown() {
               {agentTasks.map((t) => (
                 <div key={t.id} className="border border-white/[0.06] bg-[#080808] px-2 py-1.5 flex flex-col gap-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[9px] font-mono text-[#545454] shrink-0">{t.id}</span>
+                    <span className="text-[10px] font-mono text-[#545454] shrink-0">{t.id}</span>
                     <Pill tone={statusTone(t.status)}>{t.status.toUpperCase()}</Pill>
                   </div>
                   <div className="text-[11px] text-white leading-snug break-words min-w-0">{t.title}</div>
-                  <div className="text-[9px] font-mono text-[#545454]">
+                  <div className="text-[10px] font-mono text-[#545454]">
                     priority {t.priority}
                     {t.created_at ? ` · created ${ago(t.created_at)}` : ''}
                   </div>

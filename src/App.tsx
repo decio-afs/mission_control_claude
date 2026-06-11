@@ -7,6 +7,9 @@ import ContentFactory from './pages/ContentFactory';
 import BriefingTerminal from './pages/BriefingTerminal';
 import ChatTerminal from './pages/ChatTerminal';
 import LeadTracker from './pages/LeadTracker';
+import Arsenal from './pages/Arsenal';
+import Uplink from './pages/Uplink';
+import Systems from './pages/Systems';
 import DesignLab from './pages/DesignLab';
 
 function App() {
@@ -23,6 +26,10 @@ function App() {
           <Route path="factory" element={<ContentFactory />} />
           <Route path="briefing" element={<BriefingTerminal />} />
           <Route path="chat" element={<ChatTerminal />} />
+          {/* Full Hermes capability surface */}
+          <Route path="arsenal" element={<Arsenal />} />
+          <Route path="uplink" element={<Uplink />} />
+          <Route path="systems" element={<Systems />} />
           {/* Design showcase modules (static demo data), consolidated under one tab */}
           <Route path="design-lab" element={<DesignLab />} />
           {/* Legacy redirects */}

@@ -36,7 +36,7 @@ export default function CronTimeline({ jobs, nowMs }: { jobs: HermesCronJob[]; n
 
   return (
     <div className="border border-white/[0.06] bg-[#080808] p-2 flex flex-col gap-1.5">
-      <div className="flex items-center justify-between text-[8px] font-mono tracking-[0.2em] uppercase text-[#545454]">
+      <div className="flex items-center justify-between text-[10px] font-mono tracking-[0.2em] uppercase text-[#545454]">
         <span>NEXT 24H AGENDA</span>
         <span className="tabular-nums">{total} {total === 1 ? 'FIRE' : 'FIRES'}</span>
       </div>
@@ -46,7 +46,7 @@ export default function CronTimeline({ jobs, nowMs }: { jobs: HermesCronJob[]; n
           const active = job.status === 'active';
           return (
             <div key={job.id} className="flex items-center gap-2">
-              <div className="w-[82px] shrink-0 text-[9px] font-mono text-[#b8b8b8] truncate" title={job.name || job.id}>
+              <div className="w-[82px] shrink-0 text-[10px] font-mono text-[#b8b8b8] truncate" title={job.name || job.id}>
                 {job.name || job.id.slice(0, 10)}
               </div>
               <div className="relative flex-1 h-4 bg-[#0d0d0d] border border-white/[0.04]">
@@ -54,7 +54,7 @@ export default function CronTimeline({ jobs, nowMs }: { jobs: HermesCronJob[]; n
                   <div key={h} className="absolute top-0 bottom-0 w-px bg-white/[0.05]" style={{ left: `${(h / 24) * 100}%` }} />
                 ))}
                 {fires.length === 0 ? (
-                  <span className="absolute inset-0 flex items-center justify-center text-[8px] font-mono text-[#3a3a3a]">no fires in 24h</span>
+                  <span className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-[#3a3a3a]">no fires in 24h</span>
                 ) : (
                   fires.map((ms, i) => (
                     <div
@@ -74,7 +74,7 @@ export default function CronTimeline({ jobs, nowMs }: { jobs: HermesCronJob[]; n
       {/* hour axis aligned under the lanes (label gutter matches the 82px name column) */}
       <div className="flex items-center gap-2">
         <div className="w-[82px] shrink-0" />
-        <div className="relative flex-1 h-2.5 text-[7px] font-mono text-[#545454]">
+        <div className="relative flex-1 h-2.5 text-[10px] font-mono text-[#545454]">
           <span className="absolute left-0">now</span>
           <span className="absolute left-1/4 -translate-x-1/2">+6h</span>
           <span className="absolute left-1/2 -translate-x-1/2">+12h</span>

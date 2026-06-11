@@ -1,7 +1,9 @@
-﻿// Briefing Terminal — live Hermes data via useBriefingStore.
+// Briefing Terminal — live Hermes data via useBriefingStore, plus the
+// consolidated AI digest (LLM-synthesized from Sentinel, ranked for virality).
 import { useEffect, useMemo, useState } from 'react';
 import { Panel, Pill } from '../components/cyberpunk/ui';
 import { useBriefingStore } from '../stores/useBriefingStore';
+import { getAiDigest, generateAiDigest, errMessage, type AiDigest } from '../lib/api';
 
 const sevTone: Record<string, 'brand' | 'warn' | 'info'> = { HIGH: 'brand', WARN: 'warn', INFO: 'info' };
 const sevColor: Record<string, string> = { HIGH: '#f64e6e', WARN: '#f59e0b', INFO: '#38bdf8' };
@@ -73,8 +75,8 @@ function SentinelFeed() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2 mt-1 min-w-0">
-                    <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider text-[#545454]">{story.source}</span>
-                    <span className="min-w-0 truncate text-[9px] font-mono text-[#363636]">{new URL(story.url).hostname.replace(/^www\./, '')}</span>
+                    <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[#545454]">{story.source}</span>
+                    <span className="min-w-0 truncate text-[10px] font-mono text-[#363636]">{new URL(story.url).hostname.replace(/^www\./, '')}</span>
                   </div>
                 </a>
               ))}
@@ -82,6 +84,80 @@ function SentinelFeed() {
           </>
         )}
       </div>
+    </Panel>
+  );
+}
+
+// Consolidated AI digest — ONE narrative + ranked viral content ideas, instead
+// of a raw link list. Generated on demand (or by a cron POSTing the endpoint).
+function AiDigestPanel() {
+  const [digest, setDigest] = useState<AiDigest | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [genErr, setGenErr] = useState<string | null>(null);
+
+  useEffect(() => { getAiDigest().then(setDigest).catch(() => setDigest(null)); }, []);
+
+  const handleGenerate = async () => {
+    if (generating) return;
+    setGenerating(true);
+    setGenErr(null);
+    try {
+      setDigest(await generateAiDigest());
+    } catch (e) {
+      setGenErr(errMessage(e));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <Panel
+      label="AI DIGEST · CONSOLIDATED"
+      right={
+        <button onClick={() => void handleGenerate()} disabled={generating}
+          className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] px-2 py-0.5 hover:bg-[#f64e6e]/20 disabled:opacity-40">
+          {generating ? 'SYNTHESIZING…' : digest?.available ? '↻ REGENERATE' : '▷ GENERATE'}
+        </button>
+      }
+    >
+      {generating && (
+        <div className="font-mono text-[11px] text-[#545454]">{'>'} arcan is reading {digest?.story_count ?? 'the'} sentinel stories and ranking viral potential — 1-3 min…</div>
+      )}
+      {genErr && <div className="font-mono text-[10px] text-red-400 mb-2">⚠ {genErr}</div>}
+      {!generating && !digest?.available && !genErr && (
+        <div className="font-mono text-[11px] text-[#545454]">
+          {'>'} no digest yet — GENERATE turns today's Sentinel links into one consolidated
+          AI-news narrative plus viral content ideas for your niche.
+        </div>
+      )}
+      {!generating && digest?.available && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[10px] text-[#545454]">
+              synthesized {digest.generated_at ? new Date(digest.generated_at).toLocaleString() : '—'} · {digest.story_count} stories in
+            </span>
+          </div>
+          <p className="text-[11px] text-[#b8b8b8] leading-relaxed border-l-2 border-[#f64e6e]/50 pl-3">
+            {digest.summary}
+          </p>
+          <div className="font-mono text-[10px] text-[#545454] tracking-[0.15em] uppercase">viral content ideas</div>
+          <div className="flex flex-col gap-2">
+            {(digest.ideas ?? []).map((idea, i) => (
+              <div key={i} className="border border-white/[0.06] bg-[#0a0a12] p-2">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-[11px] text-white font-medium break-words">{idea.title}</span>
+                  {idea.source_url && (
+                    <a href={idea.source_url} target="_blank" rel="noreferrer"
+                      className="shrink-0 font-mono text-[10px] text-[#38bdf8] hover:text-white">src ↗</a>
+                  )}
+                </div>
+                <div className="text-[11px] text-[#b8b8b8] mt-1"><span className="text-[#f64e6e] font-mono text-[10px]">ANGLE</span> {idea.angle}</div>
+                <div className="text-[11px] text-[#707070] mt-0.5"><span className="text-amber-400 font-mono text-[10px]">WHY</span> {idea.why_viral}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </Panel>
   );
 }
@@ -130,7 +206,7 @@ export default function BriefingTerminal() {
     <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-2 p-2 relative overflow-y-auto">
       <div className="flex flex-col gap-2 min-h-0">
         <Panel label="BRIEFING TERMINAL · /tty7" right={<span className="text-[#f64e6e]">● RECORDING</span>}>
-          <div className="h-full bg-[#03030a] p-4 font-mono text-[12px] overflow-auto relative" style={{ fontFamily: '"JetBrains Mono",ui-monospace,monospace' }}>
+          <div className="h-full bg-[#03030a] p-4 font-mono text-[11px] overflow-auto relative" style={{ fontFamily: '"JetBrains Mono",ui-monospace,monospace' }}>
             {loading && !briefing && (
               <div className="text-[#545454]">{'>'} syncing with Hermes bridge…</div>
             )}
@@ -152,6 +228,7 @@ export default function BriefingTerminal() {
           </div>
         </Panel>
 
+        <AiDigestPanel />
         <SentinelFeed />
       </div>
 

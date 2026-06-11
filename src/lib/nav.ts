@@ -18,6 +18,10 @@ export const MODULES: NavModule[] = [
   { id: 'factory',    path: '/factory',    label: 'Content Factory', short: 'Factory',  num: '04' },
   { id: 'briefing',   path: '/briefing',   label: 'Briefing',        short: 'Brief',    num: '05' },
   { id: 'leads',      path: '/leads',      label: 'Lead Tracker',    short: 'Leads',    num: '06' },
+  // Full Hermes capability surface: skills/plugins/MCP, comms, runtime health.
+  { id: 'arsenal',    path: '/arsenal',    label: 'Arsenal',         short: 'Arsenal',  num: '07' },
+  { id: 'uplink',     path: '/uplink',     label: 'Uplink',          short: 'Uplink',   num: '08' },
+  { id: 'systems',    path: '/systems',    label: 'Systems',         short: 'Systems',  num: '09' },
   // Consolidated design showcase (Intel Deck, Workflow Builder, Archives, Broadcast Uplink).
-  { id: 'designlab',  path: '/design-lab', label: 'Design Lab',      short: 'Lab',      num: '07' },
+  { id: 'designlab',  path: '/design-lab', label: 'Design Lab',      short: 'Lab',      num: '10' },
 ];
