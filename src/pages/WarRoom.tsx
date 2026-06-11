@@ -7,6 +7,7 @@ import { getHermesCron, type HermesCronJob } from '../lib/api';
 import { Panel, Sparkline, Ring, LogTail } from '../components/cyberpunk/ui';
 import AgentPerformance from '../components/AgentPerformance';
 import TaskThroughput from '../components/TaskThroughput';
+import BacklogBurndown from '../components/BacklogBurndown';
 import { computeAgentMetrics } from '../lib/agentMetrics';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -30,9 +31,10 @@ export default function WarRoom() {
   // AGENT LOAD panel toggles between current load (running·queue) and the
   // historical performance leaderboard (throughput / success rate / avg duration).
   const [agentView, setAgentView] = useState<'load' | 'perf'>('load');
-  // TASK STATUS panel toggles between the current status breakdown (bar chart)
-  // and the throughput histogram (completions per hour over a trailing window).
-  const [taskView, setTaskView] = useState<'status' | 'flow'>('status');
+  // TASK STATUS panel cycles: current status breakdown (bars) → throughput
+  // histogram (completions/hour) → backlog burn-down (cumulative created vs done,
+  // "is the queue keeping up?").
+  const [taskView, setTaskView] = useState<'status' | 'flow' | 'burn'>('status');
   // `nowMs` drives the leaderboard's trailing-24h window; set in an effect (never
   // Date.now() during render) so the component stays render-pure for react-hooks.
   const [nowMs, setNowMs] = useState(0);
@@ -183,9 +185,9 @@ export default function WarRoom() {
       {/* Middle: task status + agent load */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 flex-1 min-h-0">
         <Panel
-          label={taskView === 'status' ? 'TASK STATUS BREAKDOWN' : 'TASK THROUGHPUT · per hour'}
+          label={taskView === 'status' ? 'TASK STATUS BREAKDOWN' : taskView === 'flow' ? 'TASK THROUGHPUT · per hour' : 'BACKLOG BURN-DOWN · queue health'}
           right={(
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5">
               <button
                 onClick={() => setTaskView('status')}
                 className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'status' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
@@ -194,7 +196,11 @@ export default function WarRoom() {
                 onClick={() => setTaskView('flow')}
                 className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'flow' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
               >FLOW</button>
-              <span className={`hidden sm:inline ${vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}`}>● {vitals.hermesOnline ? 'LIVE' : 'OFFLINE'}</span>
+              <button
+                onClick={() => setTaskView('burn')}
+                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'burn' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              >BURN</button>
+              <span className={`hidden md:inline ${vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}`}>● {vitals.hermesOnline ? 'LIVE' : 'OFFLINE'}</span>
             </span>
           )}
         >
@@ -211,8 +217,10 @@ export default function WarRoom() {
               ))}
               {statusBars.length === 0 && <div className="text-[10px] font-mono text-[#545454]">No task data from Hermes.</div>}
             </div>
-          ) : (
+          ) : taskView === 'flow' ? (
             <TaskThroughput tasks={hermesTasks} nowMs={nowMs} />
+          ) : (
+            <BacklogBurndown tasks={hermesTasks} nowMs={nowMs} />
           )}
         </Panel>
 

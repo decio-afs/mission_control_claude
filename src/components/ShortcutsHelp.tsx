@@ -2,7 +2,7 @@
 //
 // The topbar + War Room + the task drawers have grown a fair number of keyboard
 // shortcuts and one-glyph affordances (⌘K palette, ⌘F task search, DIAG, the 🔔
-// notification center, ⊞ dependency map, ▶ live log tail, the STATUS/FLOW &
+// notification center, ⊞ dependency map, ▶ live log tail, the STATUS/FLOW/BURN &
 // LOAD/PERF toggles…). This is the one-stop legend for all of them.
 //
 // Opens on a bare "?" (Shift+/) from anywhere except a text field, or from the
@@ -49,8 +49,8 @@ const GROUPS: Group[] = [
   {
     title: 'War Room',
     items: [
-      { keys: ['STATUS', 'FLOW'], label: 'Task panel: status breakdown ↔ per-hour throughput histogram' },
-      { keys: ['12H', '24H', '48H'], label: 'Throughput window (in FLOW view)' },
+      { keys: ['STATUS', 'FLOW', 'BURN'], label: 'Task panel: status breakdown ↔ throughput histogram ↔ backlog burn-down' },
+      { keys: ['12H', '24H', '48H'], label: 'Trailing window (in FLOW / BURN view)' },
       { keys: ['LOAD', 'PERF'], label: 'Agent panel: live load ↔ performance leaderboard' },
       { keys: ['Agent', 'Done', '…'], label: 'Click a leaderboard column header to sort by it' },
       { keys: ['TASKS', 'SIGNAL'], label: 'Bottom feed: kanban task log ↔ live agent signal' },
