@@ -156,7 +156,7 @@ export default function AgentDrillDown() {
                     <span className="text-[9px] font-mono text-[#545454] shrink-0">{t.id}</span>
                     <Pill tone={statusTone(t.status)}>{t.status.toUpperCase()}</Pill>
                   </div>
-                  <div className="text-[11px] text-white leading-snug">{t.title}</div>
+                  <div className="text-[11px] text-white leading-snug break-words min-w-0">{t.title}</div>
                   <div className="text-[9px] font-mono text-[#545454]">
                     priority {t.priority}
                     {t.created_at ? ` · created ${ago(t.created_at)}` : ''}
