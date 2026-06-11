@@ -140,8 +140,10 @@ export default function ContentFactory() {
           </Panel>
         </div>
 
-        {/* Campaigns */}
+        {/* Campaigns — shrink-0 so tall content grows the page (which scrolls)
+            instead of flexbox squeezing the panel into clipping. */}
         <Panel
+          className="shrink-0"
           label="ACTIVE CAMPAIGNS"
           right={
             <div className="flex items-center gap-2">
@@ -193,7 +195,7 @@ export default function ContentFactory() {
         </Panel>
 
         {/* Draft Queue */}
-        <Panel label="DRAFT QUEUE">
+        <Panel label="DRAFT QUEUE" className="shrink-0">
           {drafts.length === 0 ? (
             <div className="text-[#545454] font-mono text-xs">No drafts in queue.</div>
           ) : (
@@ -227,6 +229,7 @@ export default function ContentFactory() {
         {/* Calendar */}
         <Panel
           label="CONTENT CALENDAR"
+          className="shrink-0"
           right={<span className="text-[#545454]">UPCOMING</span>}
         >
           {/* Plan a post — stored locally; scheduled to socials via Buffer once BUFFER_ACCESS_TOKEN is set */}
