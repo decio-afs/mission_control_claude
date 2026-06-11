@@ -25,24 +25,43 @@
 @layer base {
   body {
     @apply bg-bg-deep text-text-primary m-0 p-0 font-sans;
+    /* Premium ambience: a faint brand-coral glow falling from the top and a
+       cool counter-glow at the bottom corner — depth without noise. */
+    background:
+      radial-gradient(1100px 520px at 72% -12%, rgba(246, 78, 110, 0.055), transparent 62%),
+      radial-gradient(900px 480px at -8% 108%, rgba(56, 189, 248, 0.035), transparent 60%),
+      #050505;
+    background-attachment: fixed;
+  }
+
+  /* Micro-interactions everywhere: state changes glide instead of snapping. */
+  button, a, select, input, textarea {
+    transition: color .15s ease, border-color .15s ease, background-color .15s ease,
+                box-shadow .15s ease, opacity .15s ease;
+  }
+
+  /* Keyboard focus gets the brand, not the browser default. */
+  :focus-visible {
+    outline: 1px solid rgba(246, 78, 110, 0.65);
+    outline-offset: 1px;
   }
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar — slim, transparent track, brand-tinted on hover */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-bg-deep);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border-subtle);
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-hover);
+  background: rgba(246, 78, 110, 0.35);
 }

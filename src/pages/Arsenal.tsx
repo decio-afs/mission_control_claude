@@ -84,22 +84,22 @@ export default function Arsenal() {
 
       {/* Top: capability stats */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 shrink-0">
-        <Panel label="SKILLS" className="h-[84px]">
+        <Panel label="SKILLS" className="min-h-[84px]">
           <Stat label="enabled" value={skillsSummary ? `${skillsSummary.enabled}` : skills.length || '—'} sub={skillsSummary ? `${skillsSummary.hub} hub · ${skillsSummary.builtin} builtin · ${skillsSummary.local} local` : undefined} tone="brand" />
         </Panel>
-        <Panel label="PLUGINS" className="h-[84px]">
+        <Panel label="PLUGINS" className="min-h-[84px]">
           <Stat label="enabled / total" value={plugins.length ? `${enabledPlugins} / ${plugins.length}` : '—'} tone="info" />
         </Panel>
-        <Panel label="MCP SERVERS" className="h-[84px]">
+        <Panel label="MCP SERVERS" className="min-h-[84px]">
           <Stat label="connected" value={mcpServers.length || '—'} sub={mcpServers.map((s) => s.name).join(' · ') || undefined} tone="good" />
         </Panel>
-        <Panel label="MEMORY" className="h-[84px]">
+        <Panel label="MEMORY" className="min-h-[84px]">
           <Stat label="provider" value={memory?.provider ?? '—'} sub={memory ? (memory.available ? 'available' : 'unavailable') : undefined} tone={memory?.available ? 'good' : 'warn'} />
         </Panel>
-        <Panel label="CURATOR" className="h-[84px]">
+        <Panel label="CURATOR" className="min-h-[84px]">
           <Stat label="skill maintenance" value={curator ? (curator.enabled ? 'ON' : 'OFF') : '—'} sub={curator ? `${curator.runs ?? '?'} runs · ${curator.interval ?? ''}` : undefined} tone={curator?.enabled ? 'good' : 'warn'} />
         </Panel>
-        <Panel label="AGENT SKILLS" className="h-[84px]">
+        <Panel label="AGENT SKILLS" className="min-h-[84px]">
           <Stat label="agent-created" value={curator?.skills_total ?? '—'} sub={curator ? `${curator.active ?? 0} active · ${curator.stale ?? 0} stale` : undefined} tone="white" />
         </Panel>
       </div>

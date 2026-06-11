@@ -132,7 +132,7 @@ export default function WarRoom() {
         </div>
       )}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 shrink-0">
-        <Panel label="LEGION ONLINE" className="h-[118px]">
+        <Panel label="LEGION ONLINE" className="min-h-[118px]">
           <div className="flex items-center gap-3 h-full">
             <Ring value={onlinePct} label="%" color="#10b981" size={64} />
             <div className="flex flex-col gap-0.5 text-[10px] font-mono">
@@ -141,13 +141,13 @@ export default function WarRoom() {
             </div>
           </div>
         </Panel>
-        <Panel label="TASK PROGRESS" className="h-[118px]">
+        <Panel label="TASK PROGRESS" className="min-h-[118px]">
           <div className="flex items-center gap-3 h-full">
             <Ring value={completePct} label="%" color="#f64e6e" size={64} />
             <div className="text-[10px] font-mono text-[#545454]">{summary?.completed ?? 0} done<br/>{total} total</div>
           </div>
         </Panel>
-        <Panel label="HERMES BRIDGE" className="h-[118px]">
+        <Panel label="HERMES BRIDGE" className="min-h-[118px]">
           <div className="flex flex-col justify-between h-full">
             <div className="flex items-baseline gap-1">
               <span className={`text-2xl font-mono font-bold tabular-nums ${vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}`}>{vitals.connectionLatencyMs}</span>
@@ -157,14 +157,14 @@ export default function WarRoom() {
             <div className="text-[10px] font-mono text-[#545454] truncate">{vitals.hermesVersion}</div>
           </div>
         </Panel>
-        <Panel label="QUEUE DEPTH" className="h-[118px]">
+        <Panel label="QUEUE DEPTH" className="min-h-[118px]">
           <div className="flex flex-col justify-between h-full">
             <div className="flex items-baseline gap-1"><span className="text-2xl font-mono font-bold text-white tabular-nums">{queueDepth}</span><span className="text-[10px] text-[#545454]">queued</span></div>
             <div className="text-[10px] font-mono text-amber-400">{summary?.running ?? 0} running</div>
             <div className="text-[10px] font-mono text-[#545454]">{summary?.blocked ?? 0} blocked</div>
           </div>
         </Panel>
-        <Panel label="BUSY AGENTS" className="h-[118px]">
+        <Panel label="BUSY AGENTS" className="min-h-[118px]">
           <div className="flex flex-col gap-1 h-full justify-between">
             <div className="text-2xl font-mono font-bold text-white tabular-nums">{busyAgents.length}<span className="text-[#545454] text-sm">/{agents.length}</span></div>
             <div className="flex flex-wrap gap-0.5">
@@ -175,7 +175,7 @@ export default function WarRoom() {
             <div className="text-[10px] font-mono text-[#545454]">{onlineAgents.length} online</div>
           </div>
         </Panel>
-        <Panel label="SCHEDULED" className="h-[118px]">
+        <Panel label="SCHEDULED" className="min-h-[118px]">
           <div className="flex flex-col gap-1.5 text-[10px] font-mono">
             <div className="flex justify-between"><span className="text-emerald-400">CRON</span><span className="tabular-nums">{cron.length}</span></div>
             <div className="flex justify-between"><span className="text-amber-400">ACTIVE</span><span className="tabular-nums">{cron.filter((c) => c.status === 'active').length}</span></div>

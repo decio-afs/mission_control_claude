@@ -24,17 +24,30 @@ export function Pill({ children, tone = 'neutral', className = '' }: { children:
   );
 }
 
-// Panel
+// Panel — the app's core surface. Premium treatment: layered gradient instead
+// of flat black, a 1px inner top highlight (light catching the edge), a deep
+// soft drop shadow for separation, subtle radius, and a brand accent notch on
+// the header. overflow-hidden guarantees content can never bleed between
+// stacked panels (the old fixed-height stat cards leaked clipped text).
 export function Panel({ children, label, right, className = '', bodyClass = '', noPad = false }: { children: React.ReactNode; label?: string; right?: React.ReactNode; className?: string; bodyClass?: string; noPad?: boolean }) {
   return (
-    <div className={`bg-[#0A0A0A] border border-white/[0.08] flex flex-col relative ${className}`}>
+    <div
+      className={`flex flex-col relative overflow-hidden rounded-[4px] border border-white/[0.07] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_12px_32px_-20px_rgba(0,0,0,0.9)] ${className}`}
+      style={{ background: 'linear-gradient(180deg, #0d0d10 0%, #09090b 100%)' }}
+    >
       {label && (
-        <div className="px-3 h-[26px] flex items-center justify-between gap-2 border-b border-white/10 shrink-0 bg-[#080808]">
-          {/* min-w-0 lets the label truncate instead of pushing the controls past
-              the panel edge when a header has both a long label and a busy `right`
-              slot (e.g. War Room's STATUS/FLOW + LIVE toggle on a narrow column). */}
-          <Label className="text-[#b8b8b8] truncate min-w-0">{label}</Label>
-          <div className="flex items-center gap-2 text-[10px] text-[#545454] font-mono shrink-0">{right}</div>
+        <div className="px-3 h-[26px] flex items-center justify-between gap-2 border-b border-white/[0.07] shrink-0"
+          style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0))' }}>
+          <div className="flex items-center gap-2 min-w-0">
+            {/* brand notch — coral kept where it lands hardest: one tick per surface */}
+            <span aria-hidden className="w-[3px] h-[10px] rounded-full shrink-0"
+              style={{ background: 'linear-gradient(180deg, #f64e6e, #ff795e)', boxShadow: '0 0 6px rgba(246,78,110,0.5)' }} />
+            {/* min-w-0 lets the label truncate instead of pushing the controls past
+                the panel edge when a header has both a long label and a busy `right`
+                slot (e.g. War Room's STATUS/FLOW + LIVE toggle on a narrow column). */}
+            <Label className="text-[#b8b8b8] truncate min-w-0">{label}</Label>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-[#707070] font-mono shrink-0">{right}</div>
         </div>
       )}
       <div className={`${noPad ? '' : 'p-3'} ${bodyClass} relative flex-1 min-h-0`}>
@@ -97,10 +110,10 @@ export function Stat({ label, value, sub, tone = 'white', big = false }: { label
     info: 'text-sky-400',
   };
   return (
-    <div className="flex flex-col gap-0.5">
-      <Label className="text-[#545454]">{label}</Label>
-      <div className={`${big ? 'text-2xl' : 'text-base'} font-mono font-bold tabular-nums ${tones[tone]}`}>{value}</div>
-      {sub && <div className="text-[10px] font-mono text-[#545454]">{sub}</div>}
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <Label className="text-[#707070]">{label}</Label>
+      <div className={`${big ? 'text-2xl' : 'text-base'} font-mono font-bold tabular-nums truncate ${tones[tone]}`}>{value}</div>
+      {sub && <div className="text-[10px] font-mono text-[#707070] truncate" title={sub}>{sub}</div>}
     </div>
   );
 }

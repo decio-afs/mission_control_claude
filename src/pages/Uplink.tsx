@@ -70,19 +70,19 @@ export default function Uplink() {
 
       {/* Top stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 shrink-0">
-        <Panel label="GATEWAY" className="h-[84px]">
+        <Panel label="GATEWAY" className="min-h-[84px]">
           <Stat label="service" value={gateway ? (gateway.service.running ? 'RUNNING' : 'DOWN') : '—'}
             sub={gateway?.service.pids.length ? `PID ${gateway.service.pids.join(', ')}` : undefined}
             tone={gateway?.service.running ? 'good' : 'warn'} />
         </Panel>
-        <Panel label="CHANNELS" className="h-[84px]">
+        <Panel label="CHANNELS" className="min-h-[84px]">
           <Stat label="configured" value={overview ? `${configured.length} / ${overview.platforms.length}` : '—'}
             sub={configured.map((p) => p.name).join(' · ') || 'none configured'} tone="info" />
         </Panel>
-        <Panel label="PROFILE GATEWAYS" className="h-[84px]">
+        <Panel label="PROFILE GATEWAYS" className="min-h-[84px]">
           <Stat label="running" value={gateway ? `${runningGateways.length} / ${gateway.gateways.length}` : '—'} tone="brand" />
         </Panel>
-        <Panel label="WEBHOOKS" className="h-[84px]">
+        <Panel label="WEBHOOKS" className="min-h-[84px]">
           <Stat label="event subscriptions" value={webhooks ? (webhooks.enabled ? `${webhooks.subscriptions.length}` : 'OFF') : '—'}
             sub={webhooks && !webhooks.enabled ? 'hermes gateway setup to enable' : undefined}
             tone={webhooks?.enabled ? 'good' : 'warn'} />

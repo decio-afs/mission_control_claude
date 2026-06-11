@@ -57,28 +57,28 @@ export default function Systems() {
 
       {/* Top stats */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 shrink-0">
-        <Panel label="MODEL" className="h-[84px]">
+        <Panel label="MODEL" className="min-h-[84px]">
           <Stat label="inference" value={model?.model ?? '—'} sub={model?.provider ?? undefined} tone="brand" />
         </Panel>
-        <Panel label="FALLBACKS" className="h-[84px]">
+        <Panel label="FALLBACKS" className="min-h-[84px]">
           <Stat label="provider chain" value={model ? (model.fallbacks.length || 'NONE') : '—'}
             tone={model?.fallbacks.length ? 'good' : 'warn'}
             sub={model && !model.fallbacks.length ? 'no failover configured' : model?.fallbacks.slice(0, 2).join(' · ')} />
         </Panel>
-        <Panel label="CREDENTIALS" className="h-[84px]">
+        <Panel label="CREDENTIALS" className="min-h-[84px]">
           <Stat label="auth pool" value={auth ? auth.providers.reduce((s, p) => s + p.count, 0) : '—'}
             sub={auth ? `${auth.providers.length} providers` : undefined} tone="info" />
         </Panel>
-        <Panel label="DOCTOR" className="h-[84px]">
+        <Panel label="DOCTOR" className="min-h-[84px]">
           <Stat label="diagnostics" value={doctor ? `${doctor.counts.fail}✗ ${doctor.counts.warn}⚠` : '—'}
             sub={doctor ? `${doctor.counts.ok} checks ok` : 'run diagnostics →'}
             tone={doctor ? (doctor.counts.fail ? 'warn' : 'good') : 'white'} />
         </Panel>
-        <Panel label={`TOKENS · ${insightsDays}D`} className="h-[84px]">
+        <Panel label={`TOKENS · ${insightsDays}D`} className="min-h-[84px]">
           <Stat label="total processed" value={fmtTokens(insights?.overview.total_tokens as number | undefined)}
             sub={insights ? `${fmtTokens(insights.overview.input_tokens as number)} in · ${fmtTokens(insights.overview.output_tokens as number)} out` : undefined} tone="brand" />
         </Panel>
-        <Panel label={`SESSIONS · ${insightsDays}D`} className="h-[84px]">
+        <Panel label={`SESSIONS · ${insightsDays}D`} className="min-h-[84px]">
           <Stat label="agent sessions" value={insights?.overview.sessions ?? '—'}
             sub={insights ? `${insights.overview.tool_calls} tool calls` : undefined} tone="good" />
         </Panel>
