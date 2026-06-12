@@ -2,76 +2,111 @@
 # Mission Control — Agent Documentation
 
 > **Mission Control** is a cyberpunk-themed **local desktop app** (Electron) for
-> the **Hermes Agent** system. It renders 100% live data from a local Hermes
-> install via a thin FastAPI bridge. No mock data, no other backend, nothing
-> deployed — it runs only on the user's machine.
+> the **Hermes Agent** system. Every module renders **live data** — from the
+> local Hermes install via a FastAPI bridge, plus external content pipelines
+> (Apify, Buffer, Brave) that flow **only through the bridge**. No mock data
+> anywhere, nothing deployed — it runs only on the user's machine.
 
 ---
 
 ## Architecture
 
 ```
-Electron window (React app, file://)  ──HTTP──▶  hermes-bridge.py (FastAPI :8767)  ──subprocess──▶  hermes CLI
-        │
-        └── spawns/kills the bridge on app launch/quit
+Electron window (React, file://) ──HTTP──▶ hermes-bridge.py (FastAPI :8767) ──subprocess──▶ hermes CLI
+        │                                          │
+        └─ reuses or spawns the bridge             ├──▶ .hermes/data/*.json  (leads, calendar, creators, digests — gitignored)
+                                                   └──▶ external APIs (Apify, Buffer GraphQL, Ayrshare, Brave)
+Hermes gateway (separate service) ──▶ Telegram bots + cron ticker + embedded kanban dispatcher
 ```
 
-- **`electron/main.cjs`** — desktop main process. On launch it spawns the Hermes
-  bridge, waits for it to answer, then opens the window loading the built app from
-  `dist/index.html` (or `MC_DEV_URL` in dev). Kills the bridge on quit. Enforces a
-  single-instance lock so two bridges never run at once.
-- **`hermes-bridge.py`** — FastAPI wrapper around the `hermes` CLI. Each endpoint
-  shells out to a Hermes command, parses its JSON (or plain text for `cron`), and
-  returns it. This is the *only* integration point — keep the React app and the
-  bridge in lock-step.
-- **React app** — fetches from the bridge through `src/lib/api.ts`. Zustand stores
-  poll the bridge; pages subscribe to stores. Every store exposes an `error` state
-  so a downed bridge is visible in the UI rather than failing silently. Routing is
-  `HashRouter` because the app loads from `file://` inside Electron.
+- **`electron/main.cjs`** — desktop main process. On launch it probes
+  `/api/ping`; if a bridge is already running it **reuses it** (never
+  double-binds :8767), otherwise spawns one and supervises it (auto-restart
+  with backoff). Exposes a `bridge:start` IPC for the diagnostics panel.
+- **`hermes-bridge.py`** — FastAPI wrapper around the `hermes` CLI plus the
+  file-backed data stores and external-API pipelines. All subprocesses run
+  with `CREATE_NO_WINDOW` (a console-less bridge must not flash terminals).
+  API keys are read from the bridge env **or `~/.hermes/.env`** (AppData on
+  Windows) via `_env_key()` — configure each key once, where Hermes keeps it.
+- **`vite.config.ts`** — the dev server hosts `POST /__bridge/start`, the
+  browser-mode twin of the Electron IPC: it spawns a detached bridge (output
+  → `.hermes/bridge.log`) so the diagnostics panel can revive a dead bridge
+  even in `npm run dev`.
+- **React app** — fetches through `src/lib/api.ts` only. Zustand stores poll
+  the bridge; every store exposes an `error` state so a downed bridge is
+  visible, never silent. `HashRouter` because the app loads from `file://`.
 
-### Bridge endpoints → Hermes CLI
+### Service recovery (Bridge Diagnostics popup — the DIAG button)
 
-| Endpoint                                   | Hermes command                          |
-|--------------------------------------------|-----------------------------------------|
-| `GET  /api/hermes/status`                  | `hermes --version`                      |
-| `GET  /api/hermes/agents`                  | `hermes kanban assignees --json`        |
-| `GET  /api/hermes/tasks`                   | `hermes kanban list --json`             |
-| `POST /api/hermes/tasks`                   | `hermes kanban create … --json`         |
-| `POST /api/hermes/tasks/{id}/claim`        | `hermes kanban claim <id>`              |
-| `POST /api/hermes/tasks/{id}/complete`     | `hermes kanban complete <id>`           |
-| `POST /api/hermes/tasks/{id}/block`        | `hermes kanban block <id> -- <reason>`  |
-| `GET  /api/hermes/cron`                    | `hermes cron list`                      |
-| `POST /api/hermes/cron/{id}/run`           | `hermes cron run <id>`                  |
-| `POST /api/hermes/spawn`                   | `hermes chat -q <goal> [-m … -s …]`     |
-| `POST /api/hermes/chat`                    | `hermes chat -q <msg> -Q [--resume <id>]` |
-| `GET  /api/hermes/sessions`                | `hermes sessions list` (table → JSON)   |
-| `GET  /api/hermes/sessions/{id}`           | `hermes sessions export --session-id <id> -` |
-| `POST /api/hermes/sessions/{id}/rename`    | `hermes sessions rename <id> <title>`   |
-| `DELETE /api/hermes/sessions/{id}`         | `hermes sessions delete --yes <id>`     |
+Opening the popup runs an auto-diagnosis. Hard-won rules encoded there and in
+the bridge — do not regress them:
 
-Chat is session-aware: `/chat` accepts an optional `session_id` (adds `--resume`)
-and returns the `session_id` it parsed from Hermes' stderr, so conversations have
-real memory and survive restarts. The shared `useChatStore` lists/opens/renames
-those sessions and powers both Ghost Comms (`/chat`, the full workspace with
-project folders) and Ghost Network's command bar (same active session across tabs).
-"Projects" are an app-side grouping in localStorage — Hermes has no native concept.
+- **Bridge down** → auto-started once per session (Electron IPC in desktop,
+  `/__bridge/start` in dev). Probes use `/api/ping` (instant, no CLI) — the
+  CLI-backed endpoints take 1–4 s and time out naive probes.
+- **Gateway down** → auto-`restart`ed once per session via the **Windows
+  Scheduled Task** (`schtasks /End` then `/Run` — a wedged task instance makes
+  `/Run` a silent no-op). Never trust the CLI's process-scan ("Gateway process
+  running (PID …)") — hung TTY-less zombies and *concurrent `hermes gateway *`
+  CLI calls* fool it. **The only liveness truth is the gateway api port
+  (:8642) answering.** `gateway status`+`list` are intentionally serial in
+  the bridge: running them concurrently makes status detect its sibling call.
+- The gateway hosts Telegram **and the kanban dispatcher** — when it dies,
+  messaging *and* agent task dispatch silently stop.
 
-Hermes JSON shapes are mirrored 1:1 in `src/lib/api.ts` (`HermesAgent`,
-`HermesTask`, `HermesCronJob`, `HermesStatus`). If a CLI shape changes, update
-both the bridge parser and these types.
+### Bridge endpoint groups (≈70 endpoints; see `hermes-bridge.py` + `api.ts`)
+
+| Group | Endpoints (representative) | Backed by |
+|---|---|---|
+| Core | `/api/ping` (instant liveness) · `status` · `health` | none / CLI |
+| Kanban | `tasks` CRUD + full verb set: claim, complete, block/unblock, promote, schedule, archive, assign/reassign/reclaim, comment, edit, link/unlink, specify, log, context, notify, boards, stats, diagnostics | `hermes kanban …` |
+| Agents | `agents` CRUD + spawn-on-task, `spawn`, `chat` (session-aware), `sessions` CRUD | `hermes …` |
+| Capabilities | `overview` · `skills` · `plugins` (+enable/disable) · `mcp` (+test) · `gateway` (+action) · `send/targets` + `send` · `webhooks` · `memory` · `curator` · `insights` · `doctor` · `logs` · `model` · `auth` · `checkpoints` · `pairing` · `security/audit` | CLI (tolerant text parsers, always include `raw`) |
+| Pipelines | `leads` CRUD · `content/calendar` CRUD (+Buffer/Ayrshare) · `creators` watch/scrape · `hermes/ai-digest` · `content/ideas` · `content/pipeline` · sentinel digest/archive | `.hermes/data/` stores + external APIs + `hermes -z` |
+
+### Content pipelines (the strategy loop)
+
+```
+Sentinel cron (7:00) ──▶ AI news stories ─┐
+Apify scrape (watchlist) ─▶ viral posts ──┼─▶ hermes -z ──▶ AI digest (Briefing)
+BRAND_STRATEGY.md ────────────────────────┘              └─▶ Idea Engine (Factory):
+                                                              strategy note + ranked ideas
+                                                              → + PLAN (calendar)
+                                                              → BUFFER (Buffer Ideas, GraphQL)
+                                                              → ⚡ AGENT (kanban task, triage)
+```
+
+- **Apify** (`APIFY_API_TOKEN`): `apify~instagram-post-scraper` /
+  `clockworks~tiktok-scraper` via `run-sync-get-dataset-items`; posts ranked
+  by a viral score. The IG **profile** scraper is useless here (account
+  objects, not posts).
+- **Buffer** (`BUFFER_ACCESS_TOKEN` + `BUFFER_ORGANIZATION_ID`): the modern
+  **GraphQL API at `api.buffer.com`** with the account OIDC token — the
+  legacy REST API rejects OIDC, and `graph.buffer.com` redirects here. Public
+  surface is the Ideas workflow (`createIdea`); queue scheduling happens
+  inside Buffer. Ayrshare (`AYRSHARE_API_KEY`) is the direct-scheduling
+  fallback provider.
+- **LLM synthesis** endpoints (`ai-digest`, `content/ideas`) call `hermes -z`
+  with strict-JSON prompts; they return a friendly 503 on provider quota
+  exhaustion (HTTP 429 in CLI output).
+- **Cron**: `content-engine-daily` at **7:30** (after Sentinel's 7:00) runs
+  scrape → digest → ideas and delivers a morning report to Telegram.
+
+Keys live in `~/.hermes/.env`: `APIFY_API_TOKEN`, `BUFFER_ACCESS_TOKEN`,
+`BUFFER_ORGANIZATION_ID`, `AYRSHARE_API_KEY` (optional), `BRAVE_SEARCH_API_KEY`
+(for the agents' `web-brave-free` plugin — without a web plugin, research
+tasks burn their iteration budget and bounce back to TODO forever).
 
 ---
 
 ## Technology Stack
 
-- **React 19** + **TypeScript 5.9** (strict) + **Vite 8** (dev server `:3001`)
+- **React 19** + **TypeScript 5.9** (strict) + **Vite 8** (dev server `:3001`;
+  the preview/launch config uses `:5219`)
 - **Tailwind CSS 4** via `@tailwindcss/vite`
-- **Zustand 5** — state stores
-- **React Router 7** — routing
-- **Axios** — bridge HTTP client
-- **pathfinding** — A* movement in the Ghost Network visualization
-- **lucide-react**, **date-fns** — icons / time formatting
+- **Zustand 5** — state stores · **React Router 7** — routing · **Axios** — bridge client
 - **FastAPI + uvicorn** (Python) — the bridge
+- **Electron 42** — desktop shell
 
 ---
 
@@ -79,99 +114,96 @@ both the bridge parser and these types.
 
 ```
 electron/
-├── main.cjs                # Desktop main process: spawns bridge, opens window
-└── preload.cjs             # Minimal contextBridge (exposes window.missionControl)
-hermes-bridge.py            # FastAPI ↔ hermes CLI bridge (port 8767)
-scripts/audit-and-improve.py# Hermes-driven self-audit tooling
-.hermes/                    # Audit instructions, logs, reports
+├── main.cjs                 # Reuse-or-spawn bridge, supervision, bridge:start IPC
+└── preload.cjs              # window.missionControl { desktop, bridgePort, startBridge }
+hermes-bridge.py             # FastAPI ↔ hermes CLI + data stores + external pipelines
+vite.config.ts               # + mc-bridge-launcher dev middleware (/__bridge/start)
+BRAND_STRATEGY.md            # Brand positioning/voice — grounds the Idea Engine
+.hermes/
+├── data/                    # leads/calendar/creators/digest/ideas stores (gitignored)
+├── bridge.log               # detached-bridge output (gitignored)
+└── repair_mojibake.py       # PS5.1 encoding-corruption repair (see Conventions)
 src/
-├── lib/
-│   ├── api.ts              # Bridge client + Hermes types (the only LIVE data source)
-│   └── legionData.ts       # Static demo data for the DEMO showcase modules
+├── lib/api.ts               # Bridge client + ALL types (the only data source)
 ├── stores/
-│   ├── useGhostStore.ts    # Agents → topology (mapAgentsToTopology)
-│   ├── useTaskStore.ts     # Kanban tasks + summary + create/claim/complete/block
-│   └── useSystemStore.ts   # Bridge status, version, latency history
+│   ├── useGhostStore.ts     # Agents → topology + sampled fleet/agent history (real sparklines)
+│   ├── useTaskStore.ts      # Kanban tasks + full verb set
+│   ├── useCapabilitiesStore.ts # Arsenal/Uplink/Systems domains (independent loading/errors)
+│   ├── useContentStore.ts   # /api/content/pipeline first, client-side kanban derivation as fallback
+│   └── …                    # system, activity, briefing, leads, chat, notify, focus
 ├── components/
-│   ├── Layout.tsx          # Sidebar + topbar shell; polls stores to stay live
-│   ├── cyberpunk/ui.tsx    # Design system (Panel, Pill, Stat, Ring, Sparkline…)
-│   └── DemoBadge.tsx       # "DEMO DATA" marker for non-Hermes modules
-├── pages/
-│   ├── GhostNetwork.tsx    # LIVE default dashboard (/network) — orbital agent
-│   │                       #   mesh + per-agent detail/CRUD panel + orchestrator chat
-│   ├── WarRoom.tsx         # LIVE Hermes metrics & task activity (/war-room)
-│   ├── OperationsCenter.tsx# LIVE kanban queue + cron management (/operations)
-│   ├── ChatTerminal.tsx    # LIVE multi-session orchestrator chat (/chat)
-│   ├── BriefingTerminal.tsx# LIVE daily brief (/briefing)
-│   ├── LeadTracker.tsx     # /leads
-│   ├── ContentFactory.tsx  # DEMO carousel composer (/factory)
-│   └── DesignLab.tsx       # DEMO showcase — Intel/Builder/Archives/Broadcast (/design-lab)
-├── components/
-│   └── useAgentCrud.tsx    # Hook: agent create/edit/delete/spawn modals (was the
-│                           #   Agent Hub page; now Ghost Network's detail-panel CRUD)
-├── App.tsx                 # Routes (default → /network)
-└── main.tsx                # Entry
+│   ├── Layout.tsx           # Premium chrome: gradient sidebar, blurred topbar (relative z-40 —
+│   │                        #   backdrop-blur traps dropdown z-index without it)
+│   ├── cyberpunk/ui.tsx     # Design system: Panel (gradient surface, coral notch,
+│   │                        #   overflow-hidden), Pill, Stat (truncating), Ring, LogTail…
+│   ├── BridgeDiagnostics.tsx# DIAG popup: endpoint probes + bridge/gateway auto-recovery
+│   └── TaskDetailDrawer.tsx # Full task verb set, deps, comments, live worker log
+├── pages/                   # ALL LIVE — no demo data anywhere
+│   ├── GhostNetwork.tsx     # 00 default: orbital mesh (activity-lit power states: gray idle,
+│   │                        #   squad-color when executing; core dims on standby / brightens
+│   │                        #   when thinking), real task titles, reroute via kanban verb,
+│   │                        #   Orbit/Grid toggle, real history sparklines (+ ghostNexus.css)
+│   ├── WarRoom.tsx          # 01 metrics: status/flow/burn/SLA/aging views
+│   ├── OperationsCenter.tsx # 02 kanban: lifecycle, decompose, cron, boards, diagnostics
+│   ├── ChatTerminal.tsx     # 03 multi-session orchestrator chat
+│   ├── ContentFactory.tsx   # 04 Idea Engine (news×viral×brand) + campaigns + calendar
+│   │                        #   (+PLAN/→BUFFER) + Viral Signals (Apify watchlist/scrape)
+│   ├── BriefingTerminal.tsx # 05 daily brief + consolidated AI digest (viral content ideas)
+│   ├── LeadTracker.tsx      # 06 leads CRUD (agents POST /api/hermes/leads)
+│   ├── Arsenal.tsx          # 07 skills/plugins(toggle)/MCP(test)/memory/curator
+│   ├── Uplink.tsx           # 08 gateway control, channel matrix, transmit console, webhooks
+│   ├── Systems.tsx          # 09 insights, log tail, doctor, model/auth, OSV audit
+│   └── DesignLab.tsx        # 10 LIVE: creator intel / sentinel archive / channel matrix /
+│                            #   real kanban dependency flow (former demo showcase)
+├── App.tsx                  # Routes (default → /network; legacy paths redirect)
+└── main.tsx
 ```
 
-Hermes Command (`Cyberpunk.tsx`) and Agent Hub (`AgentHub.tsx`) were removed: Command
-was a redundant mashup of the other live tabs, and Agent Hub's roster + CRUD were
-folded into Ghost Network — the orbital roster lists agents, and selecting one opens a
-detail panel with INSPECT + Spawn / Edit / Delete (plus a `+ Agent` create button in
-the stage header). `/command`, `/cyberpunk`, `/agent-hub` all → `/network`.
+`src/lib/legionData.ts` and `DemoBadge.tsx` have **zero consumers** (demo era
+is over) — delete on sight if convenient.
 
 ---
 
-## Routes
+## Routes — all LIVE
 
-| Path            | Page              | Data    | Notes                              |
-|-----------------|-------------------|---------|------------------------------------|
-| `/` `/network`  | Ghost Network     | LIVE    | **Default.** Orbital agent mesh, per-agent detail panel (inspect + CRUD), orchestrator chat. |
-| `/war-room`     | War Room          | LIVE    | Derived live metrics + task log.   |
-| `/operations`   | Operations Center | LIVE    | Kanban board: full task lifecycle, decompose, cron CRUD. |
-| `/chat`         | Ghost Comms       | LIVE    | Multi-session orchestrator chat (attachments, voice). |
-| `/briefing`     | Briefing Terminal | LIVE    | Daily brief (live Hermes data).    |
-| `/leads`        | Lead Tracker      | LIVE    | Lead pipeline.                     |
-| `/factory`      | Content Factory   | DEMO    | Carousel composer (static).        |
-| `/design-lab`   | Design Lab        | DEMO    | Consolidated showcase (Intel/Builder/Archives/Broadcast). |
-| `/command` `/cyberpunk` `/agent-hub` | → `/network` | — | Removed Hermes Command + Agent Hub (folded into Ghost Network). |
-| `*`             | → `/network`      | —       | Catch-all.                          |
-
-DEMO modules are the original design ported faithfully; they have no Hermes data
-source, so they render `src/lib/legionData.ts` and show a `DEMO DATA` badge.
-Wire them to a real source by replacing that import with bridge calls.
+`00 /network` · `01 /war-room` · `02 /operations` · `03 /chat` · `04 /factory`
+· `05 /briefing` · `06 /leads` · `07 /arsenal` · `08 /uplink` · `09 /systems`
+· `10 /design-lab` — defined once in `src/lib/nav.ts` (sidebar + ⌘K consume it).
+Legacy paths (`/command`, `/agent-hub`, `/intelligence`, …) redirect.
 
 ---
 
 ## Build & Run
 
 ```bash
-npm run desktop      # build UI + open desktop window (auto-starts the bridge)
-npm run desktop:dev  # open desktop window against MC_DEV_URL (hot reload)
-npm run dev          # vite dev server :3001 (browser, bridge run separately)
-npm run bridge       # python hermes-bridge.py (standalone)
+npm run desktop      # build UI + open desktop window (reuses or starts the bridge)
+npm run dev          # vite dev server (browser; DIAG popup can start the bridge)
+npm run bridge       # python hermes-bridge.py (standalone, foreground)
 npm run build        # tsc -b && vite build → dist/
 npm run lint
 ```
 
-`vite.config.ts` uses `base: './'` so the build loads from `file://`; the dev
-server binds to `127.0.0.1` only (local-only, no LAN exposure).
+`base: './'` + `HashRouter` for `file://`; dev server binds `127.0.0.1` only.
 
 ---
 
 ## Conventions
 
-- **Hermes is the single source of truth.** Do not reintroduce mock data, Notion,
-  OpenClaw, VPS, or socket layers — they were removed in the Hermes refactor.
-- **Local desktop only.** No web hosting/deployment. Keep `base: './'`, `HashRouter`,
-  and localhost binding. Don't add deploy config (Vercel etc.) back.
-- **Surface errors.** Stores set `error` on failure; pages should show it, not
-  render stale/empty state silently.
-- **New data needs?** Add a CLI-backed endpoint to `hermes-bridge.py`, mirror the
-  type in `api.ts`, then consume it in a store. Never call external services
-  directly from the React app.
-- **Design system first.** Reuse `components/cyberpunk/ui.tsx` primitives; the
-  palette is coral `#f64e6e` on near-black `#050505`/`#0A0A0A`, mono labels in
-  uppercase with wide tracking.
+- **Everything flows through the bridge.** The React app never calls external
+  services directly — Apify/Buffer/Ayrshare/Brave live in `hermes-bridge.py`.
+  New data need → bridge endpoint → type in `api.ts` → store → page.
+- **No demo data, ever.** Honest empty states with guidance ("add creators,
+  then SCRAPE") instead of fabricated rows. Unconfigured integrations say so
+  in the UI (amber banner naming the missing env key).
+- **Local desktop only.** No deploy config; keep localhost binding.
+- **Surface errors.** Stores set `error`; pages render it.
+- **Stacked-panel layouts:** panels in a fixed-height flex column must be
+  `shrink-0` (page scrolls) or capped (`max-h-*` + `overflow-y-auto` body) —
+  flexbox squeezing + Panel's `overflow-hidden` otherwise clips content.
+  Fixed-height stat cards must be `min-h-*`, never `h-*`.
+- **⚠ Never bulk-edit sources with PowerShell 5.1** (`Get/Set-Content` reads
+  BOM-less UTF-8 as cp1252 and mojibakes every `—·✓⚠●`). Use python; a repair
+  script exists at `.hermes/repair_mojibake.py`.
 - React components: function declarations, `PascalCase`; stores: `useXStore`.
 
 ---
@@ -179,9 +211,22 @@ server binds to `127.0.0.1` only (local-only, no LAN exposure).
 ## Design System (quick reference)
 
 ```
-Background:  #050505 (deep) · #0A0A0A (card) · #080808 (inset)
-Brand:       #f64e6e → #ff795e
-Accents:     emerald #10b981 (good) · amber #f59e0b (warn) · sky #38bdf8 (info) · red #ef4444 (bad)
-Text:        #FFFFFF / #b8b8b8 / #545454 / #363636
-Type:        Inter (sans) · JetBrains Mono / ui-monospace (data, labels)
+Fonts:       Chakra Petch (UI) · JetBrains Mono (data/labels) — the ONLY two,
+             app-wide, loaded in index.html (never declare unloaded fonts)
+Type scale:  10 / 11 / 13 / 16 / 20 px — snap to these, nothing else
+Background:  #050505 deep · panels are gradient #0d0d10→#09090b, 4px radius,
+             inner top highlight, soft drop shadow, coral header notch
+Ambience:    body has fixed radial glows (coral top-right, sky bottom-left)
+Brand:       #f64e6e → #ff795e — reserved for: orchestrator core, panel
+             notches, active nav, primary actions. Squad identity hues are
+             separate from status hues: SEC violet #a78bfa · INTEL cyan
+             #22d3ee · INFRA #10b981 · CONT #f59e0b · DEV #38bdf8 — red
+             #ef4444 means DANGER only, amber #f59e0b means WARN only.
+Text:        #FFFFFF / #b8b8b8 / #707070 (dim) / #585858 (faint)
+Motion:      means something — agents light up only while executing; packets
+             only on working spokes; core brightens when thinking. Ambient
+             rotation is decoration-only layers. prefers-reduced-motion and
+             the hidden-tab pause must keep working.
+Topbar:      backdrop-blur ⇒ stacking context — keep `relative z-40` or
+             header dropdowns paint under page content.
 ```
