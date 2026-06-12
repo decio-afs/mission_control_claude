@@ -134,6 +134,11 @@ class CreateTaskPayload(BaseModel):
     skills: Optional[list[str]] = None
     parents: Optional[list[str]] = None
     triage: Optional[bool] = None
+    # Per-task circuit-breaker cap: block after N consecutive failed runs.
+    # Defaults to 2 so bridge-created tasks can never retry unbounded even
+    # if the dispatcher's kanban.failure_limit config drifts. Pass null to
+    # fall back to the dispatcher default explicitly.
+    max_retries: Optional[int] = 2
 
 
 class BlockTaskPayload(BaseModel):
@@ -516,6 +521,8 @@ def create_task(payload: CreateTaskPayload):
         args += ["--parent", parent]
     if payload.triage:
         args.append("--triage")
+    if payload.max_retries is not None:
+        args += ["--max-retries", str(payload.max_retries)]
     resp = run_hermes(*args)
     return {"task": resp["data"]}
 
@@ -1618,6 +1625,145 @@ def add_calendar_item(payload: CalendarItemPayload):
     return {"item": item}
 
 
+# ── Media + scheduling — upload video/images in the dashboard, attach them to
+# calendar items, then schedule the actual social post through Ayrshare (the
+# programmatic posting arm; Buffer's public API is ideas-only). ──────────────
+
+MEDIA_DIR = DATA_DIR / "media"
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+MEDIA_MAX_BYTES = 120 * 1024 * 1024  # 120 MB — covers typical reels
+
+
+class MediaUploadPayload(BaseModel):
+    name: str
+    data: str  # base64 (raw or data: URL)
+    mime: Optional[str] = None
+
+
+@app.post("/api/content/media")
+def upload_media(payload: MediaUploadPayload):
+    import uuid
+    raw = payload.data
+    if raw.startswith("data:"):
+        raw = raw.split(",", 1)[-1]
+    try:
+        blob = base64.b64decode(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid base64 payload")
+    if len(blob) > MEDIA_MAX_BYTES:
+        raise HTTPException(status_code=413, detail=f"file exceeds {MEDIA_MAX_BYTES // (1024*1024)} MB cap")
+    safe = re.sub(r"[^\w.\-]", "_", payload.name)[-90:] or "upload.bin"
+    media_id = f"{uuid.uuid4().hex[:10]}_{safe}"
+    (MEDIA_DIR / media_id).write_bytes(blob)
+    return {"media_id": media_id, "bytes": len(blob), "url": f"/api/content/media/{media_id}"}
+
+
+@app.get("/api/content/media/{media_id}")
+def serve_media(media_id: str):
+    from fastapi.responses import FileResponse
+    p = MEDIA_DIR / re.sub(r"[^\w.\-]", "_", media_id)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="media not found")
+    return FileResponse(p)
+
+
+class AttachMediaPayload(BaseModel):
+    media_ids: list[str]
+
+
+@app.put("/api/content/calendar/{item_id}/media")
+def attach_calendar_media(item_id: str, payload: AttachMediaPayload):
+    items = _load_store("calendar", [])
+    for item in items:
+        if item.get("id") == item_id:
+            existing = item.get("media_local") or []
+            item["media_local"] = existing + [m for m in payload.media_ids if m not in existing]
+            _save_store("calendar", items)
+            return {"item": item}
+    raise HTTPException(status_code=404, detail=f"calendar item {item_id} not found")
+
+
+def _ayrshare_upload(media_id: str) -> str:
+    """Upload a locally-stored file to Ayrshare's media host; returns its URL.
+    Ayrshare needs publicly reachable media — localhost paths won't do."""
+    p = MEDIA_DIR / media_id
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"media {media_id} missing on disk")
+    b64 = base64.b64encode(p.read_bytes()).decode("ascii")
+    resp = _http_json("POST", "https://api.ayrshare.com/api/media/upload", payload={
+        "file": b64, "fileName": media_id.split("_", 1)[-1],
+    }, headers={"Authorization": f"Bearer {AYRSHARE_KEY}"}, timeout=300)
+    url = resp.get("url") or resp.get("accessUrl")
+    if not url:
+        raise HTTPException(status_code=502, detail=f"ayrshare upload returned no url: {json.dumps(resp)[:200]}")
+    return url
+
+
+@app.post("/api/content/calendar/{item_id}/push-buffer")
+def push_calendar_item_to_buffer(item_id: str):
+    """Push a calendar item's COMPLETE package (final copy + plan + media note)
+    into Buffer Ideas — used after an agent has produced the finished caption.
+    Buffer's public API is ideas-only: media stays staged locally and the
+    publish click happens inside Buffer."""
+    if not (BUFFER_TOKEN and BUFFER_ORG_ID):
+        raise HTTPException(status_code=400, detail="BUFFER_ACCESS_TOKEN / BUFFER_ORGANIZATION_ID not configured")
+    items = _load_store("calendar", [])
+    item = next((i for i in items if i.get("id") == item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail=f"calendar item {item_id} not found")
+    media_note = ""
+    locals_ = item.get("media_local") or []
+    urls = item.get("media_urls") or []
+    if locals_ or urls:
+        media_note = "\n\nMEDIA:\n" + "\n".join(
+            [f"- staged in Mission Control: {m.split('_', 1)[-1]}" for m in locals_] +
+            [f"- {u}" for u in urls]
+        )
+    text = (item.get("body") or item.get("title")) + media_note + \
+        f"\n\n[planned: {item.get('date')} · {item.get('platform')} · via Mission Control]"
+    mutation = (
+        "mutation CreateIdea { createIdea(input: { "
+        f"organizationId: {json.dumps(BUFFER_ORG_ID)}, "
+        f"content: {{ title: {json.dumps(item.get('title', ''))} text: {json.dumps(text)} }} "
+        "}) { ... on Idea { id } } }"
+    )
+    data = _buffer_graphql(mutation)
+    idea = data.get("createIdea") or {}
+    if not idea.get("id"):
+        raise HTTPException(status_code=502, detail=f"buffer createIdea returned no id: {json.dumps(idea)[:200]}")
+    item["buffer_id"] = idea["id"]
+    item["status"] = "idea-sent"
+    _save_store("calendar", items)
+    return {"item": item}
+
+
+@app.post("/api/content/calendar/{item_id}/schedule")
+def schedule_calendar_item(item_id: str):
+    """The real posting hop: upload the item's attached media to Ayrshare and
+    book the post for the item's date. Requires AYRSHARE_API_KEY."""
+    if not AYRSHARE_KEY:
+        raise HTTPException(status_code=400, detail="AYRSHARE_API_KEY not set — Ayrshare is the auto-posting arm (Buffer's public API cannot schedule posts or carry media). Free key: ayrshare.com")
+    items = _load_store("calendar", [])
+    item = next((i for i in items if i.get("id") == item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail=f"calendar item {item_id} not found")
+    media_urls = list(item.get("media_urls") or [])
+    for mid in item.get("media_local") or []:
+        media_urls.append(_ayrshare_upload(mid))
+    sched = item["date"] if "T" in item["date"] else f"{item['date']}T12:00:00Z"
+    resp = _http_json("POST", "https://api.ayrshare.com/api/post", payload={
+        "post": item.get("body") or item.get("title"),
+        "platforms": [item.get("platform", "instagram")],
+        "scheduleDate": sched,
+        **({"mediaUrls": media_urls} if media_urls else {}),
+    }, headers={"Authorization": f"Bearer {AYRSHARE_KEY}"}, timeout=120)
+    item["status"] = "scheduled"
+    item["ayrshare_id"] = resp.get("id")
+    item["media_urls"] = media_urls
+    _save_store("calendar", items)
+    return {"item": item, "ayrshare": resp}
+
+
 @app.delete("/api/content/calendar/{item_id}")
 def delete_calendar_item(item_id: str):
     items = _load_store("calendar", [])
@@ -2257,6 +2403,61 @@ def gateway_action(payload: GatewayActionPayload):
         "running": False,
         "pending": True,
     }
+
+
+# ---------------------------------------------------------------------------
+# Hermes local patches — the quota-burn fixes live as local edits inside the
+# hermes-agent git checkout, so `hermes update` (git pull) can drop them.
+# scripts/hermes_patches.py is the manifest + idempotent applier; these
+# endpoints surface it in the Diagnostics panel.
+# ---------------------------------------------------------------------------
+
+PATCH_SCRIPT = Path(__file__).parent / "scripts" / "hermes_patches.py"
+
+
+def _run_patch_script(mode: str) -> dict[str, Any]:
+    if not PATCH_SCRIPT.exists():
+        raise HTTPException(status_code=500, detail=f"patch script not found: {PATCH_SCRIPT}")
+    try:
+        result = subprocess.run(
+            [sys.executable, str(PATCH_SCRIPT), mode],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=CREATE_NO_WINDOW,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="patch script timed out")
+    # Exit 1 just means "not all applied" — the JSON report is still on stdout.
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=500,
+            detail=f"patch script returned no JSON: {(result.stderr or result.stdout)[:300]}",
+        )
+
+
+@app.get("/api/hermes/patches")
+def get_hermes_patches():
+    """Status of the local Hermes patches (applied / applicable / conflict)."""
+    return _run_patch_script("--check")
+
+
+@app.post("/api/hermes/patches/apply")
+def apply_hermes_patches():
+    """Re-apply any applicable local patches (idempotent; compile-verified).
+
+    Running workers keep the old code until they exit; the gateway picks up
+    the patched modules on its next worker spawn (fresh process), so no
+    restart is required for kanban workers. ``gateway_restart_suggested`` is
+    set when anything was applied, for the long-lived gateway process itself.
+    """
+    report = _run_patch_script("--apply")
+    report["gateway_restart_suggested"] = bool(report.get("changed"))
+    return report
 
 
 @app.get("/api/hermes/send/targets")

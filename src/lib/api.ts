@@ -104,7 +104,7 @@ export async function getHermesTasks(): Promise<{ tasks: HermesTask[] }> {
   return data;
 }
 
-export async function createHermesTask(payload: { title: string; body?: string; assignee?: string; priority?: number; skills?: string[]; parents?: string[]; triage?: boolean }) {
+export async function createHermesTask(payload: { title: string; body?: string; assignee?: string; priority?: number; skills?: string[]; parents?: string[]; triage?: boolean; max_retries?: number | null }) {
   const { data } = await bridge.post('/api/hermes/tasks', payload);
   return data;
 }
@@ -672,6 +672,35 @@ export async function gatewayAction(action: 'start' | 'stop' | 'restart'): Promi
   const { data } = await bridge.post('/api/hermes/gateway/action', { action }, { timeout: 125000 });
   return data;
 }
+
+// ── Hermes local patches — the quota-burn fixes live inside the hermes-agent
+// git checkout, so `hermes update` can drop them. The bridge wraps
+// scripts/hermes_patches.py (check / idempotent re-apply).
+export interface HermesPatch {
+  id: string;
+  file: string;
+  description: string;
+  status: 'applied' | 'applicable' | 'conflict' | 'file-missing' | 'compile-failed-rolled-back';
+  changed?: boolean;
+}
+export interface HermesPatchReport {
+  hermes_dir: string;
+  mode: 'check' | 'apply';
+  patches: HermesPatch[];
+  all_applied: boolean;
+  applicable: number;
+  conflicts: number;
+  changed?: number;
+  gateway_restart_suggested?: boolean;
+}
+export async function getHermesPatches(): Promise<HermesPatchReport> {
+  const { data } = await bridge.get('/api/hermes/patches', { timeout: 65000 });
+  return data;
+}
+export async function applyHermesPatches(): Promise<HermesPatchReport> {
+  const { data } = await bridge.post('/api/hermes/patches/apply', {}, { timeout: 95000 });
+  return data;
+}
 export async function getSendTargets(): Promise<SendTargets> {
   const { data } = await bridge.get('/api/hermes/send/targets', { timeout: 65000 });
   return data;
@@ -834,6 +863,25 @@ export interface ContentIdeas {
   ideas?: ContentIdea[];
   inputs?: { viral_posts: number; news_stories: number; brand_doc: boolean };
 }
+export async function uploadContentMedia(name: string, dataBase64: string): Promise<{ media_id: string; bytes: number; url: string }> {
+  // 120 MB cap server-side; long timeout for big reels over localhost.
+  const { data } = await bridge.post('/api/content/media', { name, data: dataBase64 }, { timeout: 300000 });
+  return data;
+}
+export async function attachCalendarMedia(itemId: string, mediaIds: string[]): Promise<{ item: CalendarItem }> {
+  const { data } = await bridge.put(`/api/content/calendar/${itemId}/media`, { media_ids: mediaIds });
+  return data;
+}
+export async function scheduleCalendarItem(itemId: string): Promise<{ item: CalendarItem; ayrshare: unknown }> {
+  // Uploads attached media to Ayrshare then books the post — can take minutes for video.
+  const { data } = await bridge.post(`/api/content/calendar/${itemId}/schedule`, {}, { timeout: 600000 });
+  return data;
+}
+export async function pushCalendarItemToBuffer(itemId: string): Promise<{ item: CalendarItem }> {
+  const { data } = await bridge.post(`/api/content/calendar/${itemId}/push-buffer`, {}, { timeout: 65000 });
+  return data;
+}
+
 export async function getContentIdeas(): Promise<ContentIdeas> {
   const { data } = await bridge.get('/api/content/ideas');
   return data;

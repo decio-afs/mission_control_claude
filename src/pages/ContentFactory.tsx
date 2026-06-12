@@ -1,11 +1,13 @@
 // Content Factory — live content pipeline fed from Hermes kanban tasks, the
-// planned-post calendar (Ayrshare-ready), and Apify creator viral signals.
-import { useEffect, useMemo, useState, useCallback } from 'react';
+// planned-post calendar (media uploads + Ayrshare auto-posting), and Apify
+// creator viral signals.
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Panel, Pill, CornerBrackets, Stat } from '../components/cyberpunk/ui';
 import { useContentStore } from '../stores/useContentStore';
 import {
   addCalendarItem, getCreators, watchCreator, scrapeCreators, errMessage,
   getContentIdeas, generateContentIdeas, createHermesTask,
+  uploadContentMedia, attachCalendarMedia, scheduleCalendarItem, pushCalendarItemToBuffer,
   type CreatorsResponse, type ContentIdeas,
 } from '../lib/api';
 
@@ -134,6 +136,92 @@ export default function ContentFactory() {
     }
   };
 
+  // ── Calendar production flow: attach media in-dashboard, then push the
+  //    complete package (copy + plan + media note) into Buffer Ideas. ──
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [mediaFor, setMediaFor] = useState<string | null>(null);
+  const [calBusy, setCalBusy] = useState<string | null>(null);
+  const [calMsg, setCalMsg] = useState<string | null>(null);
+
+  const onPickMedia = (itemId: string) => {
+    setMediaFor(itemId);
+    fileInputRef.current?.click();
+  };
+
+  const onFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !mediaFor) return;
+    if (file.size > 120 * 1024 * 1024) { setCalMsg('file exceeds the 120 MB cap'); return; }
+    setCalBusy(mediaFor);
+    setCalMsg(`uploading ${file.name} (${Math.round(file.size / 1024 / 1024)} MB)…`);
+    try {
+      const b64 = await new Promise<string>((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result));
+        r.onerror = () => rej(new Error('file read failed'));
+        r.readAsDataURL(file);
+      });
+      const up = await uploadContentMedia(file.name, b64);
+      await attachCalendarMedia(mediaFor, [up.media_id]);
+      setCalMsg(`${file.name} attached ✓`);
+      await refresh();
+    } catch (err) {
+      setCalMsg(errMessage(err));
+    } finally {
+      setCalBusy(null);
+      setMediaFor(null);
+    }
+  };
+
+  const pushToBuffer = async (itemId: string) => {
+    setCalBusy(itemId);
+    setCalMsg('pushing package to Buffer Ideas…');
+    try {
+      await pushCalendarItemToBuffer(itemId);
+      setCalMsg('complete package in Buffer Ideas ✓ — open Buffer to publish');
+      await refresh();
+    } catch (err) {
+      setCalMsg(errMessage(err));
+    } finally {
+      setCalBusy(null);
+    }
+  };
+
+  const scheduleItem = async (itemId: string) => {
+    setCalBusy(itemId);
+    setCalMsg('uploading media + booking post via Ayrshare…');
+    try {
+      await scheduleCalendarItem(itemId);
+      setCalMsg('post scheduled ✓');
+      await refresh();
+    } catch (err) {
+      setCalMsg(errMessage(err)); // surfaces the "AYRSHARE_API_KEY not set" guidance
+    } finally {
+      setCalBusy(null);
+    }
+  };
+
+  // 🎨 Carousel pipeline: agent writes copy AND generates slide images via the
+  // Higgsfield MCP, then files the finished package on the calendar itself.
+  const ideaToCarousel = async (idea: { title: string; platform: string; hook: string; why_now: string; pattern_source: string }) => {
+    const key = `${idea.title}|car`;
+    setIdeaActionBusy(key);
+    try {
+      const date = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+      await createHermesTask({
+        title: `Produce carousel: ${idea.title}`,
+        body: `Create a complete Instagram carousel for the DA Agency / Ghost Legion brand (voice + positioning in BRAND_STRATEGY.md at the Mission Control repo root).\n\nIdea: ${idea.title}\nHook: ${idea.hook}\nWhy now: ${idea.why_now}\nPattern source: ${idea.pattern_source}\n\nSteps:\n1. Write the final caption (hook, body, CTA, hashtags) and slide-by-slide copy for 5-7 slides.\n2. Generate ONE image per slide with the Higgsfield MCP image tools — consistent style: premium cyberpunk, coral #f64e6e on near-black, bold typographic slides using the slide copy. Collect every hosted image URL.\n3. File the finished package on the Mission Control calendar by running exactly this in your terminal (fill in the real values, JSON-escape the caption):\n   curl -s -X POST http://localhost:8767/api/content/calendar -H "Content-Type: application/json" -d "{\\"title\\":\\"${idea.title.replace(/"/g, '')}\\",\\"date\\":\\"${date}\\",\\"platform\\":\\"instagram\\",\\"body\\":\\"<FINAL CAPTION>\\",\\"media_urls\\":[<IMAGE URLS>]}"\n4. Report the caption, the slide copy, and the calendar item id.`,
+        triage: true,
+      });
+      setIdeasMsg(`"${idea.title.slice(0, 40)}" → carousel agent task created ✓ (copy + Higgsfield slides + auto-filed on calendar)`);
+    } catch (e) {
+      setIdeasMsg(errMessage(e));
+    } finally {
+      setIdeaActionBusy(null);
+    }
+  };
+
   // ── Viral signals — Apify creator watchlist + ranked feed ──
   const [creators, setCreators] = useState<CreatorsResponse | null>(null);
   const [wHandle, setWHandle] = useState('');
@@ -240,19 +328,25 @@ export default function ContentFactory() {
                     <div className="text-[11px] text-[#b8b8b8]"><span className="font-mono text-[10px] text-[#f64e6e]">HOOK</span> {idea.hook}</div>
                     <div className="text-[10px] text-[#707070]"><span className="font-mono text-amber-400">NOW</span> {idea.why_now}</div>
                     <div className="text-[10px] text-[#707070] font-mono truncate" title={idea.pattern_source}>↻ {idea.pattern_source} · {idea.platform}</div>
-                    <div className="flex gap-1.5 mt-1">
+                    <div className="grid grid-cols-2 gap-1.5 mt-1">
                       <button onClick={() => void ideaToCalendar(idea, false)} disabled={ideaActionBusy !== null}
-                        className="flex-1 text-[10px] font-mono border border-white/10 text-[#b8b8b8] py-1 hover:border-[#f64e6e] hover:text-[#f64e6e] disabled:opacity-30">
+                        className="text-[10px] font-mono border border-white/10 text-[#b8b8b8] py-1 hover:border-[#f64e6e] hover:text-[#f64e6e] disabled:opacity-30">
                         {ideaActionBusy === `${idea.title}|plan` ? '…' : '+ PLAN'}
                       </button>
                       <button onClick={() => void ideaToCalendar(idea, true)} disabled={ideaActionBusy !== null}
-                        className="flex-1 text-[10px] font-mono border border-white/10 text-[#b8b8b8] py-1 hover:border-[#f64e6e] hover:text-[#f64e6e] disabled:opacity-30">
+                        title="File the raw idea in Buffer Ideas now"
+                        className="text-[10px] font-mono border border-white/10 text-[#b8b8b8] py-1 hover:border-[#f64e6e] hover:text-[#f64e6e] disabled:opacity-30">
                         {ideaActionBusy === `${idea.title}|buf` ? '…' : '→ BUFFER'}
                       </button>
                       <button onClick={() => void ideaToTask(idea)} disabled={ideaActionBusy !== null}
                         title="Create a kanban task — an agent produces the final caption/script"
-                        className="flex-1 text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1 hover:bg-[#f64e6e]/20 disabled:opacity-30">
+                        className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1 hover:bg-[#f64e6e]/20 disabled:opacity-30">
                         {ideaActionBusy === `${idea.title}|task` ? '…' : '⚡ AGENT'}
+                      </button>
+                      <button onClick={() => void ideaToCarousel(idea)} disabled={ideaActionBusy !== null}
+                        title="Agent writes the copy AND generates the slide images via Higgsfield, then files the finished package on the calendar"
+                        className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1 hover:bg-[#f64e6e]/20 disabled:opacity-30">
+                        {ideaActionBusy === `${idea.title}|car` ? '…' : '🎨 SLIDES'}
                       </button>
                     </div>
                   </div>
@@ -377,6 +471,9 @@ export default function ContentFactory() {
               </button>
             </div>
             {planMsg && <div className="font-mono text-[10px] text-sky-400">▸ {planMsg}</div>}
+            {calMsg && <div className="font-mono text-[10px] text-sky-400">▸ {calMsg}</div>}
+            {/* shared hidden file input for per-item media attach */}
+            <input ref={fileInputRef} type="file" accept="video/*,image/*" className="hidden" onChange={(e) => void onFileChosen(e)} />
           </div>
 
           {upcoming.length === 0 ? (
@@ -394,8 +491,28 @@ export default function ContentFactory() {
                   <div className="w-px h-6 bg-white/10" />
                   <div className="flex-1 min-w-0">
                     <div className="text-xs text-white truncate">{item.title}</div>
+                    <div className="text-[10px] font-mono text-[#707070]">{item.status}</div>
                   </div>
                   <Pill tone={statusTone[item.status] || 'neutral'}>{item.platform}</Pill>
+                  {(item as { planned?: boolean }).planned && (
+                    <div className="flex gap-1 shrink-0">
+                      <button onClick={() => onPickMedia(item.id)} disabled={calBusy !== null}
+                        title="Attach the video/image for this post (staged in the dashboard)"
+                        className="text-[10px] font-mono border border-white/10 text-[#b8b8b8] px-1.5 py-0.5 hover:border-[#f64e6e] hover:text-[#f64e6e] disabled:opacity-30">
+                        {calBusy === item.id && mediaFor === item.id ? '…' : '📎'}
+                      </button>
+                      <button onClick={() => void pushToBuffer(item.id)} disabled={calBusy !== null}
+                        title="Push the complete package (copy + plan + media note) into Buffer Ideas"
+                        className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] px-1.5 py-0.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">
+                        ⬆
+                      </button>
+                      <button onClick={() => void scheduleItem(item.id)} disabled={calBusy !== null}
+                        title="Auto-schedule the real post (media + date) — requires AYRSHARE_API_KEY"
+                        className="text-[10px] font-mono border border-white/10 text-[#b8b8b8] px-1.5 py-0.5 hover:border-emerald-400 hover:text-emerald-400 disabled:opacity-30">
+                        ⏱
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
