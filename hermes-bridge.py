@@ -1944,12 +1944,116 @@ def generate_ai_digest():
 BRAND_DOC = Path(__file__).parent / "BRAND_STRATEGY.md"
 
 
+def _idea_deck_view(ideas: dict) -> dict:
+    """Deck = generated ideas minus used (acted on) minus skipped (disliked)."""
+    gone = set(ideas.get("used", [])) | set(ideas.get("skipped", []))
+    remaining = [i for i in ideas.get("ideas", []) if i.get("title") not in gone]
+    return {"available": True, **{**ideas, "ideas": remaining, "used_count": len(gone)}}
+
+
+def _gather_idea_inputs() -> tuple[str, str, str, dict]:
+    """Shared inputs for idea generation: viral feed, news, brand doc."""
+    feed = _load_store("creators-feed", {"items": []})
+    viral = (feed.get("items") or [])[:12]
+    stories = []
+    latest = SENTINEL_CACHE_DIR / "latest.json"
+    if latest.exists():
+        stories = json.loads(latest.read_text(encoding="utf-8")).get("stories", [])[:12]
+    brand = BRAND_DOC.read_text(encoding="utf-8", errors="replace")[:3000] if BRAND_DOC.exists() else ""
+    viral_lines = "\n".join(
+        f"- @{v['creator']} ({v['platform']}, ⚡{v['viral_score']}, {v['likes']}L/{v['comments']}C/{v['views']}V): {v['caption'][:160]}"
+        for v in viral
+    ) or "(no creator signals scraped yet)"
+    news_lines = "\n".join(f"- {s['title']} ({s['source']}, score {s.get('score', 0)})" for s in stories) or "(no news cached)"
+    counts = {"viral_posts": len(viral), "news_stories": len(stories), "brand_doc": bool(brand)}
+    return viral_lines, news_lines, brand, counts
+
+
+def _llm_json(prompt: str, timeout: int = 240) -> dict:
+    resp = run_hermes("-z", prompt, timeout=timeout)
+    raw = resp["stdout"].strip()
+    if "HTTP 429" in raw or "usage limit" in raw:
+        raise HTTPException(status_code=503, detail="LLM quota exhausted (429). Wait for refresh or add a fallback provider: hermes fallback add")
+    m = re.search(r"\{.*\}", raw, re.S)
+    if not m:
+        raise HTTPException(status_code=502, detail=f"model returned no JSON: {raw[:200]}")
+    try:
+        return json.loads(m.group(0))
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail=f"model JSON invalid: {e}")
+
+
 @app.get("/api/content/ideas")
 def get_content_ideas():
     ideas = _load_store("content-ideas", None)
     if not ideas:
         return {"available": False}
-    return {"available": True, **ideas}
+    return _idea_deck_view(ideas)
+
+
+class ConsumeIdeaPayload(BaseModel):
+    title: str
+
+
+@app.post("/api/content/ideas/consume")
+def consume_content_idea(payload: ConsumeIdeaPayload):
+    """Mark an idea as used (planned / sent to Buffer / handed to an agent) so
+    it leaves the deck. A regeneration deals a fresh deck."""
+    ideas = _load_store("content-ideas", None)
+    if not ideas:
+        raise HTTPException(status_code=404, detail="no idea deck generated yet")
+    used = ideas.get("used", [])
+    if payload.title not in used:
+        used.append(payload.title)
+    ideas["used"] = used
+    _save_store("content-ideas", ideas)
+    return {"deck": _idea_deck_view(ideas)}
+
+
+@app.post("/api/content/ideas/skip")
+def skip_content_idea(payload: ConsumeIdeaPayload):
+    """Skip = dislike. The idea leaves the deck, the dislike is remembered as
+    taste (negative examples for future generations), and ONE replacement idea
+    is generated against today's data, steering away from skipped angles.
+    Slow (LLM): ~30-90s."""
+    ideas = _load_store("content-ideas", None)
+    if not ideas:
+        raise HTTPException(status_code=404, detail="no idea deck generated yet")
+    skipped = ideas.get("skipped", [])
+    if payload.title not in skipped:
+        skipped.append(payload.title)
+    ideas["skipped"] = skipped
+    _save_store("content-ideas", ideas)
+
+    # Persist taste across decks (capped) — regenerations read this too.
+    taste = _load_store("idea-taste", [])
+    if payload.title not in [t.get("title") for t in taste]:
+        taste.append({"title": payload.title, "at": time.time()})
+    _save_store("idea-taste", taste[-50:])
+
+    viral_lines, news_lines, brand, _counts = _gather_idea_inputs()
+    existing = [i.get("title", "") for i in ideas.get("ideas", [])]
+    avoid = skipped + [t["title"] for t in taste[-15:]]
+    prompt = (
+        "You are the content strategist for the brand below. The operator SKIPPED some ideas — treat those "
+        "as negative taste examples and avoid similar angles. Produce STRICT JSON only (no fences): "
+        '{"idea": {"title": "<punchy working title>", "platform": "instagram|tiktok|linkedin", '
+        '"format": "<reel|carousel|post|thread>", "hook": "<first 2 seconds / first line>", '
+        '"why_now": "<trending-news or timing tie-in>", "pattern_source": "<viral pattern it remixes, or \'original\'>"}} '
+        "Give exactly ONE new high-viral-potential idea. It must be clearly different from ALL of these existing "
+        f"titles: {json.dumps(existing)} and avoid angles similar to these SKIPPED/disliked ones: {json.dumps(avoid)}.\n\n"
+        f"=== BRAND (excerpt) ===\n{brand}\n\n"
+        f"=== NICHE VIRAL SIGNALS ===\n{viral_lines}\n\n"
+        f"=== TRENDING AI NEWS ===\n{news_lines}"
+    )
+    parsed = _llm_json(prompt)
+    new_idea = parsed.get("idea") or parsed  # tolerate a bare idea object
+    if not new_idea.get("title"):
+        raise HTTPException(status_code=502, detail=f"replacement idea malformed: {json.dumps(parsed)[:200]}")
+    ideas = _load_store("content-ideas", ideas)  # reload in case of concurrent use
+    ideas.setdefault("ideas", []).append(new_idea)
+    _save_store("content-ideas", ideas)
+    return {"deck": _idea_deck_view(ideas), "replacement": new_idea}
 
 
 @app.post("/api/content/ideas")
@@ -1958,25 +2062,16 @@ def generate_content_ideas():
     1. Viral creator posts (Apify feed) — what's working in the niche
     2. Trending AI news (Sentinel) — what's hot right now
     3. BRAND_STRATEGY.md — who we are and how we sound
-    Slow (LLM): 1-3 min. Cache in the content-ideas store."""
-    feed = _load_store("creators-feed", {"items": []})
-    viral = (feed.get("items") or [])[:12]
-    stories = []
-    latest = SENTINEL_CACHE_DIR / "latest.json"
-    if latest.exists():
-        stories = json.loads(latest.read_text(encoding="utf-8")).get("stories", [])[:12]
-    if not viral and not stories:
+    Skipped-idea taste history steers generations away from disliked angles.
+    Deals a fresh deck (used/skipped reset). Slow (LLM): 1-3 min."""
+    viral_lines, news_lines, brand, counts = _gather_idea_inputs()
+    if not counts["viral_posts"] and not counts["news_stories"]:
         raise HTTPException(status_code=400, detail="no inputs yet — scrape creators (Content Factory) and/or run the Sentinel cron first")
-
-    brand = ""
-    if BRAND_DOC.exists():
-        brand = BRAND_DOC.read_text(encoding="utf-8", errors="replace")[:3000]
-
-    viral_lines = "\n".join(
-        f"- @{v['creator']} ({v['platform']}, ⚡{v['viral_score']}, {v['likes']}L/{v['comments']}C/{v['views']}V): {v['caption'][:160]}"
-        for v in viral
-    ) or "(no creator signals scraped yet)"
-    news_lines = "\n".join(f"- {s['title']} ({s['source']}, score {s.get('score', 0)})" for s in stories) or "(no news cached)"
+    taste = _load_store("idea-taste", [])
+    taste_note = ""
+    if taste:
+        taste_note = ("\n\nThe operator previously SKIPPED these ideas — avoid similar angles: "
+                      + json.dumps([t["title"] for t in taste[-15:]]))
 
     prompt = (
         "You are the content strategist for the brand described below. Produce STRICT JSON only "
@@ -1987,27 +2082,21 @@ def generate_content_ideas():
         '"why_now": "<the trending-news or timing tie-in>", '
         '"pattern_source": "<which viral pattern or creator signal this remixes, or \'original\'>"}]} '
         "Give 6 ideas ranked by viral potential. Every idea must be executable by an AI agent fleet brand "
-        "(demos, hot takes, build-in-public, contrarian POVs) and sound like the brand voice.\n\n"
+        "(demos, hot takes, build-in-public, contrarian POVs) and sound like the brand voice."
+        + taste_note + "\n\n"
         f"=== BRAND (excerpt) ===\n{brand}\n\n"
         f"=== NICHE VIRAL SIGNALS (scraped) ===\n{viral_lines}\n\n"
         f"=== TRENDING AI NEWS (Sentinel) ===\n{news_lines}"
     )
-    resp = run_hermes("-z", prompt, timeout=240)
-    raw = resp["stdout"].strip()
-    if "HTTP 429" in raw or "usage limit" in raw:
-        raise HTTPException(status_code=503, detail="LLM quota exhausted (Kimi 429). Wait for the quota refresh or add a fallback provider: hermes fallback add")
-    m = re.search(r"\{.*\}", raw, re.S)
-    if not m:
-        raise HTTPException(status_code=502, detail=f"model returned no JSON: {raw[:200]}")
-    try:
-        parsed = json.loads(m.group(0))
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=502, detail=f"model JSON invalid: {e}")
+    parsed = _llm_json(prompt)
     result = {
         "generated_at": datetime.now().isoformat(),
         "strategy_note": parsed.get("strategy_note", ""),
         "ideas": parsed.get("ideas", [])[:8],
-        "inputs": {"viral_posts": len(viral), "news_stories": len(stories), "brand_doc": bool(brand)},
+        "inputs": counts,
+        # fresh deck — nothing used or skipped yet
+        "used": [],
+        "skipped": [],
     }
     _save_store("content-ideas", result)
     return {"available": True, **result}

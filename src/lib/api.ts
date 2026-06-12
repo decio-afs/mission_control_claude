@@ -891,3 +891,12 @@ export async function generateContentIdeas(): Promise<ContentIdeas> {
   const { data } = await bridge.post('/api/content/ideas', {}, { timeout: 250000 });
   return data;
 }
+export async function consumeContentIdea(title: string): Promise<{ deck: ContentIdeas }> {
+  const { data } = await bridge.post('/api/content/ideas/consume', { title });
+  return data;
+}
+export async function skipContentIdea(title: string): Promise<{ deck: ContentIdeas; replacement: ContentIdea }> {
+  // Generates ONE replacement idea via LLM — slow (~30-90s).
+  const { data } = await bridge.post('/api/content/ideas/skip', { title }, { timeout: 250000 });
+  return data;
+}

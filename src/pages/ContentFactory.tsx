@@ -7,6 +7,7 @@ import { useContentStore } from '../stores/useContentStore';
 import {
   addCalendarItem, getCreators, watchCreator, scrapeCreators, errMessage,
   getContentIdeas, generateContentIdeas, createHermesTask,
+  consumeContentIdea, skipContentIdea,
   uploadContentMedia, attachCalendarMedia, scheduleCalendarItem, pushCalendarItemToBuffer,
   type CreatorsResponse, type ContentIdeas,
 } from '../lib/api';
@@ -110,12 +111,45 @@ export default function ContentFactory() {
     try {
       const date = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
       await addCalendarItem({ title: idea.title, date, platform: idea.platform || 'instagram', body: idea.hook, publish });
-      setIdeasMsg(publish ? `"${idea.title.slice(0, 40)}" → Buffer Ideas ✓` : `"${idea.title.slice(0, 40)}" planned for ${date} ✓`);
+      const left = await consumeIdea(idea.title);
+      setIdeasMsg((publish ? `"${idea.title.slice(0, 40)}" → Buffer Ideas ✓` : `"${idea.title.slice(0, 40)}" planned for ${date} ✓`) + (left !== null ? ` · ${left} left in deck` : ''));
       await refresh();
     } catch (e) {
       setIdeasMsg(errMessage(e));
     } finally {
       setIdeaActionBusy(null);
+    }
+  };
+
+  // Acting on an idea consumes it — the card leaves the deck (non-fatal if the
+  // consume call itself hiccups; the action already succeeded).
+  const consumeIdea = async (title: string): Promise<number | null> => {
+    try {
+      const r = await consumeContentIdea(title);
+      setIdeas(r.deck);
+      return r.deck.ideas?.length ?? 0;
+    } catch {
+      return null;
+    }
+  };
+
+  // Skip = dislike. Card leaves instantly; the engine remembers the taste and
+  // deals ONE fresh replacement idea from today's data (LLM, ~30-90s).
+  const [dealing, setDealing] = useState(false);
+  const skipIdea = async (title: string) => {
+    if (dealing) return;
+    // optimistic removal so the disliked card is gone immediately
+    setIdeas((prev) => prev ? { ...prev, ideas: (prev.ideas ?? []).filter((i) => i.title !== title) } : prev);
+    setDealing(true);
+    setIdeasMsg('skipped — dealing a replacement idea from today\'s data…');
+    try {
+      const r = await skipContentIdea(title);
+      setIdeas(r.deck);
+      setIdeasMsg(`replacement dealt: "${r.replacement.title.slice(0, 50)}" ✓`);
+    } catch (e) {
+      setIdeasMsg(`skip saved, but replacement failed: ${errMessage(e)}`);
+    } finally {
+      setDealing(false);
     }
   };
 
@@ -128,7 +162,8 @@ export default function ContentFactory() {
         body: `Platform: ${idea.platform} · Format: ${idea.format}\nHook: ${idea.hook}\nWhy now: ${idea.why_now}\nPattern source: ${idea.pattern_source}\n\nDeliverable: final caption + script/copy ready to post, in the DA Agency / Ghost Legion brand voice (see BRAND_STRATEGY.md).`,
         triage: true,
       });
-      setIdeasMsg(`"${idea.title.slice(0, 40)}" → agent task created ✓ (triage)`);
+      const left = await consumeIdea(idea.title);
+      setIdeasMsg(`"${idea.title.slice(0, 40)}" → agent task created ✓ (triage)${left !== null ? ` · ${left} left in deck` : ''}`);
     } catch (e) {
       setIdeasMsg(errMessage(e));
     } finally {
@@ -214,7 +249,8 @@ export default function ContentFactory() {
         body: `Create a complete Instagram carousel for the DA Agency / Ghost Legion brand (voice + positioning in BRAND_STRATEGY.md at the Mission Control repo root).\n\nIdea: ${idea.title}\nHook: ${idea.hook}\nWhy now: ${idea.why_now}\nPattern source: ${idea.pattern_source}\n\nSteps:\n1. Write the final caption (hook, body, CTA, hashtags) and slide-by-slide copy for 5-7 slides.\n2. Generate ONE image per slide with the Higgsfield MCP image tools — consistent style: premium cyberpunk, coral #f64e6e on near-black, bold typographic slides using the slide copy. Collect every hosted image URL.\n3. File the finished package on the Mission Control calendar by running exactly this in your terminal (fill in the real values, JSON-escape the caption):\n   curl -s -X POST http://localhost:8767/api/content/calendar -H "Content-Type: application/json" -d "{\\"title\\":\\"${idea.title.replace(/"/g, '')}\\",\\"date\\":\\"${date}\\",\\"platform\\":\\"instagram\\",\\"body\\":\\"<FINAL CAPTION>\\",\\"media_urls\\":[<IMAGE URLS>]}"\n4. Report the caption, the slide copy, and the calendar item id.`,
         triage: true,
       });
-      setIdeasMsg(`"${idea.title.slice(0, 40)}" → carousel agent task created ✓ (copy + Higgsfield slides + auto-filed on calendar)`);
+      const left = await consumeIdea(idea.title);
+      setIdeasMsg(`"${idea.title.slice(0, 40)}" → carousel agent task created ✓ (copy + Higgsfield slides + auto-filed on calendar)${left !== null ? ` · ${left} left in deck` : ''}`);
     } catch (e) {
       setIdeasMsg(errMessage(e));
     } finally {
@@ -318,12 +354,26 @@ export default function ContentFactory() {
               {ideas.strategy_note && (
                 <p className="text-[11px] text-[#b8b8b8] leading-relaxed border-l-2 border-[#f64e6e]/50 pl-3">{ideas.strategy_note}</p>
               )}
+              {dealing && (
+                <div className="font-mono text-[10px] text-amber-400 animate-pulse">↻ dealing a replacement idea from today's signals…</div>
+              )}
+              {(ideas.ideas?.length ?? 0) === 0 && !dealing && (
+                <div className="font-mono text-[11px] text-[#707070]">
+                  {'>'} deck empty — every idea was planned, produced, or skipped. ↻ REGENERATE deals a
+                  fresh deck from today's signals (your skips are remembered as taste).
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {(ideas.ideas ?? []).map((idea, i) => (
                   <div key={i} className="p-2.5 border border-white/[0.07] bg-[#0b0b0d] flex flex-col gap-1.5">
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-[11px] text-white font-medium leading-snug">{idea.title}</span>
-                      <Pill tone="brand">{idea.format}</Pill>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Pill tone="brand">{idea.format}</Pill>
+                        <button onClick={() => void skipIdea(idea.title)} disabled={dealing || ideaActionBusy !== null}
+                          title="Skip — not my taste. The engine remembers and deals a fresh replacement idea."
+                          className="text-[#707070] hover:text-red-400 text-[11px] font-mono leading-none disabled:opacity-30">✕</button>
+                      </div>
                     </div>
                     <div className="text-[11px] text-[#b8b8b8]"><span className="font-mono text-[10px] text-[#f64e6e]">HOOK</span> {idea.hook}</div>
                     <div className="text-[10px] text-[#707070]"><span className="font-mono text-amber-400">NOW</span> {idea.why_now}</div>
