@@ -1,12 +1,14 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useGhostStore } from '../stores/useGhostStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import { useSystemStore } from '../stores/useSystemStore';
 import { useTaskStore } from '../stores/useTaskStore';
 import { MODULES } from '../lib/nav';
 import CommandPalette from './CommandPalette';
 import TaskSearch from './TaskSearch';
 import BridgeDiagnostics from './BridgeDiagnostics';
+import PatchNotes from './PatchNotes';
 import AgentDrillDown from './AgentDrillDown';
 import TaskNotifier from './TaskNotifier';
 import NotifyCenter from './NotifyCenter';
@@ -39,31 +41,47 @@ export default function Layout() {
     try { return localStorage.getItem('mc-nav-collapsed') === '1'; } catch { return false; }
   });
   const [diagOpen, setDiagOpen] = useState(false);
+  const [patchOpen, setPatchOpen] = useState(false);
+  // Interface settings popover (gear in the topbar) — holds the rich/lightweight
+  // UI switch; closes on any click outside it.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+  const richNetworkUI = useSettingsStore((s) => s.richNetworkUI);
+  const setRichNetworkUI = useSettingsStore((s) => s.setRichNetworkUI);
   const [now, setNow] = useState(() => new Date());
   const location = useLocation();
   const activeModule = MODULES.find(m => location.pathname.startsWith(m.path))?.id || 'network';
 
   const { nodes, fetchTopology } = useGhostStore();
-  const { vitals, fetchHermesStatus } = useSystemStore();
+  const { vitals, fetchMcStatus } = useSystemStore();
   const { summary, fetchTasks } = useTaskStore();
 
   // Keep the shell (topbar, roster, status) live on every route.
   useEffect(() => {
     const poll = () => {
-      void fetchHermesStatus();
+      void fetchMcStatus();
       void fetchTopology();
       void fetchTasks();
     };
     poll();
     const id = setInterval(poll, 7000);
     return () => clearInterval(id);
-  }, [fetchHermesStatus, fetchTopology, fetchTasks]);
+  }, [fetchMcStatus, fetchTopology, fetchTasks]);
 
   // Tick the ZULU clock once a second so it stays live between the 7s data polls.
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!settingsRef.current?.contains(e.target as Node)) setSettingsOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [settingsOpen]);
 
   const { error: ghostError } = useGhostStore();
   const { error: taskError } = useTaskStore();
@@ -122,7 +140,7 @@ export default function Layout() {
           </div>
           <div className="flex flex-col">
             <div className="text-[11px] font-black tracking-[0.18em] text-white leading-tight">MISSION CTL</div>
-            <div className="text-[10px] font-mono text-[#545454] tracking-[0.3em]">GHOST-LEGION</div>
+            <div className="text-[10px] font-mono text-[#545454] tracking-[0.3em]">CLAUDE-FLEET</div>
           </div>
           <button onClick={() => setMobileOpen(false)} className="lg:hidden ml-auto text-[#545454] hover:text-white text-xs">✕</button>
           <button onClick={() => setCollapsed(true)} title="Collapse navigation" className="hidden lg:block ml-auto text-[#545454] hover:text-white text-sm leading-none">‹</button>
@@ -152,7 +170,7 @@ export default function Layout() {
 
         {/* Legion roster strip */}
         <div className="border-t border-white/10 p-3 shrink-0">
-          <div className="font-mono text-[10px] tracking-[0.2em] uppercase font-bold text-[#545454] mb-2">LEGION STATUS</div>
+          <div className="font-mono text-[10px] tracking-[0.2em] uppercase font-bold text-[#545454] mb-2">FLEET STATUS</div>
           <div className="grid grid-cols-5 gap-1 mb-2">
             {agents.slice(0, 25).map(a => {
               const squadColor = a.squad ? {
@@ -180,9 +198,9 @@ export default function Layout() {
         </div>
 
         <div className="border-t border-white/10 px-3 py-2 shrink-0 text-[10px] font-mono text-[#363636] leading-relaxed">
-          hermes bridge<br/>
-          {vitals.hermesVersion}<br/>
-          <span className={vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}>● BRIDGE :8767</span>
+          claude bridge<br/>
+          {vitals.mcVersion}<br/>
+          <span className={vitals.mcOnline ? 'text-emerald-400' : 'text-red-400'}>● BRIDGE :8767</span>
           {(systemError || ghostError || taskError) && (
             <div className="mt-1 text-red-400 truncate">
               {systemError && `⚠ ${systemError}`}
@@ -204,25 +222,78 @@ export default function Layout() {
           <button onClick={() => setMobileOpen(true)} className="lg:hidden text-[#b8b8b8] hover:text-white mr-2">☰</button>
           <button onClick={() => setCollapsed((c) => !c)} title={collapsed ? 'Show navigation' : 'Hide navigation'} className="hidden lg:inline-flex items-center text-[#b8b8b8] hover:text-white mr-1">☰</button>
           <div className="flex items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full ${vitals.hermesOnline ? 'bg-emerald-400' : 'bg-red-400'}`} style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
-            <span className="text-[#b8b8b8] tracking-[0.2em]">HERMES {vitals.hermesOnline ? 'ONLINE' : 'OFFLINE'}</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${vitals.mcOnline ? 'bg-emerald-400' : 'bg-red-400'}`} style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
+            <span className="text-[#b8b8b8] tracking-[0.2em]">CLAUDE {vitals.mcOnline ? 'ONLINE' : 'OFFLINE'}</span>
           </div>
           <div className="h-4 w-px bg-white/10 hidden sm:block" />
           <div className="hidden sm:flex items-center gap-4 text-[#545454]">
             <span>RUNNERS <span className="text-white tabular-nums">{runnersOnline}/{runnersTotal}</span></span>
             <span>FIXERS <span className="text-emerald-400 tabular-nums">{fixersOnline}/{fixersTotal}</span></span>
-            <span>QUEUE <span className="text-white tabular-nums">{summary?.pending ?? 0}</span></span>
+            <span>QUEUE <span className="text-white tabular-nums">{summary ? summary.pending + summary.ready : 0}</span></span>
             <span>LAT <span className="text-emerald-400 tabular-nums">{vitals.connectionLatencyMs}ms</span></span>
             <span>TASKS <span style={{ color: accent }}>{summary?.total ?? 0}</span></span>
           </div>
           <div className="ml-auto flex items-center gap-3">
             <NotifyCenter accent={accent} />
+            <div className="relative" ref={settingsRef}>
+              <button
+                onClick={() => setSettingsOpen((o) => !o)}
+                title="Interface settings — rich vs lightweight UI"
+                className={`flex items-center gap-1.5 border rounded-sm px-1.5 py-0.5 transition-colors ${settingsOpen ? 'text-white border-white/30' : 'text-[#545454] hover:text-white border-white/10 hover:border-white/30'}`}
+              >
+                <span className="text-[10px]">⚙ UI</span>
+              </button>
+              {settingsOpen && (
+                <div
+                  className="absolute right-0 top-[28px] w-[272px] border border-white/15 p-3"
+                  style={{ background: 'linear-gradient(180deg, #0d0d10, #070709)', boxShadow: '0 16px 40px -12px rgba(0,0,0,0.9)' }}
+                >
+                  <div className="text-[10px] tracking-[0.2em] font-bold text-[#545454] mb-3">INTERFACE SETTINGS</div>
+                  <div className="flex items-start gap-2.5">
+                    <button
+                      role="switch"
+                      aria-checked={richNetworkUI}
+                      aria-label="Rich network UI"
+                      onClick={() => setRichNetworkUI(!richNetworkUI)}
+                      className="relative w-8 h-[16px] shrink-0 border transition-colors mt-[1px]"
+                      style={{
+                        borderColor: richNetworkUI ? accent : 'rgba(255,255,255,0.2)',
+                        background: richNetworkUI ? `${accent}33` : 'transparent',
+                      }}
+                    >
+                      <span
+                        className="absolute top-[2px] w-[10px] h-[10px] transition-all"
+                        style={{ left: richNetworkUI ? 18 : 2, background: richNetworkUI ? accent : '#545454' }}
+                      />
+                    </button>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-bold tracking-[0.15em] text-white">RICH NETWORK UI</div>
+                      <div className="text-[10px] text-[#737373] leading-relaxed mt-1">
+                        16-bit office scene on the NETWORK deck. Heavier on CPU/GPU — leave off for the lightweight mesh.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-white/10">
+                    <button
+                      onClick={() => { setPatchOpen(true); setSettingsOpen(false); }}
+                      className="w-full flex items-center justify-between text-[10px] tracking-[0.15em] font-bold text-[#b8b8b8] hover:text-white border border-white/10 hover:border-white/30 px-2 py-1.5 transition-colors"
+                    >
+                      <span>⊞ PATCH NOTES</span>
+                      <span className="text-[#545454]">›</span>
+                    </button>
+                    <div className="text-[10px] text-[#737373] leading-relaxed mt-1.5">
+                      What the autonomous bug-hunt routine has fixed, newest first.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
             <button
               onClick={() => setDiagOpen(true)}
               title="Bridge diagnostics — endpoint health & latency"
               className="flex items-center gap-1.5 text-[#545454] hover:text-white border border-white/10 hover:border-white/30 rounded-sm px-1.5 py-0.5 transition-colors"
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${vitals.hermesOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${vitals.mcOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
               <span className="text-[10px] hidden sm:inline">DIAG</span>
             </button>
             <button
@@ -268,11 +339,14 @@ export default function Layout() {
       {/* Global ⌘K / Ctrl+K command palette — available on every route. */}
       <CommandPalette />
 
-      {/* Global ⌘F / Ctrl+F task search — deep filter across the Hermes queue. */}
+      {/* Global ⌘F / Ctrl+F task search — deep filter across the Mc queue. */}
       <TaskSearch />
 
       {/* Bridge health diagnostics — opened from the topbar DIAG button. */}
       {diagOpen && <BridgeDiagnostics onClose={() => setDiagOpen(false)} />}
+
+      {/* Patch notes — changelog of the bug-hunt routine, opened from ⚙ UI settings. */}
+      {patchOpen && <PatchNotes onClose={() => setPatchOpen(false)} />}
 
       {/* Agent drill-down slide-over — opened by clicking any agent in a roster. */}
       <AgentDrillDown />

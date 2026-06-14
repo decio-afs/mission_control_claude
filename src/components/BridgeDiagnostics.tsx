@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useHealthStore } from '../stores/useHealthStore';
-import { getHermesGateway, gatewayAction, errMessage } from '../lib/api';
+import { getMcGateway, gatewayAction, getMcPatches, applyMcPatches, errMessage, type McPatchReport } from '../lib/api';
 import { Label, Pill } from './cyberpunk/ui';
 
 // Exposed by electron/preload.cjs in the desktop build; absent in a browser tab.
@@ -83,7 +83,7 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
     if (startingRef.current || !canSpawn) return;
     startingRef.current = true;
     setStarting(true);
-    setStartMsg('spawning hermes-bridge.py…');
+    setStartMsg('spawning mc-bridge.py…');
     try {
       const r = await spawnBridge();
       setStartMsg(r.already ? 'bridge already running — re-probing' : r.ok ? 'bridge is up — re-probing' : 'bridge failed to come up — check the app logs');
@@ -109,7 +109,7 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
   }, [bridgeDown, canSpawn]);
 
   // ── Messaging gateway (Telegram bots + the embedded kanban dispatcher) ──
-  // The gateway is a separate Hermes service; if it dies, messaging AND agent
+  // The gateway is a separate Mc service; if it dies, messaging AND agent
   // task dispatch silently stop. Check it whenever the panel has a live bridge,
   // and auto-start it once per session if it's down.
   // up = api port answering (authoritative); booting = process exists or a
@@ -121,7 +121,7 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
 
   const checkGateway = useCallback(async (): Promise<'up' | 'booting' | 'down' | null> => {
     try {
-      const g = await getHermesGateway();
+      const g = await getMcGateway();
       const up = g.service.api_listening === true;
       const booting = !up && g.service.running;
       setGw({ up, booting, pids: g.service.pids });
@@ -184,6 +184,40 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
     })();
   }, [probing, lastRun, okCount, checkGateway, handleStartGateway, watchUntilSettled]);
 
+  // ── Mc local patches — the quota-burn fixes are local edits inside the
+  // mc-agent checkout; `mc update` (git pull) can drop them. The
+  // bridge wraps scripts/mc_patches.py to detect and re-apply.
+  const [patches, setPatches] = useState<McPatchReport | null | 'unknown'>('unknown');
+  const [patchBusy, setPatchBusy] = useState(false);
+  const [patchMsg, setPatchMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (probing || lastRun === null || okCount === 0) return;
+    getMcPatches().then(setPatches).catch(() => setPatches(null));
+  }, [probing, lastRun, okCount]);
+
+  const handleApplyPatches = async () => {
+    if (patchBusy) return;
+    setPatchBusy(true);
+    setPatchMsg('re-applying patches to the mc-agent checkout…');
+    try {
+      const r = await applyMcPatches();
+      setPatches(r);
+      if (r.conflicts > 0) {
+        setPatchMsg(`${r.changed ?? 0} re-applied, ${r.conflicts} conflict(s) — upstream changed; re-port by hand (see memory notes)`);
+      } else if (r.gateway_restart_suggested) {
+        setPatchMsg('patches re-applied ✓ — restarting gateway so it loads the patched modules…');
+        await handleStartGateway();
+      } else {
+        setPatchMsg('all patches already in place — nothing to do');
+      }
+    } catch (e) {
+      setPatchMsg(`apply failed: ${errMessage(e)}`);
+    } finally {
+      setPatchBusy(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[5000] flex items-start justify-center bg-black/70 backdrop-blur-sm pt-[8vh] px-4" onClick={onClose}>
       <div
@@ -230,7 +264,7 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
 
           {meta && (
             <div className="text-[10px] font-mono text-[#545454] flex flex-wrap gap-x-4 gap-y-1">
-              <span>hermes: <span className="text-[#b8b8b8]">{meta.cli_version}</span></span>
+              <span>mc: <span className="text-[#b8b8b8]">{meta.cli_version}</span></span>
               <span>cli probe: <span className="text-[#b8b8b8]">{meta.cli_probe_ms}ms</span></span>
               <span>python: <span className="text-[#b8b8b8]">{meta.python_version}</span></span>
               <span>server: <span className="text-[#b8b8b8]">{meta.server_time}</span></span>
@@ -241,7 +275,7 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
             <div className="text-[10px] font-mono border border-amber-400/30 bg-amber-400/5 px-2 py-1.5 text-amber-400">
               ⚠ BRIDGE OFFLINE — no endpoint answered.
               {canSpawn
-                ? ' Use ▶ START BRIDGE above — hermes-bridge.py relaunches automatically.'
+                ? ' Use ▶ START BRIDGE above — mc-bridge.py relaunches automatically.'
                 : ' Start it from a terminal: npm run bridge — then RE-RUN.'}
             </div>
           )}
@@ -280,6 +314,56 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
           {gwMsg && (
             <div className="text-[10px] font-mono text-sky-400 border border-sky-400/30 bg-sky-400/5 px-2 py-1.5">
               ▸ {gwMsg}
+            </div>
+          )}
+
+          {/* Mc local patches — quota-burn fixes inside the mc-agent
+              checkout. `mc update` can drop them; RE-APPLY restores them. */}
+          <div className="border border-white/[0.08] bg-[#080808]">
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <Label className="text-[#545454] shrink-0">LOCAL PATCHES</Label>
+                {patches === 'unknown' && <span className="text-[10px] font-mono text-[#707070]">checking…</span>}
+                {patches === null && <Pill tone="warn">STATUS UNAVAILABLE</Pill>}
+                {patches !== null && patches !== 'unknown' && (
+                  <Pill tone={patches.all_applied ? 'good' : patches.conflicts > 0 ? 'bad' : 'warn'}>
+                    {patches.all_applied
+                      ? 'ALL APPLIED'
+                      : patches.conflicts > 0
+                        ? `${patches.conflicts} CONFLICT`
+                        : `${patches.applicable} TO RE-APPLY`}
+                  </Pill>
+                )}
+                <span className="text-[10px] font-mono text-[#707070] truncate hidden sm:inline">kimi quota-burn fixes · survive mc update</span>
+              </div>
+              {patches !== null && patches !== 'unknown' && !patches.all_applied && patches.applicable > 0 && (
+                <button
+                  onClick={() => void handleApplyPatches()}
+                  disabled={patchBusy}
+                  className="text-[10px] font-mono border border-emerald-400/40 bg-emerald-400/10 text-emerald-400 px-2 py-0.5 hover:bg-emerald-400/20 disabled:opacity-50 shrink-0"
+                >
+                  {patchBusy ? 'APPLYING…' : '⟲ RE-APPLY'}
+                </button>
+              )}
+            </div>
+            {/* Per-patch detail only when something needs attention. */}
+            {patches !== null && patches !== 'unknown' && !patches.all_applied && (
+              <div className="border-t border-white/[0.06] px-2 py-1.5 flex flex-col gap-1">
+                {patches.patches.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2 text-[10px] font-mono min-w-0">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.status === 'applied' ? 'bg-emerald-400' : p.status === 'applicable' ? 'bg-amber-400' : 'bg-red-400'}`} />
+                    <span className="text-[#d8d8d8] shrink-0">{p.id}</span>
+                    <span className="text-[#545454] truncate">{p.description}</span>
+                    <span className={`ml-auto shrink-0 ${p.status === 'applied' ? 'text-emerald-400' : p.status === 'applicable' ? 'text-amber-400' : 'text-red-400'}`}>{p.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {patchMsg && (
+            <div className="text-[10px] font-mono text-sky-400 border border-sky-400/30 bg-sky-400/5 px-2 py-1.5">
+              ▸ {patchMsg}
             </div>
           )}
 

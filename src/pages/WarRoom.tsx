@@ -3,7 +3,7 @@ import { useSystemStore } from '../stores/useSystemStore';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskStore } from '../stores/useTaskStore';
 import { useActivityStore } from '../stores/useActivityStore';
-import { getHermesCron, type HermesCronJob } from '../lib/api';
+import { getMcCron, type McCronJob } from '../lib/api';
 import { Panel, Sparkline, Ring, LogTail } from '../components/cyberpunk/ui';
 import AgentPerformance from '../components/AgentPerformance';
 import TaskThroughput from '../components/TaskThroughput';
@@ -24,9 +24,9 @@ const STATUS_COLORS: Record<string, string> = {
 export default function WarRoom() {
   const { vitals, latencyHistory, error: systemError } = useSystemStore();
   const { nodes, error: ghostError } = useGhostStore();
-  const { tasks, summary, hermesTasks, error: taskError } = useTaskStore();
+  const { tasks, summary, mcTasks, error: taskError } = useTaskStore();
   const { activities, startPolling, stopPolling } = useActivityStore();
-  const [cron, setCron] = useState<HermesCronJob[]>([]);
+  const [cron, setCron] = useState<McCronJob[]>([]);
   // Bottom feed toggles between the kanban task log and the live agent signal
   // feed (formerly the standalone Signal Intelligence tab, now consolidated here).
   const [feed, setFeed] = useState<'tasks' | 'signal'>('tasks');
@@ -51,13 +51,13 @@ export default function WarRoom() {
 
   // Status/topology/tasks are polled globally by Layout; here we only poll cron.
   useEffect(() => {
-    const loadCron = () => getHermesCron().then((d) => setCron(d.jobs || [])).catch(() => {});
+    const loadCron = () => getMcCron().then((d) => setCron(d.jobs || [])).catch(() => {});
     loadCron();
     const id = setInterval(loadCron, 8000);
     return () => clearInterval(id);
   }, []);
 
-  // Poll the Hermes agent-activity feed while War Room is mounted.
+  // Poll the Mc agent-activity feed while War Room is mounted.
   useEffect(() => {
     startPolling();
     return () => stopPolling();
@@ -92,10 +92,10 @@ export default function WarRoom() {
   );
 
   // Per-agent performance leaderboard — pure aggregation of the live task queue.
-  const agentMetrics = useMemo(() => computeAgentMetrics(hermesTasks, nowMs), [hermesTasks, nowMs]);
+  const agentMetrics = useMemo(() => computeAgentMetrics(mcTasks, nowMs), [mcTasks, nowMs]);
 
   const log = useMemo(
-    () => [...hermesTasks]
+    () => [...mcTasks]
       .sort((a, b) => (b.started_at ?? b.created_at) - (a.started_at ?? a.created_at))
       .slice(0, 14)
       .map((t) => ({
@@ -104,7 +104,7 @@ export default function WarRoom() {
         color: STATUS_COLORS[t.status] || '#b8b8b8',
         msg: `[${t.status}] ${t.title}`,
       })),
-    [hermesTasks],
+    [mcTasks],
   );
 
   // Live agent-activity feed (consolidated from the old Signal Intelligence tab).
@@ -147,14 +147,14 @@ export default function WarRoom() {
             <div className="text-[10px] font-mono text-[#545454]">{summary?.completed ?? 0} done<br/>{total} total</div>
           </div>
         </Panel>
-        <Panel label="HERMES BRIDGE" className="min-h-[118px]">
+        <Panel label="CLAUDE BRIDGE" className="min-h-[118px]">
           <div className="flex flex-col justify-between h-full">
             <div className="flex items-baseline gap-1">
-              <span className={`text-2xl font-mono font-bold tabular-nums ${vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}`}>{vitals.connectionLatencyMs}</span>
+              <span className={`text-2xl font-mono font-bold tabular-nums ${vitals.mcOnline ? 'text-emerald-400' : 'text-red-400'}`}>{vitals.connectionLatencyMs}</span>
               <span className="text-[10px] text-[#545454]">ms</span>
             </div>
             <Sparkline data={latencyHistory.length > 1 ? latencyHistory : [0, 0]} color="#10b981" height={36} />
-            <div className="text-[10px] font-mono text-[#545454] truncate">{vitals.hermesVersion}</div>
+            <div className="text-[10px] font-mono text-[#545454] truncate">{vitals.mcVersion}</div>
           </div>
         </Panel>
         <Panel label="QUEUE DEPTH" className="min-h-[118px]">
@@ -211,7 +211,7 @@ export default function WarRoom() {
                 onClick={() => setTaskView('aging')}
                 className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${taskView === 'aging' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
               >AGE</button>
-              <span className={`hidden xl:inline ${vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}`}>● {vitals.hermesOnline ? 'LIVE' : 'OFFLINE'}</span>
+              <span className={`hidden xl:inline ${vitals.mcOnline ? 'text-emerald-400' : 'text-red-400'}`}>● {vitals.mcOnline ? 'LIVE' : 'OFFLINE'}</span>
             </span>
           )}
         >
@@ -226,16 +226,16 @@ export default function WarRoom() {
                   <span className="w-10 text-right text-[10px] font-mono tabular-nums text-white">{b.v}</span>
                 </div>
               ))}
-              {statusBars.length === 0 && <div className="text-[10px] font-mono text-[#545454]">No task data from Hermes.</div>}
+              {statusBars.length === 0 && <div className="text-[10px] font-mono text-[#545454]">No task data from Mc.</div>}
             </div>
           ) : taskView === 'flow' ? (
-            <TaskThroughput tasks={hermesTasks} nowMs={nowMs} />
+            <TaskThroughput tasks={mcTasks} nowMs={nowMs} />
           ) : taskView === 'burn' ? (
-            <BacklogBurndown tasks={hermesTasks} nowMs={nowMs} />
+            <BacklogBurndown tasks={mcTasks} nowMs={nowMs} />
           ) : taskView === 'sla' ? (
-            <CycleTimeSLA tasks={hermesTasks} nowMs={nowMs} />
+            <CycleTimeSLA tasks={mcTasks} nowMs={nowMs} />
           ) : (
-            <AgingWip tasks={hermesTasks} nowMs={nowMs} />
+            <AgingWip tasks={mcTasks} nowMs={nowMs} />
           )}
         </Panel>
 
@@ -279,7 +279,7 @@ export default function WarRoom() {
 
       {/* Bottom: activity log — toggles between kanban task log and live agent signal */}
       <Panel
-        label={feed === 'tasks' ? 'TASK ACTIVITY · hermes kanban' : 'AGENT SIGNAL · hermes activity'}
+        label={feed === 'tasks' ? 'TASK ACTIVITY · mc kanban' : 'AGENT SIGNAL · mc activity'}
         className="h-[160px] shrink-0"
         right={(
           <span className="flex items-center gap-2">
@@ -291,14 +291,14 @@ export default function WarRoom() {
               onClick={() => setFeed('signal')}
               className={`px-1.5 py-0.5 border text-[10px] tracking-[0.15em] ${feed === 'signal' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
             >SIGNAL</button>
-            <span>{feed === 'tasks' ? `${hermesTasks.length} tasks` : `${activities.length} signals`}</span>
+            <span>{feed === 'tasks' ? `${mcTasks.length} tasks` : `${activities.length} signals`}</span>
           </span>
         )}
       >
         {feed === 'tasks'
           ? (log.length > 0
               ? <LogTail height={130} lines={log} />
-              : <div className="text-[10px] font-mono text-[#545454] p-2">No task activity. Create one in Operations or via `hermes kanban create`.</div>)
+              : <div className="text-[10px] font-mono text-[#545454] p-2">No task activity. Create one in Operations or via `mc kanban create`.</div>)
           : (signalLog.length > 0
               ? <LogTail height={130} lines={signalLog} />
               : <div className="text-[10px] font-mono text-[#545454] p-2">No agent activity on the wire.</div>)}

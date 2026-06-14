@@ -1,25 +1,25 @@
 import { create } from 'zustand';
 import {
-  getHermesSessions,
-  getHermesSession,
-  renameHermesSession,
-  deleteHermesSession,
-  sendHermesChat,
-  errMessage,
-  type HermesSession,
+  getMcSessions,
+  getMcSession,
+  renameMcSession,
+  deleteMcSession,
+  sendMcChat,
+  bridgeDetail,
+  type McSession,
   type ChatAttachmentUpload,
 } from '../lib/api';
 
 // ─────────────────────────────────────────────────────────────────────────
-// Shared chat/session store — backed by Hermes' real session store.
+// Shared chat/session store — backed by Mc' real session store.
 //
-// The session LIST and conversation TRANSCRIPTS come from the bridge (Hermes
+// The session LIST and conversation TRANSCRIPTS come from the bridge (Mc
 // `sessions list` / `export`), so they're persistent and shared with cron,
 // telegram, the CLI, etc. Sending a message resumes the active session via
 // `--resume`, giving real conversational memory. Projects are an app-side
-// grouping (folders you create) persisted in localStorage — Hermes has no
-// native project concept. This single store powers both Ghost Comms (the full
-// workspace) and Ghost Network's command bar, so the active conversation
+// grouping (folders you create) persisted in localStorage — Mc has no
+// native project concept. This single store powers both Claude Chat (the full
+// workspace) and Agent Network's command bar, so the active conversation
 // survives tab switches.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ export interface Project {
   name: string;
 }
 
-/** Transcript key for a brand-new session whose Hermes id doesn't exist yet. */
+/** Transcript key for a brand-new session whose Mc id doesn't exist yet. */
 const DRAFT_KEY = '__draft__';
 const META_KEY = 'mc-chat-meta';
 
@@ -56,7 +56,7 @@ interface PersistedMeta {
 }
 
 interface ChatState {
-  sessions: HermesSession[];
+  sessions: McSession[];
   activeId: string | null;
   isDraft: boolean;
   transcripts: Record<string, ChatMessage[]>;
@@ -113,7 +113,7 @@ function loadMeta(): PersistedMeta {
 }
 
 export const useChatStore = create<ChatState>((set, get) => {
-  // Both Ghost Comms and Ghost Network mount this; only hydrate once.
+  // Both Claude Chat and Agent Network mount this; only hydrate once.
   let didInit = false;
 
   function persist() {
@@ -150,7 +150,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         isDraft: meta.isDraft,
       });
       void get().fetchSessions();
-      // Re-hydrate the previously active conversation from Hermes.
+      // Re-hydrate the previously active conversation from Mc.
       if (meta.activeId && !meta.isDraft) void get().selectSession(meta.activeId);
       else if (!meta.activeId) get().newSession();
     },
@@ -158,10 +158,10 @@ export const useChatStore = create<ChatState>((set, get) => {
     fetchSessions: async () => {
       set({ loadingList: true });
       try {
-        const { sessions } = await getHermesSessions(100);
+        const { sessions } = await getMcSessions(100);
         set({ sessions, loadingList: false, error: null });
       } catch (e) {
-        set({ loadingList: false, error: errMessage(e) });
+        set({ loadingList: false, error: bridgeDetail(e) });
       }
     },
 
@@ -171,7 +171,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       if (get().transcripts[id]) return; // cached
       set({ loadingTranscript: true });
       try {
-        const detail = await getHermesSession(id);
+        const detail = await getMcSession(id);
         const msgs: ChatMessage[] = (detail.messages || [])
           .filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content || '').trim())
           .map((m) =>
@@ -181,7 +181,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           );
         set((s) => ({ transcripts: { ...s.transcripts, [id]: msgs }, loadingTranscript: false }));
       } catch (e) {
-        set({ loadingTranscript: false, error: errMessage(e) });
+        set({ loadingTranscript: false, error: bridgeDetail(e) });
       }
     },
 
@@ -207,7 +207,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         const uploads: ChatAttachmentUpload[] = attachments
           .filter((a) => a.dataUrl)
           .map((a) => ({ name: a.name, mime: a.mime, data: a.dataUrl as string }));
-        const resp = await sendHermesChat({
+        const resp = await sendMcChat({
           message: trimmed || 'See attached file(s).',
           session_id: isDraft || !activeId ? undefined : activeId,
           attachments: uploads.length ? uploads : undefined,
@@ -232,7 +232,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         persist();
         void get().fetchSessions();
       } catch (e) {
-        appendMessage(get().activeId || DRAFT_KEY, toMessage('system', `COMMS FAILURE: ${errMessage(e)}`, { error: true }));
+        appendMessage(get().activeId || DRAFT_KEY, toMessage('system', `COMMS FAILURE: ${bridgeDetail(e)}`, { error: true }));
       } finally {
         set({ sending: false });
       }
@@ -242,18 +242,18 @@ export const useChatStore = create<ChatState>((set, get) => {
       const clean = title.trim();
       if (!clean) return;
       try {
-        await renameHermesSession(id, clean);
+        await renameMcSession(id, clean);
         set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, title: clean } : x)) }));
       } catch (e) {
-        set({ error: errMessage(e) });
+        set({ error: bridgeDetail(e) });
       }
     },
 
     remove: async (id) => {
       try {
-        await deleteHermesSession(id);
+        await deleteMcSession(id);
       } catch (e) {
-        set({ error: errMessage(e) });
+        set({ error: bridgeDetail(e) });
         return;
       }
       set((s) => {

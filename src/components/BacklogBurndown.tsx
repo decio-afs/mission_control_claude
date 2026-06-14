@@ -7,7 +7,7 @@
 // this hour". Headline stats: live open WIP, net Δ, and the trend direction.
 // No bridge endpoint of its own — it consumes the already-polled task store.
 import { useMemo, useState } from 'react';
-import type { HermesTask } from '../lib/api';
+import type { McTask } from '../lib/api';
 import { computeBacklogTrend } from '../lib/backlogTrend';
 
 const WINDOWS = [12, 24, 48] as const;
@@ -15,7 +15,7 @@ const W = 300; // SVG user-space width (stretched to 100% via preserveAspectRati
 const H = 100; // SVG user-space height
 const PAD_TOP = 4;
 
-export default function BacklogBurndown({ tasks, nowMs }: { tasks: HermesTask[]; nowMs: number }) {
+export default function BacklogBurndown({ tasks, nowMs }: { tasks: McTask[]; nowMs: number }) {
   const [hours, setHours] = useState<(typeof WINDOWS)[number]>(24);
   const bt = useMemo(() => computeBacklogTrend(tasks, nowMs, hours), [tasks, nowMs, hours]);
 

@@ -1,30 +1,31 @@
 import { create } from 'zustand';
 import {
-  getHermesTasks,
-  createHermesTask,
-  claimHermesTask,
-  completeHermesTask,
-  blockHermesTask,
-  unblockHermesTask,
-  promoteHermesTask,
-  scheduleHermesTask,
-  archiveHermesTask,
-  assignHermesTask,
-  reassignHermesTask,
-  reclaimHermesTask,
-  commentHermesTask,
-  editHermesTask,
-  linkHermesTasks,
-  unlinkHermesTasks,
-  specifyHermesTask,
-  getHermesTaskDetail,
+  getMcTasks,
+  createMcTask,
+  claimMcTask,
+  completeMcTask,
+  blockMcTask,
+  unblockMcTask,
+  promoteMcTask,
+  scheduleMcTask,
+  archiveMcTask,
+  assignMcTask,
+  reassignMcTask,
+  reclaimMcTask,
+  commentMcTask,
+  editMcTask,
+  linkMcTasks,
+  unlinkMcTasks,
+  specifyMcTask,
+  getMcTaskDetail,
   getKanbanStats,
   getKanbanDiagnostics,
-  getHermesBoards,
-  createHermesBoard,
-  switchHermesBoard,
+  getMcBoards,
+  createMcBoard,
+  switchMcBoard,
   errMessage,
-  type HermesTask,
+  bridgeDetail,
+  type McTask,
   type TaskDetail,
   type KanbanStats,
   type KanbanBoard,
@@ -64,7 +65,7 @@ export interface CreateTaskInput {
 
 interface TaskStore {
   tasks: OpTask[];
-  hermesTasks: HermesTask[];
+  mcTasks: McTask[];
   summary: TaskSummary | null;
   stats: KanbanStats | null;
   boards: KanbanBoard[];
@@ -81,11 +82,11 @@ interface TaskStore {
   fetchDiagnostics: () => Promise<void>;
   specifyTask: (taskId: string) => Promise<boolean>;
   fetchTaskDetail: (taskId: string) => Promise<TaskDetail | null>;
-  addHermesTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<HermesTask | null>;
-  createTask: (input: CreateTaskInput) => Promise<HermesTask | null>;
-  claimHermesTaskById: (taskId: string) => Promise<boolean>;
-  completeHermesTaskById: (taskId: string) => Promise<boolean>;
-  blockHermesTaskById: (taskId: string, reason: string) => Promise<boolean>;
+  addMcTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<McTask | null>;
+  createTask: (input: CreateTaskInput) => Promise<McTask | null>;
+  claimMcTaskById: (taskId: string) => Promise<boolean>;
+  completeMcTaskById: (taskId: string) => Promise<boolean>;
+  blockMcTaskById: (taskId: string, reason: string) => Promise<boolean>;
   unblockTask: (taskId: string, reason?: string) => Promise<boolean>;
   promoteTask: (taskId: string, reason?: string, force?: boolean) => Promise<boolean>;
   scheduleTask: (taskId: string, reason?: string) => Promise<boolean>;
@@ -99,9 +100,9 @@ interface TaskStore {
   unlinkTasks: (parentId: string, childId: string) => Promise<boolean>;
 }
 
-const mapHermesToOp = (t: HermesTask): OpTask => ({
+const mapMcToOp = (t: McTask): OpTask => ({
   id: t.id,
-  projectId: t.tenant || 'hermes',
+  projectId: t.tenant || 'mc',
   name: t.title,
   agentId: t.assignee || 'unassigned',
   agentName: t.assignee || 'Unassigned',
@@ -116,13 +117,16 @@ const mapHermesToOp = (t: HermesTask): OpTask => ({
   createdAt: new Date(t.created_at * 1000),
 });
 
-function summarize(ht: HermesTask[]): TaskSummary {
-  const is = (s: string) => (t: HermesTask) => t.status === s;
+function summarize(ht: McTask[]): TaskSummary {
+  const is = (s: string) => (t: McTask) => t.status === s;
   return {
     total: ht.length,
     completed: ht.filter((t) => t.status === 'done' || t.status === 'completed').length,
     running: ht.filter(is('running')).length,
-    pending: ht.filter((t) => t.status === 'pending' || t.status === 'ready').length,
+    // Disjoint from `ready` — counting both states here double-counted every ready
+    // task (it's also tallied in `ready` below). Consumers that want total queued
+    // work add `pending + ready` themselves (see the topbar QUEUE in Layout.tsx).
+    pending: ht.filter(is('pending')).length,
     failed: ht.filter(is('failed')).length,
     ready: ht.filter(is('ready')).length,
     blocked: ht.filter(is('blocked')).length,
@@ -138,7 +142,10 @@ export const useTaskStore = create<TaskStore>((set, get) => {
       void get().fetchStats();
       return true;
     } catch (err) {
-      const msg = errMessage(err);
+      // Surface the bridge's real reason (FastAPI `detail` / CLI stderr), not
+      // axios's generic "Request failed with status code N" — TaskDetailDrawer
+      // and WorkflowBuilder render this `error` to the operator (LIFE-1).
+      const msg = bridgeDetail(err);
       console.error(`[TaskStore] ${label} failed:`, msg);
       set({ error: msg });
       return false;
@@ -147,7 +154,7 @@ export const useTaskStore = create<TaskStore>((set, get) => {
 
   return {
     tasks: [],
-    hermesTasks: [],
+    mcTasks: [],
     summary: null,
     stats: null,
     boards: [],
@@ -159,11 +166,11 @@ export const useTaskStore = create<TaskStore>((set, get) => {
     fetchTasks: async () => {
       set({ isLoading: true });
       try {
-        const { tasks } = await getHermesTasks();
+        const { tasks } = await getMcTasks();
         const ht = tasks || [];
         set({
-          hermesTasks: ht,
-          tasks: ht.map(mapHermesToOp),
+          mcTasks: ht,
+          tasks: ht.map(mapMcToOp),
           summary: summarize(ht),
           error: null,
           isLoading: false,
@@ -176,7 +183,7 @@ export const useTaskStore = create<TaskStore>((set, get) => {
       }
     },
 
-    fetchSummary: () => set({ summary: summarize(get().hermesTasks) }),
+    fetchSummary: () => set({ summary: summarize(get().mcTasks) }),
 
     fetchStats: async () => {
       try {
@@ -189,7 +196,7 @@ export const useTaskStore = create<TaskStore>((set, get) => {
 
     fetchBoards: async () => {
       try {
-        const { boards } = await getHermesBoards();
+        const { boards } = await getMcBoards();
         set({ boards: boards || [] });
       } catch (err) {
         console.error('[TaskStore] fetchBoards failed:', errMessage(err));
@@ -197,13 +204,13 @@ export const useTaskStore = create<TaskStore>((set, get) => {
     },
 
     switchBoard: async (slug) => {
-      const ok = await mutate('switchBoard', () => switchHermesBoard(slug));
+      const ok = await mutate('switchBoard', () => switchMcBoard(slug));
       if (ok) await get().fetchBoards();
       return ok;
     },
 
     createBoard: async (slug, name, description, switchTo) => {
-      const ok = await mutate('createBoard', () => createHermesBoard({ slug, name, description, switch: switchTo }));
+      const ok = await mutate('createBoard', () => createMcBoard({ slug, name, description, switch: switchTo }));
       if (ok) await get().fetchBoards();
       return ok;
     },
@@ -217,11 +224,11 @@ export const useTaskStore = create<TaskStore>((set, get) => {
       }
     },
 
-    specifyTask: (taskId) => mutate('specify', () => specifyHermesTask(taskId)),
+    specifyTask: (taskId) => mutate('specify', () => specifyMcTask(taskId)),
 
     fetchTaskDetail: async (taskId) => {
       try {
-        return await getHermesTaskDetail(taskId);
+        return await getMcTaskDetail(taskId);
       } catch (err) {
         console.error('[TaskStore] fetchTaskDetail failed:', errMessage(err));
         return null;
@@ -230,10 +237,10 @@ export const useTaskStore = create<TaskStore>((set, get) => {
 
     createTask: async (input) => {
       try {
-        const data = await createHermesTask(input);
+        const data = await createMcTask(input);
         await get().fetchTasks();
         void get().fetchStats();
-        return (data?.task as HermesTask) ?? null;
+        return (data?.task as McTask) ?? null;
       } catch (err) {
         const msg = errMessage(err);
         console.error('[TaskStore] createTask failed:', msg);
@@ -242,22 +249,22 @@ export const useTaskStore = create<TaskStore>((set, get) => {
       }
     },
 
-    addHermesTask: async (title, body, assignee, priority) =>
+    addMcTask: async (title, body, assignee, priority) =>
       get().createTask({ title, body, assignee, priority }),
 
-    claimHermesTaskById: (taskId) => mutate('claim', () => claimHermesTask(taskId)),
-    completeHermesTaskById: (taskId) => mutate('complete', () => completeHermesTask(taskId)),
-    blockHermesTaskById: (taskId, reason) => mutate('block', () => blockHermesTask(taskId, reason)),
-    unblockTask: (taskId, reason) => mutate('unblock', () => unblockHermesTask(taskId, reason)),
-    promoteTask: (taskId, reason, force) => mutate('promote', () => promoteHermesTask(taskId, reason, force)),
-    scheduleTask: (taskId, reason) => mutate('schedule', () => scheduleHermesTask(taskId, reason)),
-    archiveTask: (taskId) => mutate('archive', () => archiveHermesTask(taskId)),
-    assignTask: (taskId, profile) => mutate('assign', () => assignHermesTask(taskId, profile)),
-    reassignTask: (taskId, profile, reclaim, reason) => mutate('reassign', () => reassignHermesTask(taskId, profile, reclaim, reason)),
-    reclaimTask: (taskId) => mutate('reclaim', () => reclaimHermesTask(taskId)),
-    commentTask: (taskId, text, author) => mutate('comment', () => commentHermesTask(taskId, text, author)),
-    editTask: (taskId, result, summary, metadata) => mutate('edit', () => editHermesTask(taskId, result, summary, metadata)),
-    linkTasks: (parentId, childId) => mutate('link', () => linkHermesTasks(parentId, childId)),
-    unlinkTasks: (parentId, childId) => mutate('unlink', () => unlinkHermesTasks(parentId, childId)),
+    claimMcTaskById: (taskId) => mutate('claim', () => claimMcTask(taskId)),
+    completeMcTaskById: (taskId) => mutate('complete', () => completeMcTask(taskId)),
+    blockMcTaskById: (taskId, reason) => mutate('block', () => blockMcTask(taskId, reason)),
+    unblockTask: (taskId, reason) => mutate('unblock', () => unblockMcTask(taskId, reason)),
+    promoteTask: (taskId, reason, force) => mutate('promote', () => promoteMcTask(taskId, reason, force)),
+    scheduleTask: (taskId, reason) => mutate('schedule', () => scheduleMcTask(taskId, reason)),
+    archiveTask: (taskId) => mutate('archive', () => archiveMcTask(taskId)),
+    assignTask: (taskId, profile) => mutate('assign', () => assignMcTask(taskId, profile)),
+    reassignTask: (taskId, profile, reclaim, reason) => mutate('reassign', () => reassignMcTask(taskId, profile, reclaim, reason)),
+    reclaimTask: (taskId) => mutate('reclaim', () => reclaimMcTask(taskId)),
+    commentTask: (taskId, text, author) => mutate('comment', () => commentMcTask(taskId, text, author)),
+    editTask: (taskId, result, summary, metadata) => mutate('edit', () => editMcTask(taskId, result, summary, metadata)),
+    linkTasks: (parentId, childId) => mutate('link', () => linkMcTasks(parentId, childId)),
+    unlinkTasks: (parentId, childId) => mutate('unlink', () => unlinkMcTasks(parentId, childId)),
   };
 });

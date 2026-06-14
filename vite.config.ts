@@ -9,7 +9,7 @@ import path from 'node:path'
 const BRIDGE_PORT = process.env.BRIDGE_PORT || '8767'
 
 function probeBridge(timeoutMs = 1500): Promise<boolean> {
-  // /api/ping answers instantly (no CLI shell-out) — see hermes-bridge.py.
+  // /api/ping answers instantly (no CLI shell-out) — see mission-control-bridge.py.
   return new Promise((resolve) => {
     const req = http.get(
       { host: '127.0.0.1', port: BRIDGE_PORT, path: '/api/ping', timeout: timeoutMs },
@@ -22,7 +22,7 @@ function probeBridge(timeoutMs = 1500): Promise<boolean> {
 
 // Dev-server twin of the Electron `bridge:start` IPC: the browser build can't
 // spawn processes, so the Bridge Diagnostics panel POSTs here and the Vite dev
-// server launches hermes-bridge.py on its behalf. Production/Electron uses the
+// server launches mission-control-bridge.py on its behalf. Production/Electron uses the
 // preload IPC instead — this middleware only exists while `npm run dev` runs.
 function bridgeLauncher(): Plugin {
   return {
@@ -42,8 +42,8 @@ function bridgeLauncher(): Plugin {
           const logPath = path.join(server.config.root, '.hermes', 'bridge.log')
           let logFd: number | 'ignore' = 'ignore'
           try { logFd = fs.openSync(logPath, 'a') } catch { /* fall back to ignore */ }
-          server.config.logger.info(`[mc] starting Hermes bridge: ${py} hermes-bridge.py (port ${BRIDGE_PORT}) — logs → ${logPath}`)
-          const child = spawn(py, ['hermes-bridge.py'], {
+          server.config.logger.info(`[mc] starting Mission Control bridge: ${py} mission-control-bridge.py (port ${BRIDGE_PORT}) — logs → ${logPath}`)
+          const child = spawn(py, ['mission-control-bridge.py'], {
             cwd: server.config.root,
             env: { ...process.env, BRIDGE_PORT },
             detached: true,

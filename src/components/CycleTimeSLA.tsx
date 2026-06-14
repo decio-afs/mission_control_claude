@@ -1,20 +1,20 @@
 // CycleTimeSLA — a cycle-time / lead-time distribution view for the War Room.
 //
 // Renders the SLA shape produced by computeCycleStats() (pure fold of the live
-// Hermes task queue): a p50/p90/p95 readout plus a human-bucketed duration
+// Mc task queue): a p50/p90/p95 readout plus a human-bucketed duration
 // histogram, over a selectable trailing window (12/24/48h) and a LEAD ↔ CYCLE
 // metric toggle. Where FLOW (Run #11) counts completions and BURN (Run #15)
 // tracks net WIP, this answers "how long does work take?". No bridge endpoint of
 // its own — it consumes the already-polled task store.
 import { useMemo, useState } from 'react';
-import type { HermesTask } from '../lib/api';
+import type { McTask } from '../lib/api';
 import { computeCycleStats } from '../lib/cycleTime';
 import { fmtDuration } from '../lib/agentMetrics';
 
 const WINDOWS = [12, 24, 48] as const;
 type Metric = 'lead' | 'cycle';
 
-export default function CycleTimeSLA({ tasks, nowMs }: { tasks: HermesTask[]; nowMs: number }) {
+export default function CycleTimeSLA({ tasks, nowMs }: { tasks: McTask[]; nowMs: number }) {
   const [hours, setHours] = useState<(typeof WINDOWS)[number]>(24);
   // Lead time (created→done) is the customer-facing SLA; cycle time
   // (started→done) is the working-time SLA. Default to lead.

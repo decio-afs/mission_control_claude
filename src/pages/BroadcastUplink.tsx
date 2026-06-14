@@ -1,24 +1,24 @@
-// Broadcast Uplink — live channel matrix. Data from the Hermes overview
-// (/api/hermes/overview → configured platforms) and the gateway service
-// (/api/hermes/gateway → runtime status + registered gateways).
+// Broadcast Uplink — live channel matrix. Data from the Mc overview
+// (/api/mc/overview → configured platforms) and the gateway service
+// (/api/mc/gateway → runtime status + registered gateways).
 import { useEffect, useState } from 'react';
 import { Panel, Pill } from '../components/cyberpunk/ui';
 import {
-  getHermesOverview, getHermesGateway, errMessage,
-  type HermesOverview, type HermesGatewayInfo,
+  getMcOverview, getMcGateway, errMessage,
+  type McOverview, type McGatewayInfo,
 } from '../lib/api';
 
 const PALETTE = ['#f64e6e', '#38bdf8', '#ff795e', '#10b981', '#f59e0b', '#a78bfa'];
 
 export default function BroadcastUplink() {
-  const [overview, setOverview] = useState<HermesOverview | null>(null);
-  const [gateway, setGateway] = useState<HermesGatewayInfo | null>(null);
+  const [overview, setOverview] = useState<McOverview | null>(null);
+  const [gateway, setGateway] = useState<McGatewayInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    Promise.allSettled([getHermesOverview(), getHermesGateway()]).then(([ov, gw]) => {
+    Promise.allSettled([getMcOverview(), getMcGateway()]).then(([ov, gw]) => {
       if (!alive) return;
       if (ov.status === 'fulfilled') setOverview(ov.value);
       if (gw.status === 'fulfilled') setGateway(gw.value);
@@ -39,7 +39,7 @@ export default function BroadcastUplink() {
       {loading && (
         <Panel label="CHANNEL MATRIX" className="col-span-2 lg:col-span-4 h-[120px]">
           <div className="h-full flex items-center justify-center text-[11px] font-mono text-[#545454]">
-            querying hermes overview + gateway…
+            querying mc overview + gateway…
           </div>
         </Panel>
       )}
@@ -56,8 +56,8 @@ export default function BroadcastUplink() {
         <Panel label="CHANNEL MATRIX" className="col-span-2 lg:col-span-4 h-[140px]">
           <div className="h-full flex flex-col items-center justify-center gap-2 text-[11px] font-mono text-[#545454]">
             <span className="text-[13px] opacity-40">⊘</span>
-            <span>no platforms reported by hermes</span>
-            <span className="text-[10px] text-[#363636]">configure channels via `hermes` platform setup, then reload</span>
+            <span>no platforms reported by mc</span>
+            <span className="text-[10px] text-[#363636]">configure channels via `mc` platform setup, then reload</span>
           </div>
         </Panel>
       )}

@@ -18,7 +18,7 @@ function statusTone(status?: string): 'good' | 'warn' | 'neutral' | 'bad' | 'inf
 }
 
 function ago(ts: number): string {
-  // Hermes activity timestamps are unix seconds.
+  // Mc activity timestamps are unix seconds.
   const ms = ts > 1e12 ? ts : ts * 1000;
   const diff = Date.now() - ms;
   if (diff < 0 || !Number.isFinite(diff)) return '—';
@@ -32,16 +32,16 @@ function ago(ts: number): string {
 }
 
 /**
- * Agent Drill-Down — a right-side slide-over that aggregates everything Hermes
+ * Agent Drill-Down — a right-side slide-over that aggregates everything Mc
  * knows about a single agent: live status / queue, its assigned tasks (from
- * /api/hermes/tasks) and its recent activity rows (from /api/hermes/activity).
+ * /api/mc/tasks) and its recent activity rows (from /api/mc/activity).
  * Opened from any roster surface via useAgentDrilldownStore.open(name). Mounted
  * once globally in Layout.tsx, so it overlays whatever route is active.
  */
 export default function AgentDrillDown() {
   const { agentName, close } = useAgentDrilldownStore();
   const { nodes } = useGhostStore();
-  const { hermesTasks } = useTaskStore();
+  const { mcTasks } = useTaskStore();
   const { activities, fetchActivities } = useActivityStore();
 
   // Pull fresh activity when the panel opens; close on Escape.
@@ -61,10 +61,10 @@ export default function AgentDrillDown() {
   const agentTasks = useMemo(() => {
     if (!agentName) return [];
     const q = agentName.toLowerCase();
-    return hermesTasks
+    return mcTasks
       .filter((t) => (t.assignee || '').toLowerCase() === q)
       .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-  }, [hermesTasks, agentName]);
+  }, [mcTasks, agentName]);
 
   const agentActivity = useMemo(() => {
     if (!agentName) return [];

@@ -1,12 +1,12 @@
-// cronSchedule — pure, client-side parsing of Hermes cron schedules.
+// cronSchedule — pure, client-side parsing of Mc cron schedules.
 //
-// Hermes cron jobs carry a free-form `schedule` (or `repeat`) string that is
+// Mc cron jobs carry a free-form `schedule` (or `repeat`) string that is
 // either a standard 5-field Vixie cron expression (`0 9 * * *`), a named macro
 // (`@daily`), or an interval shorthand (`30m`, `every 2h`). The bridge exposes
 // no `next_run` field, so Mission Control computes the next fire time itself:
 // a smart minute/hour/day stepper resolves the next match of a cron expression
 // from a supplied `nowMs` (intervals have no anchor, so they show their period
-// instead). Field matching uses LOCAL time — the hermes daemon runs on this
+// instead). Field matching uses LOCAL time — the mc daemon runs on this
 // machine and fires on its local clock (the topbar ZULU clock is UTC, but a
 // relative "in 3h 12m" countdown is timezone-independent). No new bridge call:
 // this is a pure parse of the already-polled cron list.
@@ -197,7 +197,7 @@ function parseInterval(text: string): { ms: number; label: string } | null {
   return { ms: n * mult, label: `every ${n}${u}` };
 }
 
-/** Parse any Hermes schedule string into a kind + human label + next-fire time. */
+/** Parse any Mc schedule string into a kind + human label + next-fire time. */
 export function parseSchedule(raw: string | undefined, nowMs: number): ParsedSchedule {
   const text = (raw || '').trim();
   if (!text) return { kind: 'unknown', label: '—', nextMs: null };

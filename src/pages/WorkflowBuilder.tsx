@@ -1,11 +1,11 @@
-// Workflow Builder — live task dependency flow. Renders the real Hermes kanban
-// (useTaskStore.hermesTasks) as a status-grouped column flow in the original
+// Workflow Builder — live task dependency flow. Renders the real Mc kanban
+// (useTaskStore.mcTasks) as a status-grouped column flow in the original
 // node-graph visual style. TaskDependencyGraph stays drawer-scoped (it is a
 // modal that needs a single root task); this is the whole-board view.
 import { useEffect, useMemo } from 'react';
 import { Panel, Label } from '../components/cyberpunk/ui';
 import { useTaskStore } from '../stores/useTaskStore';
-import type { HermesTask } from '../lib/api';
+import type { McTask } from '../lib/api';
 
 const accent = '#f64e6e';
 
@@ -28,10 +28,10 @@ const ROW_GAP = 14;
 const HEADER_H = 34;
 const MAX_PER_COL = 8;
 
-interface Column { status: string; tasks: HermesTask[]; overflow: number }
+interface Column { status: string; tasks: McTask[]; overflow: number }
 
 export default function WorkflowBuilder() {
-  const hermesTasks = useTaskStore((s) => s.hermesTasks);
+  const mcTasks = useTaskStore((s) => s.mcTasks);
   const isLoading = useTaskStore((s) => s.isLoading);
   const error = useTaskStore((s) => s.error);
   const fetchTasks = useTaskStore((s) => s.fetchTasks);
@@ -39,8 +39,8 @@ export default function WorkflowBuilder() {
   useEffect(() => { void fetchTasks(); }, [fetchTasks]);
 
   const columns = useMemo<Column[]>(() => {
-    const by = new Map<string, HermesTask[]>();
-    hermesTasks.forEach((t) => {
+    const by = new Map<string, McTask[]>();
+    mcTasks.forEach((t) => {
       const s = t.status || 'unknown';
       if (!by.has(s)) by.set(s, []);
       by.get(s)!.push(t);
@@ -53,7 +53,7 @@ export default function WorkflowBuilder() {
       const all = by.get(status)!;
       return { status, tasks: all.slice(0, MAX_PER_COL), overflow: Math.max(0, all.length - MAX_PER_COL) };
     });
-  }, [hermesTasks]);
+  }, [mcTasks]);
 
   const maxRows = columns.reduce((m, c) => Math.max(m, c.tasks.length + (c.overflow ? 1 : 0)), 1);
   const width = Math.max(1, columns.length) * (NODE_W + COL_GAP) - COL_GAP + 8;
@@ -61,36 +61,36 @@ export default function WorkflowBuilder() {
 
   const assignees = useMemo(() => {
     const m = new Map<string, number>();
-    hermesTasks.forEach((t) => {
+    mcTasks.forEach((t) => {
       const a = t.assignee || 'unassigned';
       m.set(a, (m.get(a) ?? 0) + 1);
     });
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
-  }, [hermesTasks]);
+  }, [mcTasks]);
 
   return (
     <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-2 p-2 relative">
-      <Panel label="TASK FLOW · LIVE KANBAN" right={`${hermesTasks.length} tasks · ${columns.length} stages`}>
+      <Panel label="TASK FLOW · LIVE KANBAN" right={`${mcTasks.length} tasks · ${columns.length} stages`}>
         <div className="h-full relative overflow-auto bg-[#030306] min-h-[340px]"
           style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)', backgroundSize: '24px 24px' }}>
-          {isLoading && hermesTasks.length === 0 && (
+          {isLoading && mcTasks.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center text-[11px] font-mono text-[#545454]">
               loading kanban…
             </div>
           )}
-          {!isLoading && error && hermesTasks.length === 0 && (
+          {!isLoading && error && mcTasks.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center text-[11px] font-mono text-red-400">
               bridge error · {error}
             </div>
           )}
-          {!isLoading && !error && hermesTasks.length === 0 && (
+          {!isLoading && !error && mcTasks.length === 0 && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[11px] font-mono text-[#545454]">
               <span className="text-[13px] opacity-40">⊘</span>
               <span>no tasks on the board yet</span>
               <span className="text-[10px] text-[#363636]">create one from the Operations kanban to see it flow here</span>
             </div>
           )}
-          {hermesTasks.length > 0 && (
+          {mcTasks.length > 0 && (
             <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} className="block">
               {/* stage→stage flow edges with the original animated pulse */}
               {columns.slice(0, -1).map((col, i) => {

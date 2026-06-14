@@ -1,4 +1,4 @@
-// Briefing Terminal — live Hermes data via useBriefingStore, plus the
+// Briefing Terminal — live Mc data via useBriefingStore, plus the
 // consolidated AI digest (LLM-synthesized from Sentinel, ranked for virality).
 import { useEffect, useMemo, useState } from 'react';
 import { Panel, Pill } from '../components/cyberpunk/ui';
@@ -212,7 +212,7 @@ export default function BriefingTerminal() {
         <Panel label="BRIEFING TERMINAL · /tty7" className="shrink-0 min-h-[300px] max-h-[55vh]" right={<span className="text-[#f64e6e]">● RECORDING</span>}>
           <div className="h-full bg-[#03030a] p-4 font-mono text-[11px] overflow-auto relative" style={{ fontFamily: '"JetBrains Mono",ui-monospace,monospace' }}>
             {loading && !briefing && (
-              <div className="text-[#545454]">{'>'} syncing with Hermes bridge…</div>
+              <div className="text-[#545454]">{'>'} syncing with Mc bridge…</div>
             )}
             {error && (
               <div className="text-[#f64e6e]">{'>'} bridge error: {error}</div>

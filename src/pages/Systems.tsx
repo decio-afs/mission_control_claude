@@ -1,4 +1,4 @@
-// SYSTEMS — Hermes runtime health & analytics: doctor diagnostics, usage
+// SYSTEMS — Mc runtime health & analytics: doctor diagnostics, usage
 // insights (tokens / tools / platforms), live log tail, model + fallback +
 // credential pool, checkpoint store, and the on-demand OSV supply-chain audit.
 import { useEffect, useMemo, useState } from 'react';
@@ -208,7 +208,7 @@ export default function Systems() {
             bodyClass="overflow-y-auto"
           >
             {!doctor && !doctorLoading && <div className="font-mono text-[11px] text-[#545454]">run diagnostics to check config, dependencies & advisories</div>}
-            {doctorLoading && <div className="font-mono text-[11px] text-[#545454]">hermes doctor — checking ~18s…</div>}
+            {doctorLoading && <div className="font-mono text-[11px] text-[#545454]">mc doctor — checking ~18s…</div>}
             {doctor && visibleChecks.map((c, i) => (
               <div key={i} className="flex items-start gap-2 font-mono text-[10px] py-0.5 border-b border-white/[0.04]">
                 <span className={`shrink-0 ${c.level === 'ok' ? 'text-emerald-400' : c.level === 'warn' ? 'text-amber-400' : 'text-red-400'}`}>

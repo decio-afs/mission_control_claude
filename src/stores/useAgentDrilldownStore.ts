@@ -2,7 +2,7 @@ import { create } from 'zustand';
 // Live-data context (bloodhound): the panel reads the bridge via useGhostStore /
 // useTaskStore in AgentDrillDown.tsx. This store does NOT fetch directly — it
 // only manages the Agent Drill-Down panel open/close state.
-import type { HermesAgent, HermesTask } from '../lib/api';
+import type { McAgent, McTask } from '../lib/api';
 
 // Tiny global store so any roster surface (Agent Hub, Command's GHOST LEGION,
 // the Nexus deck) can open the shared Agent Drill-Down slide-over by name,
@@ -22,4 +22,4 @@ export const useAgentDrilldownStore = create<AgentDrilldownStore>((set) => ({
 }));
 
 // Re-export types for consumers that build drill-down data from live stores.
-export type { HermesAgent, HermesTask };
+export type { McAgent, McTask };

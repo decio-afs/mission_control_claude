@@ -28,7 +28,7 @@ const GROUPS: Group[] = [
     items: [
       { keys: ['⌘', 'K'], label: 'Command palette — jump to a module, agent, or task' },
       { keys: ['Ctrl', 'K'], label: 'Command palette (Windows / Linux)' },
-      { keys: ['⌘', 'F'], label: 'Task search — fuzzy-filter the whole Hermes queue', where: 'jumps to Operations' },
+      { keys: ['⌘', 'F'], label: 'Task search — fuzzy-filter the whole Mc queue', where: 'jumps to Operations' },
       { keys: ['Ctrl', 'F'], label: 'Task search (Windows / Linux)' },
       { keys: ['?'], label: 'This shortcuts cheat-sheet' },
       { keys: ['Esc'], label: 'Close any overlay, drawer, or modal' },

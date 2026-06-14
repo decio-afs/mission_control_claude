@@ -14,11 +14,12 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from statistics import median
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -27,12 +28,42 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 HERMES_CMD = os.environ.get("HERMES_CMD", "hermes")
 BRIDGE_PORT = int(os.environ.get("BRIDGE_PORT", "8767"))
-# Wall-clock the process came up — used by /api/hermes/health to report uptime.
+# Wall-clock the process came up — used by /api/mc/health to report uptime.
 BRIDGE_STARTED = time.time()
 # Allow all origins by default: this is a localhost-only bridge for a local
 # desktop app. Inside Electron the UI loads from file:// (Origin: "null"), so a
 # fixed allow-list would block every request. Override with CORS_ORIGINS if needed.
 ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
+
+# ---------------------------------------------------------------------------
+# The Claude brain. Mission Control no longer drives the Hermes/Kimi CLI for
+# inference — every LLM action (chat, agent spawn, task decompose, content
+# synthesis, virality, digests) shells out to the local `claude` CLI instead.
+# Conversations persist in a native SQLite store the bridge owns directly.
+# ---------------------------------------------------------------------------
+from mc_brain import (  # noqa: E402
+    run_claude,
+    claude_json,
+    claude_model,
+    ClaudeError,
+    MCSessions,
+)
+from mc_store import MCStore  # noqa: E402
+import mc_diag  # noqa: E402
+
+SESSIONS = MCSessions(Path(__file__).parent / ".hermes" / "data" / "sessions.db")
+
+# Native data layer — tasks, agents, cron, boards. Replaces the Hermes kanban /
+# profile / cron CLI entirely; the bridge owns the JSON stores directly.
+STORE = MCStore(Path(__file__).parent)
+
+# Where Claude Code keeps installed skills — scanned by the Systems/Arsenal pages.
+_CLAUDE_HOME = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
+_SKILLS_ROOTS = [
+    _CLAUDE_HOME / "skills",
+    _CLAUDE_HOME / "plugins",
+    Path(__file__).parent / ".claude" / "skills",
+]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -58,6 +89,10 @@ def run_hermes(*args: str, timeout: int = 60) -> dict[str, Any]:
             encoding="utf-8",
             errors="replace",
             creationflags=CREATE_NO_WINDOW,
+            # Explicitly closed stdin: when the bridge runs headless (no
+            # console), an inherited invalid handle makes hermes hang on
+            # TTY-ish prompts instead of falling back to non-interactive.
+            stdin=subprocess.DEVNULL,
         )
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=504, detail=f"Hermes command timed out after {timeout}s")
@@ -273,6 +308,12 @@ class TaskDecomposePayload(BaseModel):
     task: str
 
 
+class SetModelPayload(BaseModel):
+    model: str
+    provider: str
+    base_url: Optional[str] = None
+
+
 class Directive(BaseModel):
     sev: str
     t: str
@@ -296,6 +337,11 @@ class BriefingResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(f"[hermes-bridge] Starting on port {BRIDGE_PORT}", flush=True)
+    # Warm-load Whisper in the background so the first voice turn doesn't pay
+    # the model load (or the first-ever ~150MB hub download) inline.
+    if _whisper_installed():
+        import threading
+        threading.Thread(target=_get_whisper_model, daemon=True, name="whisper-warmup").start()
     yield
     print("[hermes-bridge] Shutting down", flush=True)
 
@@ -319,23 +365,22 @@ app.add_middleware(
 @app.get("/api/ping")
 def ping():
     """Instant liveness probe — NO CLI shell-out. Used by the Electron shell
-    and the Vite dev-server launcher to detect the bridge: /api/hermes/status
+    and the Vite dev-server launcher to detect the bridge: /api/mc/status
     takes 1-4s (it runs the hermes CLI), which is slower than a launcher's
     per-attempt probe timeout and made startup look hung."""
     return {"ok": True, "uptime_seconds": int(time.time() - BRIDGE_STARTED)}
 
 
-@app.get("/api/hermes/status")
+@app.get("/api/mc/status")
 def get_status():
-    """Check Hermes is alive."""
-    resp = run_hermes("--version")
+    """Check the Claude backend is alive."""
     return {
-        "hermes_version": resp["stdout"],
+        "mc_version": mc_diag.claude_version(),
         "bridge": "ok",
     }
 
 
-@app.get("/api/hermes/health")
+@app.get("/api/mc/health")
 def get_health():
     """Lightweight bridge self-report for the Diagnostics panel.
 
@@ -348,13 +393,12 @@ def get_health():
     cli_version = "unknown"
     cli_error: Optional[str] = None
     started = time.time()
-    try:
-        resp = run_hermes("--version", timeout=10)
+    ver = mc_diag.claude_version()
+    if ver:
         cli_ok = True
-        cli_version = (resp["stdout"] or "").splitlines()[0] if resp["stdout"] else "connected"
-    except HTTPException as exc:
-        detail = exc.detail
-        cli_error = detail if isinstance(detail, str) else str(detail)
+        cli_version = ver.splitlines()[0]
+    else:
+        cli_error = "claude CLI not responding"
     cli_probe_ms = round((time.time() - started) * 1000)
 
     return {
@@ -362,7 +406,7 @@ def get_health():
         "port": BRIDGE_PORT,
         "uptime_seconds": round(time.time() - BRIDGE_STARTED),
         "python_version": sys.version.split()[0],
-        "hermes_cmd": HERMES_CMD,
+        "mc_cmd": "claude",
         "cli_ok": cli_ok,
         "cli_version": cli_version,
         "cli_probe_ms": cli_probe_ms,
@@ -371,80 +415,164 @@ def get_health():
     }
 
 
-@app.get("/api/hermes/agents")
+def parse_profile_names(text: str) -> list[str]:
+    """Pull profile names out of the `hermes profile list` table.
+    Rows look like ` ◆default   kimi-k2.6   running   —   —` — the name is the
+    first token, with ◆ marking the active profile."""
+    names = []
+    for ln in (text or "").splitlines():
+        ln = ln.strip()
+        if not ln or ln.startswith("Profile") or set(ln) <= set("─- "):
+            continue
+        name = ln.split()[0].lstrip("◆").strip()
+        if name and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
+            names.append(name)
+    return names
+
+
+@app.get("/api/mc/agents")
 def get_agents():
-    """List agents / assignees."""
-    resp = run_hermes("kanban", "assignees", "--json")
-    return {"agents": resp["data"]}
+    """List agents from the native roster, enriched with live kanban task counts."""
+    return {"agents": STORE.agents_with_counts()}
 
 
-@app.post("/api/hermes/agents")
+def _profile_name(raw: str) -> str:
+    """Hermes profile names are lowercase alphanumeric — normalize whatever
+    the operator typed ("My Agent" → "myagent")."""
+    return re.sub(r"[^a-z0-9]", "", (raw or "").lower())
+
+
+def _profile_description(role: Optional[str], skills: Optional[list[str]]) -> Optional[str]:
+    """Role + skills land in the profile description — the field the kanban
+    decomposer actually uses to route tasks (there are no --role/--skills
+    flags on the CLI)."""
+    bits = []
+    if role:
+        bits.append(f"Role: {role}.")
+    if skills:
+        bits.append("Skills: " + ", ".join(skills) + ".")
+    return " ".join(bits) or None
+
+
+@app.post("/api/mc/agents")
 def create_agent(payload: AgentCreatePayload):
-    """Create a new agent profile via hermes profile create."""
-    args = ["profile", "create", payload.name]
-    if payload.model:
-        args += ["--model", payload.model]
-    if payload.skills:
-        args += ["--skills", ",".join(payload.skills)]
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"], "agent": {"name": payload.name, "role": payload.role, "skills": payload.skills, "model": payload.model}}
+    """Create a new agent in the native roster."""
+    name = _profile_name(payload.name)
+    if not name:
+        raise HTTPException(status_code=400, detail="Agent name must contain letters or digits")
+    return STORE.create_agent(name, role=payload.role, skills=payload.skills, model=payload.model)
 
 
-@app.put("/api/hermes/agents/{agent_id}")
+@app.put("/api/mc/agents/{agent_id}")
 def update_agent(agent_id: str, payload: AgentUpdatePayload):
-    """Update an existing agent profile."""
-    args = ["profile", "update", agent_id]
-    if payload.name:
-        args += ["--name", payload.name]
-    if payload.model:
-        args += ["--model", payload.model]
-    if payload.skills:
-        args += ["--skills", ",".join(payload.skills)]
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"], "agent": {"id": agent_id, **payload.model_dump(exclude_unset=True)}}
+    """Update an agent's name / role / skills / model."""
+    new_name = _profile_name(payload.name) if payload.name else None
+    try:
+        return STORE.update_agent(agent_id, name=new_name, role=payload.role,
+                                  skills=payload.skills, model=payload.model)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"agent {agent_id} not found")
 
 
-@app.delete("/api/hermes/agents/{agent_id}")
+@app.delete("/api/mc/agents/{agent_id}")
 def delete_agent(agent_id: str):
-    """Delete an agent profile."""
-    resp = run_hermes("profile", "delete", agent_id)
-    return {"message": resp["stdout"]}
+    """Delete an agent from the native roster."""
+    return STORE.delete_agent(agent_id)
 
 
-@app.post("/api/hermes/agents/{agent_id}/spawn")
+def _agent_system_prompt(agent: Optional[dict], name: str) -> tuple[Optional[str], Optional[str]]:
+    """Build a specialization system prompt + resolve the model for an agent.
+
+    Returns (system_prompt, model). When the agent has no stored persona we fall
+    back to a generic worker prompt so spawn still does something sane.
+    """
+    role = (agent or {}).get("role") or f"a Mission Control worker named '{name}'"
+    skills = (agent or {}).get("skills") or []
+    mcps = (agent or {}).get("mcps") or []
+    model = (agent or {}).get("model")
+    lines = [
+        f"You are '{name}', a specialized Mission Control agent.",
+        "",
+        f"Your role: {role}",
+    ]
+    if skills:
+        lines += ["",
+                  "Skills available to you — invoke the relevant ones via the Skill tool "
+                  "whenever they fit the work: " + ", ".join(skills) + "."]
+    if mcps:
+        lines += ["",
+                  "Preferred MCP connectors for your work: " + ", ".join(mcps)
+                  + ". Use them when they help."]
+    lines += ["",
+              "Work autonomously to complete the assigned task to its acceptance criteria. "
+              "Produce the actual deliverable, not a plan to produce it. Be concise and cite "
+              "sources where relevant."]
+    return "\n".join(lines), model
+
+
+def _task_brief(task: dict, detail: dict) -> str:
+    parts = [f"# Task: {task.get('title')}", ""]
+    if task.get("body"):
+        parts += [task["body"], ""]
+    comments = detail.get("comments") or []
+    if comments:
+        parts += ["## Notes / context"] + [f"- {c.get('author')}: {c.get('body')}" for c in comments] + [""]
+    parts += ["Complete this task now and return the finished deliverable."]
+    return "\n".join(parts)
+
+
+@app.post("/api/mc/agents/{agent_id}/spawn")
 def spawn_agent_on_task(agent_id: str, payload: SpawnOnTaskPayload):
-    """Spawn an agent on a specific task via hermes chat -q."""
-    goal = f"Execute task {payload.task_id} as agent {agent_id}"
-    args = ["chat", "-q", goal, "-Q"]
-    resp = run_hermes(*args, timeout=120)
-    return {"message": resp["stdout"], "agent_id": agent_id, "task_id": payload.task_id}
+    """Spawn a specialized agent on a task.
+
+    Loads the agent's persona (role + skills + MCPs + model) and the task's full
+    content, then runs a headless Claude turn with that system prompt, the
+    agent's model, and the task workspace as cwd — so each agent actually
+    behaves like the specialist it's configured to be.
+    """
+    agent = STORE.get_agent(agent_id)
+    try:
+        detail = STORE.show_task(payload.task_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {payload.task_id} not found")
+    task = detail["task"]
+
+    system_prompt, model = _agent_system_prompt(agent, agent_id)
+    prompt = _task_brief(task, detail)
+    cwd = task.get("workspace_path") or None
+
+    try:
+        resp = run_claude(prompt, system_prompt=system_prompt, model=model, cwd=cwd, timeout=600)
+    except ClaudeError as e:
+        raise HTTPException(status_code=502, detail=f"Claude: {e}")
+
+    # Record the run on the task so the result is visible in the drawer.
+    try:
+        STORE.comment_task(payload.task_id, resp["result"], author=agent_id)
+    except Exception:
+        pass
+    return {"message": resp["result"], "agent_id": agent_id, "task_id": payload.task_id,
+            "model": model or "default", "skills": (agent or {}).get("skills", [])}
 
 
-@app.post("/api/hermes/tasks/decompose")
+@app.post("/api/mc/tasks/decompose")
 def decompose_task(payload: TaskDecomposePayload):
-    """Decompose a complex task into sub-tasks using Hermes chat."""
+    """Decompose a complex task into sub-tasks using Claude."""
     prompt = (
-        f"Decompose the following task into 3-7 concrete sub-tasks that can be executed in parallel. "
-        f"Return ONLY a JSON array of objects with keys: title (string), body (optional string), assignee (optional string). "
+        "Decompose the following task into 3-7 concrete sub-tasks that can be executed in parallel. "
+        "Return ONLY a JSON array of objects with keys: title (string), body (optional string), assignee (optional string). "
         f"Task: {payload.task}"
     )
-    args = ["chat", "-q", prompt, "-Q"]
-    resp = run_hermes(*args, timeout=120)
-    stdout = resp.get("stdout", "")
-    # Try to extract JSON array from the response
     data: list[dict[str, Any]] = []
-    if stdout:
-        try:
-            # Find JSON array in the response
-            start = stdout.find("[")
-            end = stdout.rfind("]")
-            if start != -1 and end != -1 and end > start:
-                data = json.loads(stdout[start:end+1])
-            else:
-                data = json.loads(stdout)
-        except json.JSONDecodeError:
-            # Fallback: create a single sub-task with the raw output
-            data = [{"title": "Decomposed work", "body": stdout, "assignee": None}]
+    raw = ""
+    try:
+        parsed = claude_json(prompt, timeout=120)
+        if isinstance(parsed, list):
+            data = parsed
+        elif isinstance(parsed, dict) and isinstance(parsed.get("subtasks"), list):
+            data = parsed["subtasks"]
+    except ClaudeError as e:
+        raw = str(e)
     # Ensure each item has at least a title
     subtasks = []
     for item in data:
@@ -455,27 +583,25 @@ def decompose_task(payload: TaskDecomposePayload):
                 "assignee": item.get("assignee"),
             })
     if not subtasks:
-        subtasks = [{"title": "Decomposed work", "body": stdout, "assignee": None}]
+        subtasks = [{"title": "Decomposed work", "body": raw or None, "assignee": None}]
     return {"subtasks": subtasks}
 
 
-@app.get("/api/hermes/tasks")
+@app.get("/api/mc/tasks")
 def get_tasks():
-    """List kanban tasks."""
-    resp = run_hermes("kanban", "list", "--json")
-    return {"tasks": resp["data"]}
+    """List kanban tasks from the native store."""
+    return STORE.list_tasks()
 
 
-@app.get("/api/hermes/activity")
+@app.get("/api/mc/activity")
 def get_activity():
     """Derive a live activity stream from kanban task lifecycle timestamps.
 
-    Hermes has no dedicated activity log, so we synthesize one from real task
+    There is no dedicated activity log, so we synthesize one from real task
     events (created / claimed / completed) — every entry reflects an actual
     state change on a real task.
     """
-    resp = run_hermes("kanban", "list", "--json")
-    tasks = resp["data"] if isinstance(resp["data"], list) else []
+    tasks = STORE.list_tasks()["tasks"]
     events: list[dict[str, Any]] = []
 
     def short(title: Optional[str]) -> str:
@@ -505,298 +631,410 @@ def get_activity():
     return {"activities": events[:50]}
 
 
-@app.post("/api/hermes/tasks")
+# Patch notes live next to the bug-hunt handoff (.hermes/BUGHUNT_LOG.md); the
+# autonomous routine appends one entry per shipped fix. Read-only here.
+PATCH_NOTES_FILE = Path(__file__).parent / ".hermes" / "patch-notes.json"
+
+
+@app.get("/api/mc/patch-notes")
+def get_patch_notes():
+    """Changelog the autonomous bug-hunt routine writes after each run.
+
+    Source of truth is .hermes/patch-notes.json — a {"notes": [...]} document
+    (or a bare list). Returned newest-first by (date, iteration). Never raises:
+    a missing or malformed file yields an empty list so the UI degrades cleanly.
+    """
+    notes: list[dict[str, Any]] = []
+    try:
+        if PATCH_NOTES_FILE.exists():
+            data = json.loads(PATCH_NOTES_FILE.read_text(encoding="utf-8"))
+            raw = data.get("notes", []) if isinstance(data, dict) else data
+            if isinstance(raw, list):
+                notes = [n for n in raw if isinstance(n, dict)]
+    except Exception:
+        notes = []
+
+    def _key(n: dict[str, Any]):
+        it = n.get("iteration")
+        return (str(n.get("date", "")), it if isinstance(it, int) else 0)
+
+    notes.sort(key=_key, reverse=True)
+    return {"notes": notes}
+
+
+@app.post("/api/mc/tasks")
 def create_task(payload: CreateTaskPayload):
-    """Create a kanban task."""
-    args = ["kanban", "create", payload.title, "--json"]
-    if payload.body:
-        args += ["--body", payload.body]
-    if payload.assignee:
-        args += ["--assignee", payload.assignee]
-    if payload.priority is not None:
-        args += ["--priority", str(payload.priority)]
-    for skill in payload.skills or []:
-        args += ["--skill", skill]
-    for parent in payload.parents or []:
-        args += ["--parent", parent]
-    if payload.triage:
-        args.append("--triage")
-    if payload.max_retries is not None:
-        args += ["--max-retries", str(payload.max_retries)]
-    resp = run_hermes(*args)
-    return {"task": resp["data"]}
+    """Create a kanban task in the native store."""
+    return STORE.create_task(payload)
 
 
-@app.get("/api/hermes/tasks/{task_id}")
+@app.get("/api/mc/tasks/{task_id}")
 def show_task(task_id: str):
     """Full task detail: task fields, parents/children, comments, events, runs."""
-    resp = run_hermes("kanban", "show", task_id, "--json")
-    return resp["data"]
+    try:
+        return STORE.show_task(task_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
 
 
-@app.post("/api/hermes/tasks/{task_id}/claim")
+def _task_op(fn, *args):
+    try:
+        return fn(*args)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"task {e} not found")
+
+
+@app.post("/api/mc/tasks/{task_id}/claim")
 def claim_task(task_id: str):
     """Claim a kanban task."""
-    resp = run_hermes("kanban", "claim", task_id)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.claim_task, task_id)
 
 
-@app.post("/api/hermes/tasks/{task_id}/complete")
+@app.post("/api/mc/tasks/{task_id}/complete")
 def complete_task(task_id: str):
     """Complete a kanban task."""
-    resp = run_hermes("kanban", "complete", task_id)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.complete_task, task_id)
 
 
-@app.post("/api/hermes/tasks/{task_id}/block")
+@app.post("/api/mc/tasks/{task_id}/block")
 def block_task(task_id: str, payload: BlockTaskPayload):
     """Block a kanban task."""
-    resp = run_hermes("kanban", "block", task_id, "--", payload.reason)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.block_task, task_id, payload.reason)
 
 
-@app.post("/api/hermes/tasks/{task_id}/unblock")
+@app.post("/api/mc/tasks/{task_id}/unblock")
 def unblock_task(task_id: str, payload: ReasonPayload):
     """Return a blocked/scheduled task to ready."""
-    args = ["kanban", "unblock", task_id]
-    if payload.reason:
-        args += ["--reason", payload.reason]
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.unblock_task, task_id, payload.reason)
 
 
-@app.post("/api/hermes/tasks/{task_id}/promote")
+@app.post("/api/mc/tasks/{task_id}/promote")
 def promote_task(task_id: str, payload: PromotePayload):
     """Promote a todo/blocked/triage task to ready (recovery path)."""
-    args = ["kanban", "promote", task_id]
-    if payload.force:
-        args.append("--force")
-    if payload.reason:
-        args.append(payload.reason)
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.promote_task, task_id, payload.reason, payload.force)
 
 
-@app.post("/api/hermes/tasks/{task_id}/schedule")
+@app.post("/api/mc/tasks/{task_id}/schedule")
 def schedule_task(task_id: str, payload: ReasonPayload):
     """Park a task in Scheduled (waiting on time, not human input)."""
-    args = ["kanban", "schedule", task_id]
-    if payload.reason:
-        args.append(payload.reason)
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.schedule_task, task_id, payload.reason)
 
 
-@app.post("/api/hermes/tasks/{task_id}/archive")
+@app.post("/api/mc/tasks/{task_id}/archive")
 def archive_task(task_id: str):
     """Archive a task."""
-    resp = run_hermes("kanban", "archive", task_id)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.archive_task, task_id)
 
 
-@app.post("/api/hermes/tasks/{task_id}/assign")
+@app.post("/api/mc/tasks/{task_id}/assign")
 def assign_task(task_id: str, payload: AssignPayload):
     """Assign or unassign a task ('none' to unassign)."""
-    resp = run_hermes("kanban", "assign", task_id, payload.profile)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.assign_task, task_id, payload.profile)
 
 
-@app.post("/api/hermes/tasks/{task_id}/reassign")
+@app.post("/api/mc/tasks/{task_id}/reassign")
 def reassign_task(task_id: str, payload: ReassignPayload):
     """Reassign a task to a different profile, optionally reclaiming first."""
-    args = ["kanban", "reassign", task_id, payload.profile]
-    if payload.reclaim:
-        args.append("--reclaim")
-    if payload.reason:
-        args += ["--reason", payload.reason]
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.reassign_task, task_id, payload.profile, payload.reclaim, payload.reason)
 
 
-@app.post("/api/hermes/tasks/{task_id}/reclaim")
+@app.post("/api/mc/tasks/{task_id}/reclaim")
 def reclaim_task(task_id: str):
     """Release an active worker claim on a running task."""
-    resp = run_hermes("kanban", "reclaim", task_id)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.reclaim_task, task_id)
 
 
-@app.post("/api/hermes/tasks/{task_id}/comment")
+@app.post("/api/mc/tasks/{task_id}/comment")
 def comment_task(task_id: str, payload: CommentPayload):
     """Append a comment to a task."""
-    args = ["kanban", "comment", task_id, payload.text]
-    if payload.author:
-        args += ["--author", payload.author]
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.comment_task, task_id, payload.text, payload.author)
 
 
-@app.post("/api/hermes/tasks/{task_id}/edit")
+@app.post("/api/mc/tasks/{task_id}/edit")
 def edit_task(task_id: str, payload: EditTaskPayload):
     """Backfill recovery fields on an already-completed task."""
-    args = ["kanban", "edit", task_id, "--result", payload.result]
-    if payload.summary:
-        args += ["--summary", payload.summary]
-    if payload.metadata:
-        args += ["--metadata", payload.metadata]
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"]}
+    return _task_op(STORE.edit_task, task_id, payload.result, payload.summary, payload.metadata)
 
 
-@app.post("/api/hermes/tasks/link")
+@app.post("/api/mc/tasks/link")
 def link_tasks(payload: LinkPayload):
     """Add a parent->child dependency."""
-    resp = run_hermes("kanban", "link", payload.parent_id, payload.child_id)
-    return {"message": resp["stdout"]}
+    return STORE.link(payload.parent_id, payload.child_id)
 
 
-@app.post("/api/hermes/tasks/unlink")
+@app.post("/api/mc/tasks/unlink")
 def unlink_tasks(payload: LinkPayload):
     """Remove a parent->child dependency."""
-    resp = run_hermes("kanban", "unlink", payload.parent_id, payload.child_id)
-    return {"message": resp["stdout"]}
+    return STORE.unlink(payload.parent_id, payload.child_id)
 
 
-@app.get("/api/hermes/kanban/stats")
+@app.get("/api/mc/kanban/stats")
 def kanban_stats():
     """Per-status + per-assignee counts + oldest-ready age."""
-    resp = run_hermes("kanban", "stats", "--json")
-    return resp["data"]
+    return STORE.stats()
 
 
-@app.get("/api/hermes/kanban/diagnostics")
+@app.get("/api/mc/kanban/diagnostics")
 def kanban_diagnostics():
     """Active board diagnostics (stale claims, missing deps, etc.)."""
-    resp = run_hermes("kanban", "diagnostics", "--json")
-    return {"diagnostics": resp["data"]}
+    return {"diagnostics": STORE.diagnostics()}
 
 
-@app.post("/api/hermes/tasks/{task_id}/specify")
+@app.post("/api/mc/tasks/{task_id}/specify")
 def specify_task(task_id: str):
-    """Run a specifier on a triage task — fleshes out the spec and promotes it."""
-    resp = run_hermes("kanban", "specify", task_id, timeout=180)
-    return {"message": resp["stdout"]}
+    """Flesh out a triage task's spec with Claude, then promote it to ready."""
+    try:
+        detail = STORE.show_task(task_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+    task = detail["task"]
+    prompt = (
+        "You are a delivery lead refining a task spec. Rewrite the task below into a clear, "
+        "actionable spec with: a one-line goal, a short approach, and 3-6 acceptance criteria as "
+        "a markdown checklist. Return ONLY the markdown body.\n\n"
+        f"Title: {task.get('title')}\n\nCurrent body:\n{task.get('body') or '(empty)'}"
+    )
+    try:
+        resp = run_claude(prompt, timeout=180)
+        body = resp["result"].strip()
+    except ClaudeError as e:
+        raise HTTPException(status_code=502, detail=f"Claude: {e}")
+    STORE.edit_task(task_id, task.get("result") or "", summary="spec refined")
+
+    def _apply(t):
+        t["body"] = body
+        if t.get("status") in ("triage", "todo"):
+            t["status"] = "ready"
+    STORE._mutate(task_id, _apply, event="specified")
+    return {"message": "spec refined and promoted to ready", "body": body}
 
 
-@app.get("/api/hermes/tasks/{task_id}/log")
+@app.get("/api/mc/tasks/{task_id}/log")
 def task_log(task_id: str, tail: Optional[int] = None):
-    """The worker log for a task (from <kanban-root>/kanban/logs/)."""
-    args = ["kanban", "log", task_id]
-    if tail:
-        args += ["--tail", str(tail)]
-    resp = run_hermes(*args)
-    return {"log": resp["stdout"]}
+    """The worker log for a task — synthesized from its event history."""
+    try:
+        detail = STORE.show_task(task_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+    lines = []
+    for e in detail.get("events", []):
+        ts = datetime.fromtimestamp(e.get("created_at", 0)).isoformat(timespec="seconds")
+        payload = e.get("payload") or {}
+        extra = " " + json.dumps(payload) if payload else ""
+        lines.append(f"[{ts}] {e.get('kind')}{extra}")
+    log = "\n".join(lines[-tail:] if tail else lines)
+    return {"log": log or "(no events yet)"}
 
 
-@app.get("/api/hermes/tasks/{task_id}/context")
+@app.get("/api/mc/tasks/{task_id}/context")
 def task_context(task_id: str):
     """The assembled context a worker sees for this task."""
-    resp = run_hermes("kanban", "context", task_id)
-    return {"context": resp["stdout"]}
+    try:
+        detail = STORE.show_task(task_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+    task = detail["task"]
+    parts = [f"# {task.get('title')}", "", task.get("body") or "(no body)"]
+    if detail.get("comments"):
+        parts += ["", "## Comments"] + [f"- {c['author']}: {c['body']}" for c in detail["comments"]]
+    return {"context": "\n".join(parts)}
 
 
-@app.get("/api/hermes/tasks/{task_id}/notify")
+# Read-only workspace browser (DELIV-4 slice b). A task's file deliverables live
+# in its workspace dir (and, when the work is a git branch, on that branch). The
+# drawer showed only the path string; this surfaces *what's actually there* so a
+# file/branch deliverable is retrievable in-app. SAFETY: the workspace path comes
+# from Hermes (kanban show), never the client; a ?file= read is resolved and
+# strictly confined inside that workspace (no path-traversal escape); only
+# read-only git runs; listing count and file size are capped.
+_BRANCH_RE = re.compile(r"^[\w./+-]+$")
+_MAX_FILE_BYTES = 256 * 1024
+_MAX_ENTRIES = 300
+
+
+def _git_ro(ws: Path, *gitargs: str, timeout: int = 15) -> str:
+    """Run a read-only git command in ws, returning stdout ('' on any failure)."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(ws), *gitargs],
+            capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace",
+            creationflags=CREATE_NO_WINDOW, stdin=subprocess.DEVNULL,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+@app.get("/api/mc/tasks/{task_id}/workspace")
+def task_workspace(task_id: str, file: Optional[str] = None):
+    """Read-only view of a task's file/branch deliverable.
+
+    Without ?file: a shallow (top-level) listing of the workspace dir, plus — when
+    it is a git repo — recent branch commits and a diff --stat. With ?file=<rel>:
+    that file's text content (confined inside the workspace, size-capped). The
+    workspace path is taken from the native store, never the client.
+    """
+    try:
+        task = STORE.show_task(task_id)["task"]
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+    ws = (task.get("workspace_path") or "").strip()
+    branch = (task.get("branch_name") or "").strip()
+    out: dict[str, Any] = {
+        "workspace_path": ws or None, "branch_name": branch or None,
+        "exists": False, "is_git": False, "files": [],
+        "log": "", "diffstat": "", "note": "",
+    }
+    if not ws:
+        out["note"] = "This task has no workspace — nothing to browse."
+        return out
+    try:
+        ws_root = Path(ws).resolve(strict=False)
+    except (OSError, ValueError):
+        out["note"] = "Workspace path could not be resolved."
+        return out
+    if not ws_root.is_dir():
+        out["note"] = "Workspace path no longer exists on disk."
+        return out
+    out["exists"] = True
+
+    # ?file= → one file's text, strictly confined to the workspace root.
+    if file is not None:
+        try:
+            target = (ws_root / file).resolve(strict=False)
+        except (OSError, ValueError):
+            raise HTTPException(status_code=400, detail="invalid file path")
+        if ws_root != target and ws_root not in target.parents:
+            raise HTTPException(status_code=403, detail="path escapes workspace")
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="file not found")
+        try:
+            raw = target.read_bytes()[: _MAX_FILE_BYTES + 1]
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"could not read file: {exc}")
+        truncated = len(raw) > _MAX_FILE_BYTES
+        raw = raw[:_MAX_FILE_BYTES]
+        if b"\x00" in raw:
+            return {"file": file, "binary": True, "truncated": False,
+                    "content": "", "note": "binary file — not shown"}
+        return {"file": file, "binary": False, "truncated": truncated,
+                "content": raw.decode("utf-8", errors="replace")}
+
+    # listing (top level only), directories first then files, alpha within each
+    try:
+        entries = sorted(os.scandir(ws_root), key=lambda e: (e.is_file(), e.name.lower()))
+    except OSError as exc:
+        out["note"] = f"Could not list workspace: {exc}"
+        return out
+    files: list[dict[str, Any]] = []
+    for e in entries:
+        if e.name == ".git":
+            continue
+        try:
+            is_dir = e.is_dir()
+            size = e.stat().st_size if e.is_file() else None
+        except OSError:
+            is_dir, size = False, None
+        files.append({"name": e.name, "rel": e.name, "is_dir": is_dir, "size": size})
+        if len(files) >= _MAX_ENTRIES:
+            break
+    out["files"] = files
+    if not files:
+        out["note"] = "Workspace is empty — this task wrote no files here."
+
+    # git summary (read-only) when the workspace is a repo
+    if _git_ro(ws_root, "rev-parse", "--is-inside-work-tree") == "true":
+        out["is_git"] = True
+        logargs = ["log", "--oneline", "-n", "20"]
+        if branch and _BRANCH_RE.match(branch):
+            logargs.append(branch)
+        out["log"] = _git_ro(ws_root, *logargs)
+        out["diffstat"] = _git_ro(ws_root, "diff", "--stat")
+    return out
+
+
+@app.get("/api/mc/tasks/{task_id}/notify")
 def task_notify_list(task_id: str):
     """List notification subscriptions on a task."""
-    resp = run_hermes("kanban", "notify-list", task_id, "--json")
-    return {"subscriptions": resp["data"]}
+    return {"subscriptions": STORE.notify_list(task_id)}
 
 
-@app.post("/api/hermes/tasks/{task_id}/notify")
+@app.post("/api/mc/tasks/{task_id}/notify")
 def task_notify_subscribe(task_id: str, payload: NotifyPayload):
-    """Subscribe a gateway channel to a task's terminal events."""
-    args = ["kanban", "notify-subscribe", task_id, "--platform", payload.platform, "--chat-id", payload.chat_id]
-    if payload.thread_id:
-        args += ["--thread-id", payload.thread_id]
-    if payload.user_id:
-        args += ["--user-id", payload.user_id]
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"]}
+    """Subscribe a channel to a task's terminal events."""
+    return STORE.notify_subscribe(task_id, {
+        "platform": payload.platform, "chat_id": payload.chat_id,
+        "thread_id": payload.thread_id, "user_id": payload.user_id,
+    })
 
 
-@app.post("/api/hermes/tasks/{task_id}/notify/unsubscribe")
+@app.post("/api/mc/tasks/{task_id}/notify/unsubscribe")
 def task_notify_unsubscribe(task_id: str, payload: NotifyUnsubPayload):
-    """Remove a gateway subscription from a task."""
-    args = ["kanban", "notify-unsubscribe", task_id, "--platform", payload.platform, "--chat-id", payload.chat_id]
-    if payload.thread_id:
-        args += ["--thread-id", payload.thread_id]
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"]}
+    """Remove a subscription from a task."""
+    return STORE.notify_unsubscribe(task_id, payload.platform, payload.chat_id, payload.thread_id)
 
 
-@app.get("/api/hermes/boards")
+@app.get("/api/mc/boards")
 def list_boards():
     """List kanban boards with task counts and which one is current."""
-    resp = run_hermes("kanban", "boards", "list", "--json")
-    return {"boards": resp["data"]}
+    return {"boards": STORE.boards()}
 
 
-@app.post("/api/hermes/boards")
+@app.post("/api/mc/boards")
 def create_board(payload: BoardCreatePayload):
     """Create a new board (optionally switch to it)."""
-    args = ["kanban", "boards", "create", payload.slug]
-    if payload.name:
-        args += ["--name", payload.name]
-    if payload.description:
-        args += ["--description", payload.description]
-    if payload.switch:
-        args.append("--switch")
-    resp = run_hermes(*args)
-    return {"message": resp["stdout"]}
+    return STORE.create_board(payload.slug, payload.name, payload.description, payload.switch)
 
 
-@app.post("/api/hermes/boards/switch")
+@app.post("/api/mc/boards/switch")
 def switch_board(payload: BoardSwitchPayload):
     """Set the active board for subsequent calls."""
-    resp = run_hermes("kanban", "boards", "switch", payload.slug)
-    return {"message": resp["stdout"]}
+    return STORE.switch_board(payload.slug)
 
 
-@app.get("/api/hermes/cron")
+@app.get("/api/mc/cron")
 def get_cron():
-    """List cron jobs."""
-    resp = run_hermes("cron", "list")
-    jobs = parse_cron_list(resp["stdout"])
-    return {"jobs": jobs, "raw": resp["stdout"]}
+    """List scheduled jobs from the native store."""
+    return STORE.list_cron()
 
 
-@app.post("/api/hermes/cron")
+@app.post("/api/mc/cron")
 def create_cron(payload: CreateCronPayload):
-    """Create a scheduled job via `hermes cron create <schedule> [prompt] …`."""
-    args = ["cron", "create", payload.schedule]
-    if payload.prompt:
-        args.append(payload.prompt)
-    if payload.name:
-        args += ["--name", payload.name]
-    if payload.deliver:
-        args += ["--deliver", payload.deliver]
-    if payload.repeat:
-        args += ["--repeat", payload.repeat]
-    for skill in payload.skills or []:
-        args += ["--skill", skill]
-    resp = run_hermes(*args)
-    # Return the freshly-parsed job list so the UI can refresh without a second call.
-    jobs = parse_cron_list(run_hermes("cron", "list")["stdout"])
-    return {"message": resp["stdout"], "jobs": jobs}
+    """Create a scheduled job in the native store."""
+    out = STORE.create_cron(payload.schedule, payload.prompt, payload.name,
+                            payload.deliver, payload.repeat, payload.skills)
+    return out
 
 
-@app.post("/api/hermes/cron/{job_id}/run")
+@app.post("/api/mc/cron/{job_id}/run")
 def run_cron(job_id: str):
-    """Trigger a cron job."""
-    resp = run_hermes("cron", "run", job_id)
-    return {"message": resp["stdout"]}
+    """Trigger a cron job now — runs its prompt through Claude."""
+    job = STORE.get_cron_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"cron job {job_id} not found")
+    prompt = job.get("prompt")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="job has no prompt to run")
+    try:
+        resp = run_claude(prompt, timeout=300)
+    except ClaudeError as e:
+        raise HTTPException(status_code=502, detail=f"Claude: {e}")
+    STORE.mark_cron_run(job_id)
+    return {"message": resp["result"]}
 
 
-@app.post("/api/hermes/spawn")
+@app.post("/api/mc/spawn")
 def spawn_agent(payload: SpawnPayload):
-    """Spawn a subagent via `hermes chat -q <goal> -Q` (quiet, programmatic)."""
-    # -Q suppresses the banner / TTY prompts so the returned stdout is clean.
-    args = ["chat", "-q", payload.goal, "-Q"]
-    if payload.model:
-        args += ["-m", payload.model]
+    """Spawn a subagent — runs a headless Claude turn on the supplied goal."""
+    goal = payload.goal
     if payload.skills:
-        args += ["-s", ",".join(payload.skills)]
-    resp = run_hermes(*args, timeout=120)
-    return {"message": resp["stdout"]}
+        goal += "\n\n[Operator suggested skills: " + ", ".join(payload.skills) + "]"
+    try:
+        resp = run_claude(goal, model=payload.model, timeout=120)
+    except ClaudeError as e:
+        raise HTTPException(status_code=502, detail=f"Claude: {e}")
+    return {"message": resp["result"]}
 
 
 # Attachments uploaded from the chat UI are written here so the Hermes agent can
@@ -841,16 +1079,18 @@ def save_attachments(attachments: list["AttachmentPayload"]) -> list[dict[str, A
     return saved
 
 
-@app.post("/api/hermes/chat")
+@app.post("/api/mc/chat")
 def chat_message(payload: ChatPayload):
-    """Send a message to Hermes chat and return the response.
+    """Send a message to Claude and return the response.
 
-    Uses `hermes chat -q <message> -Q` for quiet, non-interactive execution.
-    This bypasses the PTY requirement that breaks the desktop app's /chat tab
-    on native Windows.
+    Shells out to `claude -p <message> --output-format json` in headless mode
+    (bypassing permissions so the agent can use its tools unattended) and
+    persists the turn in the native SQLite session store. `session_id` resumes
+    a prior conversation (`claude --resume <id>`), giving real memory.
 
-    Attachments (images/files) are written to a temp dir and their absolute paths
-    are appended to the prompt so the agent can open/read them with its own tools.
+    Attachments (images/files) are written to a temp dir and their absolute
+    paths are appended to the prompt so Claude can open/read them with its own
+    tools.
     """
     message = payload.message
     if payload.attachments:
@@ -863,22 +1103,37 @@ def chat_message(payload: ChatPayload):
         ).format(n=len(saved), paths="\n".join(lines))
         message = (message + note).strip()
 
-    args = ["chat", "-q", message, "-Q"]
-    if payload.session_id:
-        args += ["--resume", payload.session_id]
-    if payload.model:
-        args += ["-m", payload.model]
+    # Skills the UI selected (if any) become a soft hint — Claude Code auto-loads
+    # its own skills, so we surface the request rather than forcing a flag.
     if payload.skills:
-        args += ["-s", ",".join(payload.skills)]
-    resp = run_hermes(*args, timeout=180)
-    # Hermes prints `session_id: <id>` to stderr in -Q mode. Capture it so the UI
-    # can persist + resume the conversation; fall back to the resumed id.
-    sid = parse_session_id(resp.get("stderr", "")) or payload.session_id
+        message += "\n\n[Operator suggested skills: " + ", ".join(payload.skills) + "]"
+
+    try:
+        resp = run_claude(
+            message,
+            session_id=payload.session_id,
+            model=payload.model or mc_diag.current_model(DATA_DIR),
+            timeout=180,
+        )
+    except ClaudeError as e:
+        msg = str(e)
+        status = 503 if "quota" in msg.lower() or "429" in msg else 502
+        raise HTTPException(status_code=status, detail=f"Claude: {msg}")
+
+    sid = resp.get("session_id") or payload.session_id
+    answer = resp.get("result", "")
+
+    # Persist the turn so the sessions list / transcript view stay in sync.
+    if sid:
+        SESSIONS.ensure_session(sid)
+        SESSIONS.append_message(sid, "user", payload.message)
+        SESSIONS.append_message(sid, "assistant", answer)
+
     return {
-        "response": clean_chat_response(resp["stdout"]),
+        "response": answer,
         "session_id": sid,
         "stderr": resp.get("stderr", ""),
-        "success": resp.get("success", True),
+        "success": True,
     }
 
 
@@ -945,61 +1200,32 @@ def parse_sessions_table(text: str) -> list[dict[str, Any]]:
     return out
 
 
-@app.get("/api/hermes/sessions")
+@app.get("/api/mc/sessions")
 def sessions_list(limit: int = 100, source: Optional[str] = None):
-    """List recent Hermes sessions (id, title, preview, relative last-active)."""
-    args = ["sessions", "list", "--limit", str(limit)]
-    if source:
-        args += ["--source", source]
-    resp = run_hermes(*args, timeout=30)
-    return {"sessions": parse_sessions_table(resp["stdout"])}
+    """List recent chat sessions (id, title, preview, relative last-active)."""
+    return {"sessions": SESSIONS.list(limit=limit, source=source)}
 
 
-@app.get("/api/hermes/sessions/{session_id}")
+@app.get("/api/mc/sessions/{session_id}")
 def session_get(session_id: str):
     """Return a single session's full transcript + metadata for resuming/viewing."""
-    resp = run_hermes("sessions", "export", "--session-id", session_id, "-", timeout=30)
-    raw = (resp.get("stdout") or "").strip()
-    try:
-        obj = json.loads(raw.splitlines()[0]) if raw else {}
-    except (json.JSONDecodeError, IndexError):
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found or unreadable")
-    msgs = []
-    for m in obj.get("messages") or []:
-        if not isinstance(m, dict):
-            continue
-        content = m.get("content")
-        if not isinstance(content, str):
-            content = json.dumps(content) if content is not None else ""
-        msgs.append({
-            "role": m.get("role", "assistant"),
-            "content": content,
-            "timestamp": m.get("timestamp"),
-            "tool_name": m.get("tool_name"),
-        })
-    return {
-        "id": obj.get("id", session_id),
-        "title": obj.get("title") or "",
-        "cwd": obj.get("cwd"),
-        "source": obj.get("source"),
-        "message_count": obj.get("message_count", len(msgs)),
-        "started_at": obj.get("started_at"),
-        "ended_at": obj.get("ended_at"),
-        "messages": msgs,
-    }
+    obj = SESSIONS.get(session_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    return obj
 
 
-@app.post("/api/hermes/sessions/{session_id}/rename")
+@app.post("/api/mc/sessions/{session_id}/rename")
 def session_rename(session_id: str, payload: SessionRenamePayload):
-    """Set a session's title (`hermes sessions rename`)."""
-    run_hermes("sessions", "rename", session_id, payload.title, timeout=30)
+    """Set a session's title."""
+    SESSIONS.rename(session_id, payload.title)
     return {"id": session_id, "title": payload.title, "success": True}
 
 
-@app.delete("/api/hermes/sessions/{session_id}")
+@app.delete("/api/mc/sessions/{session_id}")
 def session_delete(session_id: str):
-    """Delete a session from the store (`hermes sessions delete --yes`)."""
-    run_hermes("sessions", "delete", "--yes", session_id, timeout=30)
+    """Delete a session and its transcript from the native store."""
+    SESSIONS.delete(session_id)
     return {"id": session_id, "success": True}
 
 
@@ -1022,18 +1248,23 @@ def _whisper_installed() -> bool:
 
 
 def _get_whisper_model():
-    """Load (once) and return the Whisper model, or None if unavailable."""
+    """Load (once) and return the Whisper model, or None if unavailable.
+
+    A failed load is recorded for /api/transcribe/status but NOT latched —
+    the next call retries. (First-ever load downloads the model from the hub;
+    a transient network failure there used to brick transcription until the
+    bridge was restarted.)
+    """
     global _whisper_model, _whisper_load_error
     if _whisper_model is not None:
         return _whisper_model
-    if _whisper_load_error is not None:
-        return None
     try:
         from faster_whisper import WhisperModel
         size = os.environ.get("WHISPER_MODEL", "base.en")
         device = os.environ.get("WHISPER_DEVICE", "cpu")
         compute = os.environ.get("WHISPER_COMPUTE", "int8")
         _whisper_model = WhisperModel(size, device=device, compute_type=compute)
+        _whisper_load_error = None
         return _whisper_model
     except Exception as exc:  # noqa: BLE001
         _whisper_load_error = str(exc)
@@ -1098,43 +1329,29 @@ def transcribe(payload: TranscribePayload):
     return {"text": text}
 
 
-@app.get("/api/hermes/briefing")
+@app.get("/api/mc/briefing")
 def get_briefing():
-    """Synthesize a live briefing from Hermes CLI data."""
-    # The four datasets are independent; fetch them concurrently. Sequentially this
-    # was ~4s per request (4 subprocess spawns) and congested the bridge under the
-    # 30s polling from the Briefing page. Parallel ≈ the slowest single call (~1s).
-    with ThreadPoolExecutor(max_workers=4) as _ex:
-        _f_version = _ex.submit(run_hermes, "--version")
-        _f_tasks = _ex.submit(run_hermes, "kanban", "list", "--json")
-        _f_agents = _ex.submit(run_hermes, "kanban", "assignees", "--json")
-        _f_cron = _ex.submit(run_hermes, "cron", "list")
-        version_resp = _f_version.result()
-        tasks_resp = _f_tasks.result()
-        agents_resp = _f_agents.result()
-        cron_resp = _f_cron.result()
-
+    """Synthesize a live briefing from the native data layer."""
     # 1. Version / system status
-    version_lines = version_resp.get("stdout", "").strip().splitlines()
-    version_line = version_lines[0] if version_lines else "Hermes connected"
+    version_line = "Mission Control · Claude online"
 
     # 2. Tasks
-    tasks: list[dict[str, Any]] = tasks_resp.get("data") or []
+    tasks: list[dict[str, Any]] = STORE.list_tasks()["tasks"]
     total = len(tasks)
     done = sum(1 for t in tasks if t.get("status") in ("done", "completed"))
     blocked = sum(1 for t in tasks if t.get("status") == "blocked")
     ready = sum(1 for t in tasks if t.get("status") == "ready")
     running = sum(1 for t in tasks if t.get("status") == "running")
-    pending = sum(1 for t in tasks if t.get("status") == "pending")
+    pending = sum(1 for t in tasks if t.get("status") in ("pending", "todo"))
     failed = sum(1 for t in tasks if t.get("status") == "failed")
 
     # 3. Agents / assignees
-    agents: list[dict[str, Any]] = agents_resp.get("data") or []
+    agents: list[dict[str, Any]] = STORE.agents_with_counts()
     agent_count = len(agents)
     on_disk = sum(1 for a in agents if a.get("on_disk"))
 
     # 4. Cron jobs
-    cron_jobs = parse_cron_list(cron_resp.get("stdout", ""))
+    cron_jobs = STORE.list_cron()["jobs"]
     active_jobs = [j for j in cron_jobs if j.get("status") == "active"]
     job_count = len(cron_jobs)
     active_count = len(active_jobs)
@@ -1223,9 +1440,8 @@ CONTENT_KEYWORDS = re.compile(r"content|instagram|website|blog|post|creative", r
 
 @app.get("/api/content/pipeline")
 def get_content_pipeline():
-    """Return live content pipeline data derived from Hermes kanban tasks."""
-    resp = run_hermes("kanban", "list", "--json")
-    tasks: list[dict[str, Any]] = (resp.get("data") or []) if isinstance(resp.get("data"), list) else []
+    """Return live content pipeline data derived from native kanban tasks."""
+    tasks: list[dict[str, Any]] = STORE.list_tasks()["tasks"]
 
     # Filter tasks whose title or body matches content keywords
     content_tasks = [
@@ -1355,7 +1571,7 @@ class GenerateContentPayload(BaseModel):
     platform: str
     topic: str
 
-@app.get("/api/hermes/content/ideas")
+@app.get("/api/mc/content/ideas")
 def get_content_ideas():
     """Return placeholder content ideas."""
     return {
@@ -1366,7 +1582,7 @@ def get_content_ideas():
         ]
     }
 
-@app.get("/api/hermes/content/calendar")
+@app.get("/api/mc/content/calendar")
 def get_content_calendar():
     """Return placeholder content calendar."""
     return {
@@ -1374,7 +1590,7 @@ def get_content_calendar():
         "calendar": _load_store("calendar", []),
     }
 
-@app.post("/api/hermes/content/generate")
+@app.post("/api/mc/content/generate")
 def generate_content(payload: GenerateContentPayload):
     """Accept platform and topic, return a queued generation job."""
     import uuid
@@ -1451,6 +1667,66 @@ def _http_json(method: str, url: str, payload: Optional[dict] = None,
         raise HTTPException(status_code=502, detail=f"request to {url.split('/')[2]} failed: {e}")
 
 
+# ── Voice Link — ElevenLabs text-to-speech (Ghost Network's voice channel) ──
+# STT is the local Whisper endpoint above (free); this is the speak-back half.
+# The key is read like every other bridge secret: env var first, then
+# HERMES_HOME/.env. The UI falls back to the browser's speechSynthesis when
+# this reports unavailable, so the feature degrades to free instead of broken.
+
+ELEVEN_DEFAULT_VOICE = os.environ.get("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # "Adam"
+ELEVEN_DEFAULT_MODEL = os.environ.get("ELEVENLABS_MODEL_ID", "eleven_flash_v2_5")  # cheapest: 0.5 credits/char
+# Hard cap per request so one long agent reply can't burn the credit balance.
+TTS_MAX_CHARS = int(os.environ.get("ELEVENLABS_MAX_CHARS", "2400"))
+
+
+class TTSPayload(BaseModel):
+    text: str
+    voice_id: Optional[str] = None
+
+
+def _eleven_key() -> str:
+    return _env_key("ELEVENLABS_API_KEY", "ELEVEN_API_KEY", "XI_API_KEY")
+
+
+@app.get("/api/tts/status")
+def tts_status():
+    """Report whether ElevenLabs TTS is configured on this bridge."""
+    return {
+        "available": bool(_eleven_key()),
+        "voice_id": ELEVEN_DEFAULT_VOICE,
+        "model_id": ELEVEN_DEFAULT_MODEL,
+        "max_chars": TTS_MAX_CHARS,
+    }
+
+
+@app.post("/api/tts")
+def tts_synthesize(payload: TTSPayload):
+    """Synthesize speech via ElevenLabs and return raw MP3 bytes."""
+    key = _eleven_key()
+    if not key:
+        raise HTTPException(status_code=503, detail="ELEVENLABS_API_KEY not configured in the bridge environment")
+    text = (payload.text or "").strip()[:TTS_MAX_CHARS]
+    if not text:
+        raise HTTPException(status_code=400, detail="Empty text")
+    import urllib.request
+    import urllib.error
+    voice = payload.voice_id or ELEVEN_DEFAULT_VOICE
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_44100_64"
+    body = json.dumps({"text": text, "model_id": ELEVEN_DEFAULT_MODEL}).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("xi-api-key", key)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            audio = resp.read()
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")[:400]
+        raise HTTPException(status_code=502, detail=f"ElevenLabs HTTP {e.code}: {detail}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"ElevenLabs request failed: {e}")
+    return Response(content=audio, media_type="audio/mpeg")
+
+
 # ── Leads — real local pipeline (agents POST here; CRM sync can come later) ──
 
 class LeadPayload(BaseModel):
@@ -1463,13 +1739,13 @@ class LeadPayload(BaseModel):
     notes: Optional[str] = None
 
 
-@app.get("/api/hermes/leads")
+@app.get("/api/mc/leads")
 def get_leads():
-    """Real leads from the local store (agents add via POST /api/hermes/leads)."""
+    """Real leads from the local store (agents add via POST /api/mc/leads)."""
     return {"leads": _load_store("leads", []), "source": "local-store"}
 
 
-@app.post("/api/hermes/leads")
+@app.post("/api/mc/leads")
 def add_lead(payload: LeadPayload):
     import uuid
     leads = _load_store("leads", [])
@@ -1489,7 +1765,7 @@ class LeadUpdatePayload(BaseModel):
     notes: Optional[str] = None
 
 
-@app.put("/api/hermes/leads/{lead_id}")
+@app.put("/api/mc/leads/{lead_id}")
 def update_lead(lead_id: str, payload: LeadUpdatePayload):
     leads = _load_store("leads", [])
     for lead in leads:
@@ -1501,7 +1777,7 @@ def update_lead(lead_id: str, payload: LeadUpdatePayload):
     raise HTTPException(status_code=404, detail=f"lead {lead_id} not found")
 
 
-@app.delete("/api/hermes/leads/{lead_id}")
+@app.delete("/api/mc/leads/{lead_id}")
 def delete_lead(lead_id: str):
     leads = _load_store("leads", [])
     kept = [l for l in leads if l.get("id") != lead_id]
@@ -1511,25 +1787,184 @@ def delete_lead(lead_id: str):
     return {"deleted": lead_id}
 
 
-# ── Content calendar — local store + optional social scheduling ──────────────
-# Buffer's MODERN GraphQL API (graph.buffer.com) accepts the account's OIDC
-# token; its public surface is the Ideas workflow — we push planned content
-# into Buffer Ideas, where it gets dragged onto the posting queue. (The legacy
-# REST API rejects OIDC tokens.) Ayrshare remains a direct-scheduling fallback.
+# ── Content calendar — local store + Metricool auto-posting ──────────────────
+# Metricool is the SOLE posting provider (replaced Buffer's ideas-only push and
+# Ayrshare's scheduling, 2026-06-12). Preferred transport: DIRECT JSON-RPC to
+# Metricool's MCP server with header auth (X-Mc-Auth) — deterministic, no LLM.
+# A `hermes -z` one-shot is the fallback when no API key is configured, but it
+# proved unreliable from a headless bridge (hangs on MCP connect, and the model
+# sometimes fabricates tool output instead of calling the tool).
 
-BUFFER_TOKEN = _env_key("BUFFER_ACCESS_TOKEN", "BUFFER_TOKEN")
-BUFFER_ORG_ID = _env_key("BUFFER_ORGANIZATION_ID", "BUFFER_ORG_ID")
-AYRSHARE_KEY = _env_key("AYRSHARE_API_KEY", "AYRSHARE_KEY")
-BUFFER_GRAPHQL = "https://api.buffer.com/"
+METRICOOL_MCP_URL = "https://ai.metricool.com/mcp"
+METRICOOL_API_KEY = _env_key("METRICOOL_API_KEY", "METRICOOL_USER_TOKEN")
 
 
-def _buffer_graphql(query: str, variables: Optional[dict] = None) -> dict:
-    data = _http_json("POST", BUFFER_GRAPHQL,
-                      payload={"query": query, **({"variables": variables} if variables else {})},
-                      headers={"Authorization": f"Bearer {BUFFER_TOKEN}"}, timeout=45)
-    if data.get("errors"):
-        raise HTTPException(status_code=502, detail=f"buffer graphql: {data['errors'][0].get('message', data['errors'][0])}")
-    return data.get("data") or {}
+def _metricool_mcp(tool: str, arguments: Optional[dict] = None) -> Any:
+    """Call one Metricool MCP tool over streamable-HTTP JSON-RPC (initialize →
+    initialized → tools/call). Returns the tool's structured/parsed payload."""
+    import urllib.request
+    import urllib.error
+    if not METRICOOL_API_KEY:
+        raise HTTPException(status_code=400,
+                            detail="METRICOOL_API_KEY not set — copy it from Metricool Settings → API and add it to ~/.hermes/.env")
+
+    def post(payload: dict, session: Optional[str] = None) -> tuple[Any, Optional[str]]:
+        req = urllib.request.Request(METRICOOL_MCP_URL, data=json.dumps(payload).encode("utf-8"), method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json, text/event-stream")
+        req.add_header("X-Mc-Auth", METRICOOL_API_KEY)
+        if session:
+            req.add_header("Mcp-Session-Id", session)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                sid = resp.headers.get("Mcp-Session-Id") or session
+                ctype = resp.headers.get("Content-Type") or ""
+                text = resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as e:
+            raise HTTPException(status_code=502,
+                                detail=f"metricool mcp HTTP {e.code}: {e.read().decode('utf-8', errors='replace')[:300]}")
+        if not text.strip():
+            return None, sid
+        if "text/event-stream" in ctype:
+            # take the last data: chunk — servers may stream progress first
+            chunks = [ln[5:].strip() for ln in text.splitlines() if ln.startswith("data:") and ln[5:].strip()]
+            return (json.loads(chunks[-1]) if chunks else None), sid
+        return json.loads(text), sid
+
+    _, sid = post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-03-26", "capabilities": {},
+        "clientInfo": {"name": "mission-control-bridge", "version": "1.0"},
+    }})
+    post({"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
+    msg, _ = post({"jsonrpc": "2.0", "id": 2, "method": tool if tool.endswith("/list") else "tools/call",
+                   "params": {} if tool.endswith("/list") else {"name": tool, "arguments": arguments or {}}}, sid)
+    if msg is None:
+        raise HTTPException(status_code=502, detail="metricool mcp returned no payload")
+    if msg.get("error"):
+        raise HTTPException(status_code=502, detail=f"metricool mcp error: {json.dumps(msg['error'])[:300]}")
+    res = msg.get("result") or {}
+    if res.get("isError"):
+        raise HTTPException(status_code=502, detail=f"metricool tool '{tool}' error: {json.dumps(res)[:300]}")
+    if "structuredContent" in res:
+        return res["structuredContent"]
+    for block in res.get("content") or []:
+        if block.get("type") == "text":
+            txt = block.get("text", "")
+            try:
+                return json.loads(txt)
+            except json.JSONDecodeError:
+                return txt
+    return res
+
+
+@app.get("/api/metricool/mcp-tools")
+def get_metricool_mcp_tools():
+    """tools/list passthrough — used to discover exact tool input schemas."""
+    return _metricool_mcp("tools/list")
+
+
+def _metricool_brand() -> dict:
+    """First synced brand from the local cache (POST /api/metricool/brands)."""
+    cache = _load_store("metricool-brands", None)
+    brands = (cache or {}).get("brands") or []
+    if not brands:
+        raise HTTPException(status_code=400,
+                            detail="Metricool brands not synced — POST /api/metricool/brands once (needs the metricool MCP in Hermes)")
+    return brands[0]
+
+
+def _metricool_schedule(item: dict) -> dict:
+    """Schedule a post via Metricool createScheduledPost (auto-publishes at the
+    planned time). Media must be publicly hosted URLs — Higgsfield-generated
+    media already is; locally staged files are not reachable by Metricool."""
+    brand = _metricool_brand()
+    platform = (item.get("platform") or "instagram").lower()
+    networks = brand.get("networks") or {}
+    if networks and platform not in networks:
+        raise HTTPException(status_code=400,
+                            detail=f"'{platform}' is not connected in Metricool (connected: {', '.join(networks)})")
+    urls = item.get("media_urls") or []
+    if not urls and item.get("media_local"):
+        raise HTTPException(status_code=400,
+                            detail="attached media is only staged locally — Metricool needs public URLs (Higgsfield-generated media works as-is)")
+    prompt = (
+        "Use the metricool MCP. Schedule a post with createScheduledPost using EXACTLY these values:\n"
+        f"- blog/brand id: {brand.get('blogId') or brand.get('id')}\n"
+        f"- network: {platform}\n"
+        f"- text: {json.dumps(item.get('body') or item.get('title'))}\n"
+        f"- media URLs: {json.dumps(urls) if urls else '(none)'}\n"
+        f"- publication date: {item.get('date')} — if this has no time of day, first call "
+        f"getBestTimeToPostByNetwork for {platform} and use the best hour on that date\n"
+        "- autoPublish: true (publish automatically, not a draft)\n"
+        'Then output STRICT JSON only (no prose, no fences): {"id": "<scheduled post id>", '
+        '"scheduled_for": "<final ISO datetime>", "status": "<status from metricool>"}'
+    )
+    return _llm_json(prompt, timeout=300)
+
+
+@app.get("/api/metricool/brands")
+def get_metricool_brands():
+    """Cached connected-accounts map (refresh with POST)."""
+    cache = _load_store("metricool-brands", None)
+    if not cache:
+        return {"available": False, "reason": "not synced yet — POST /api/metricool/brands"}
+    return {"available": True, **cache}
+
+
+_MC_NETWORKS = ("instagram", "threads", "tiktok", "facebook", "linkedin", "twitter",
+                "x", "youtube", "pinterest", "bluesky", "gmb", "twitch")
+
+
+def _normalize_metricool_brand(b: dict) -> dict:
+    """Best-effort {name, blogId, networks} from a raw getBrandSettings brand."""
+    networks: dict[str, str] = {}
+    for net in _MC_NETWORKS:
+        for key in (net, f"{net}UserName", f"{net}Handle", f"{net}Account", f"{net}_handle"):
+            v = b.get(key)
+            if isinstance(v, dict):
+                v = v.get("username") or v.get("handle") or v.get("name")
+            if isinstance(v, str) and v.strip():
+                networks[net] = v.strip().lstrip("@")
+                break
+    return {
+        "name": b.get("label") or b.get("name") or b.get("title") or "?",
+        "blogId": b.get("blogId") or b.get("id"),
+        "networks": networks,
+    }
+
+
+@app.post("/api/metricool/brands")
+def sync_metricool_brands():
+    """Pull brands + connected profiles from Metricool. Direct MCP call when
+    METRICOOL_API_KEY is set; Hermes one-shot fallback otherwise (slow, LLM)."""
+    if METRICOOL_API_KEY:
+        raw = _metricool_mcp("getBrandSettings")
+        raw_brands = raw if isinstance(raw, list) else \
+            (raw.get("brands") or raw.get("data") or []) if isinstance(raw, dict) else []
+        brands = [_normalize_metricool_brand(b) for b in raw_brands if isinstance(b, dict)]
+        cache = {"synced_at": datetime.now().isoformat(), "via": "mcp-direct",
+                 "brands": brands, "raw": raw_brands}
+    else:
+        prompt = (
+            "Call the metricool MCP tool getBrandSettings. Output STRICT JSON only (no prose, no fences): "
+            '{"brands": [{"name": "<brand name>", "blogId": <numeric id>, '
+            '"networks": {"<network>": "<connected handle>", ...}}]}'
+        )
+        parsed = _llm_json(prompt, timeout=300)
+        brands = parsed.get("brands") or []
+        # Hallucination guard: a real Metricool blogId is numeric. The model has
+        # been observed inventing plausible brands instead of calling the tool.
+        for b in brands:
+            try:
+                int(str(b.get("blogId")))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=502,
+                                    detail=f"non-numeric blogId {b.get('blogId')!r} — the model likely fabricated the data instead of calling the MCP; retry, or set METRICOOL_API_KEY for the deterministic path")
+        cache = {"synced_at": datetime.now().isoformat(), "via": "hermes-llm", "brands": brands}
+    if not cache["brands"]:
+        raise HTTPException(status_code=502, detail="getBrandSettings returned no brands — is the Metricool account connected?")
+    _save_store("metricool-brands", cache)
+    return {"available": True, **cache}
 
 
 class CalendarItemPayload(BaseModel):
@@ -1539,44 +1974,25 @@ class CalendarItemPayload(BaseModel):
     body: Optional[str] = None
     status: Optional[str] = "draft"  # draft | scheduled | posted
     media_urls: Optional[list[str]] = None
-    # When true and AYRSHARE_API_KEY is set, schedule the post via Ayrshare.
+    # When true, schedule the post via Metricool immediately on creation.
     publish: Optional[bool] = False
 
 
 @app.get("/api/content/calendar")
 def get_content_calendar():
-    """Real calendar: local store, plus the scheduler's queue when configured.
-    Provider preference: Buffer, then Ayrshare."""
+    """Real calendar: local store + Metricool scheduling status. Posts pushed
+    from here are stamped with metricool_id; the live queue is Metricool's."""
     items = _load_store("calendar", [])
     scheduler: dict[str, Any] = {
-        "provider": "buffer" if (BUFFER_TOKEN and BUFFER_ORG_ID) else "ayrshare" if AYRSHARE_KEY else None,
-        "configured": bool((BUFFER_TOKEN and BUFFER_ORG_ID) or AYRSHARE_KEY),
-        "history": [],
+        "provider": "metricool",
+        "configured": bool((_load_store("metricool-brands", None) or {}).get("brands")),
+        "history": [
+            {"id": i.get("metricool_id"), "title": i.get("title", "")[:90],
+             "date": i.get("scheduled_for") or i.get("date"),
+             "platform": i.get("platform", "?"), "status": i.get("status", "scheduled")}
+            for i in items if i.get("metricool_id")
+        ],
     }
-    try:
-        if BUFFER_TOKEN and BUFFER_ORG_ID:
-            # Ideas pushed from here are tracked in the local store (status
-            # 'idea-sent'); Buffer's public GraphQL surface is push-oriented,
-            # so the queue itself is managed inside Buffer.
-            scheduler["history"] = [
-                {"id": i.get("buffer_id"), "title": i.get("title", "")[:90],
-                 "date": i.get("date"), "platform": i.get("platform", "?"), "status": i.get("status", "idea-sent")}
-                for i in items if i.get("buffer_id")
-            ]
-        elif AYRSHARE_KEY:
-            hist = _http_json("GET", "https://api.ayrshare.com/api/history",
-                              headers={"Authorization": f"Bearer {AYRSHARE_KEY}"}, timeout=30)
-            posts = hist if isinstance(hist, list) else hist.get("history", hist.get("posts", []))
-            for p in (posts or [])[:50]:
-                scheduler["history"].append({
-                    "id": p.get("id"),
-                    "title": (p.get("post") or "")[:90],
-                    "date": p.get("scheduleDate") or p.get("created"),
-                    "platform": ",".join(p.get("platforms", [])) or "?",
-                    "status": p.get("status", "posted"),
-                })
-    except HTTPException as e:
-        scheduler["error"] = str(e.detail)
     return {"calendar": items, "scheduler": scheduler}
 
 
@@ -1590,35 +2006,10 @@ def add_calendar_item(payload: CalendarItemPayload):
         **payload.model_dump(exclude={"publish"}),
     }
     if payload.publish:
-        if BUFFER_TOKEN and BUFFER_ORG_ID:
-            # Push into Buffer Ideas via the modern GraphQL API. The idea text
-            # carries the planned date/platform so it's actionable inside Buffer.
-            idea_text = (payload.body or payload.title) + f"\n\n[planned: {payload.date} · {payload.platform} · via Mission Control]"
-            # Inline-args form mirrors Buffer's documented example exactly
-            # (avoids guessing their GraphQL input type names for variables).
-            mutation = (
-                "mutation CreateIdea { createIdea(input: { "
-                f"organizationId: {json.dumps(BUFFER_ORG_ID)}, "
-                f"content: {{ title: {json.dumps(payload.title)} text: {json.dumps(idea_text)} }} "
-                "}) { ... on Idea { id content { title text } } } }"
-            )
-            data = _buffer_graphql(mutation)
-            idea = data.get("createIdea") or {}
-            if not idea.get("id"):
-                raise HTTPException(status_code=502, detail=f"buffer createIdea returned no id: {json.dumps(idea)[:200]}")
-            item["status"] = "idea-sent"
-            item["buffer_id"] = idea["id"]
-        elif AYRSHARE_KEY:
-            resp = _http_json("POST", "https://api.ayrshare.com/api/post", payload={
-                "post": payload.body or payload.title,
-                "platforms": [payload.platform],
-                "scheduleDate": payload.date,
-                **({"mediaUrls": payload.media_urls} if payload.media_urls else {}),
-            }, headers={"Authorization": f"Bearer {AYRSHARE_KEY}"}, timeout=60)
-            item["status"] = "scheduled"
-            item["ayrshare_id"] = resp.get("id")
-        else:
-            raise HTTPException(status_code=400, detail="no scheduler configured — set BUFFER_ACCESS_TOKEN (preferred) or AYRSHARE_API_KEY in ~/.hermes/.env")
+        resp = _metricool_schedule(item)
+        item["status"] = "scheduled"
+        item["metricool_id"] = resp.get("id")
+        item["scheduled_for"] = resp.get("scheduled_for")
     items.append(item)
     items.sort(key=lambda x: x.get("date", ""))
     _save_store("calendar", items)
@@ -1626,8 +2017,9 @@ def add_calendar_item(payload: CalendarItemPayload):
 
 
 # ── Media + scheduling — upload video/images in the dashboard, attach them to
-# calendar items, then schedule the actual social post through Ayrshare (the
-# programmatic posting arm; Buffer's public API is ideas-only). ──────────────
+# calendar items, then schedule the actual social post through Metricool.
+# Locally staged media is for drafting/preview only: Metricool needs publicly
+# hosted URLs (Higgsfield-generated media qualifies; localhost does not). ─────
 
 MEDIA_DIR = DATA_DIR / "media"
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -1683,85 +2075,20 @@ def attach_calendar_media(item_id: str, payload: AttachMediaPayload):
     raise HTTPException(status_code=404, detail=f"calendar item {item_id} not found")
 
 
-def _ayrshare_upload(media_id: str) -> str:
-    """Upload a locally-stored file to Ayrshare's media host; returns its URL.
-    Ayrshare needs publicly reachable media — localhost paths won't do."""
-    p = MEDIA_DIR / media_id
-    if not p.exists():
-        raise HTTPException(status_code=404, detail=f"media {media_id} missing on disk")
-    b64 = base64.b64encode(p.read_bytes()).decode("ascii")
-    resp = _http_json("POST", "https://api.ayrshare.com/api/media/upload", payload={
-        "file": b64, "fileName": media_id.split("_", 1)[-1],
-    }, headers={"Authorization": f"Bearer {AYRSHARE_KEY}"}, timeout=300)
-    url = resp.get("url") or resp.get("accessUrl")
-    if not url:
-        raise HTTPException(status_code=502, detail=f"ayrshare upload returned no url: {json.dumps(resp)[:200]}")
-    return url
-
-
-@app.post("/api/content/calendar/{item_id}/push-buffer")
-def push_calendar_item_to_buffer(item_id: str):
-    """Push a calendar item's COMPLETE package (final copy + plan + media note)
-    into Buffer Ideas — used after an agent has produced the finished caption.
-    Buffer's public API is ideas-only: media stays staged locally and the
-    publish click happens inside Buffer."""
-    if not (BUFFER_TOKEN and BUFFER_ORG_ID):
-        raise HTTPException(status_code=400, detail="BUFFER_ACCESS_TOKEN / BUFFER_ORGANIZATION_ID not configured")
-    items = _load_store("calendar", [])
-    item = next((i for i in items if i.get("id") == item_id), None)
-    if not item:
-        raise HTTPException(status_code=404, detail=f"calendar item {item_id} not found")
-    media_note = ""
-    locals_ = item.get("media_local") or []
-    urls = item.get("media_urls") or []
-    if locals_ or urls:
-        media_note = "\n\nMEDIA:\n" + "\n".join(
-            [f"- staged in Mission Control: {m.split('_', 1)[-1]}" for m in locals_] +
-            [f"- {u}" for u in urls]
-        )
-    text = (item.get("body") or item.get("title")) + media_note + \
-        f"\n\n[planned: {item.get('date')} · {item.get('platform')} · via Mission Control]"
-    mutation = (
-        "mutation CreateIdea { createIdea(input: { "
-        f"organizationId: {json.dumps(BUFFER_ORG_ID)}, "
-        f"content: {{ title: {json.dumps(item.get('title', ''))} text: {json.dumps(text)} }} "
-        "}) { ... on Idea { id } } }"
-    )
-    data = _buffer_graphql(mutation)
-    idea = data.get("createIdea") or {}
-    if not idea.get("id"):
-        raise HTTPException(status_code=502, detail=f"buffer createIdea returned no id: {json.dumps(idea)[:200]}")
-    item["buffer_id"] = idea["id"]
-    item["status"] = "idea-sent"
-    _save_store("calendar", items)
-    return {"item": item}
-
-
 @app.post("/api/content/calendar/{item_id}/schedule")
 def schedule_calendar_item(item_id: str):
-    """The real posting hop: upload the item's attached media to Ayrshare and
-    book the post for the item's date. Requires AYRSHARE_API_KEY."""
-    if not AYRSHARE_KEY:
-        raise HTTPException(status_code=400, detail="AYRSHARE_API_KEY not set — Ayrshare is the auto-posting arm (Buffer's public API cannot schedule posts or carry media). Free key: ayrshare.com")
+    """The real posting hop: book the post with Metricool for the item's date —
+    Metricool auto-publishes at that time, no human click needed."""
     items = _load_store("calendar", [])
     item = next((i for i in items if i.get("id") == item_id), None)
     if not item:
         raise HTTPException(status_code=404, detail=f"calendar item {item_id} not found")
-    media_urls = list(item.get("media_urls") or [])
-    for mid in item.get("media_local") or []:
-        media_urls.append(_ayrshare_upload(mid))
-    sched = item["date"] if "T" in item["date"] else f"{item['date']}T12:00:00Z"
-    resp = _http_json("POST", "https://api.ayrshare.com/api/post", payload={
-        "post": item.get("body") or item.get("title"),
-        "platforms": [item.get("platform", "instagram")],
-        "scheduleDate": sched,
-        **({"mediaUrls": media_urls} if media_urls else {}),
-    }, headers={"Authorization": f"Bearer {AYRSHARE_KEY}"}, timeout=120)
+    resp = _metricool_schedule(item)
     item["status"] = "scheduled"
-    item["ayrshare_id"] = resp.get("id")
-    item["media_urls"] = media_urls
+    item["metricool_id"] = resp.get("id")
+    item["scheduled_for"] = resp.get("scheduled_for")
     _save_store("calendar", items)
-    return {"item": item, "ayrshare": resp}
+    return {"item": item, "metricool": resp}
 
 
 @app.delete("/api/content/calendar/{item_id}")
@@ -1774,7 +2101,69 @@ def delete_calendar_item(item_id: str):
     return {"deleted": item_id}
 
 
+@app.post("/api/content/calendar/{item_id}/predict-virality")
+def predict_calendar_virality(item_id: str):
+    """Advisory virality QA on the item's produced video: a one-shot Hermes
+    session runs it through Higgsfield's virality predictor MCP and the
+    verdict is stamped on the item. Never blocks scheduling — the threshold
+    stays human until predicted vs. actual engagement has been compared."""
+    items = _load_store("calendar", [])
+    item = next((i for i in items if i.get("id") == item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail=f"calendar item {item_id} not found")
+    urls = list(item.get("media_urls") or [])
+    if not urls:
+        raise HTTPException(status_code=400, detail="no media to analyze — the item needs a publicly hosted media URL (Higgsfield-generated media works as-is)")
+    prompt = (
+        "Use the higgsfield MCP tools: import this video with media_import_url, then run "
+        f"virality_predictor on it. Video: {urls[0]} . Target platform: {item.get('platform', 'instagram')}. "
+        "From the predictor output produce STRICT JSON (no markdown fences, no prose): "
+        '{"score": <0-100 overall virality>, "hook_strength": "<one line>", '
+        '"retention_risk": "<one line>", "verdict": "<post|revise>", '
+        '"suggestions": ["<concrete improvement>", ...]}'
+    )
+    parsed = _llm_json(prompt, timeout=600)
+    item["virality"] = {
+        "predicted_at": datetime.now().isoformat(),
+        "media_url": urls[0],
+        "score": parsed.get("score"),
+        "hook_strength": parsed.get("hook_strength", ""),
+        "retention_risk": parsed.get("retention_risk", ""),
+        "verdict": parsed.get("verdict", ""),
+        "suggestions": (parsed.get("suggestions") or [])[:5],
+    }
+    _save_store("calendar", items)
+    return {"item": item}
+
+
 # ── Creator intel — Apify scraping of niche creators for viral-content signals ─
+
+# Trend windows in short-form are days, not months: anything older than this
+# is noise for the Idea Engine, so it's filtered both at the Apify actor and
+# again locally (Instagram pinned posts leak through the actor-side filter).
+RECENCY_MAX_AGE_DAYS = 30
+# Within the window, freshness halves the score every N days.
+VIRAL_DECAY_HALF_LIFE_DAYS = 7.0
+
+
+def _post_age_days(posted_at: Any) -> Optional[float]:
+    """Age in days from an IG ISO timestamp or a TikTok unix epoch (s or ms)."""
+    if posted_at is None:
+        return None
+    try:
+        if isinstance(posted_at, (int, float)) or (isinstance(posted_at, str) and posted_at.isdigit()):
+            ts = float(posted_at)
+            if ts > 1e12:  # milliseconds
+                ts /= 1000.0
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        else:
+            dt = datetime.fromisoformat(str(posted_at).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
+    except (ValueError, OSError, OverflowError):
+        return None
+
 
 APIFY_TOKEN = _env_key("APIFY_API_TOKEN", "APIFY_TOKEN")
 # Actor per platform; run-sync-get-dataset-items returns scraped items directly.
@@ -1843,9 +2232,11 @@ def scrape_creators():
             errors.append(f"no Apify actor mapped for platform '{platform}'")
             continue
         if platform == "instagram":
-            run_input = {"username": handles, "resultsLimit": 12}
+            run_input = {"username": handles, "resultsLimit": 12,
+                         "onlyPostsNewerThan": f"{RECENCY_MAX_AGE_DAYS} days"}
         else:  # tiktok
-            run_input = {"profiles": handles, "resultsPerPage": 12, "shouldDownloadVideos": False}
+            run_input = {"profiles": handles, "resultsPerPage": 12, "shouldDownloadVideos": False,
+                         "scrapeLastNDays": RECENCY_MAX_AGE_DAYS}
         try:
             data = _http_json(
                 "POST",
@@ -1860,22 +2251,46 @@ def scrape_creators():
                     expanded.extend(it["latestPosts"])
                 else:
                     expanded.append(it)
+            dropped_old = 0
             for it in expanded:
                 likes = it.get("likesCount") or it.get("diggCount") or 0
                 comments = it.get("commentsCount") or it.get("commentCount") or 0
                 views = it.get("videoViewCount") or it.get("playCount") or 0
+                posted_at = it.get("timestamp") or it.get("createTime") or None
+                # Hard local floor: actor-side date filters miss pinned posts,
+                # and undated items can't be proven fresh — both are out.
+                age = _post_age_days(posted_at)
+                if age is None or age > RECENCY_MAX_AGE_DAYS:
+                    dropped_old += 1
+                    continue
                 items.append({
                     "platform": platform,
                     "creator": it.get("ownerUsername") or it.get("authorMeta", {}).get("name") or "?",
                     "caption": (it.get("caption") or it.get("text") or "")[:280],
                     "url": it.get("url") or it.get("webVideoUrl") or "",
                     "likes": likes, "comments": comments, "views": views,
-                    "posted_at": it.get("timestamp") or it.get("createTime") or None,
-                    # crude viral score: engagement weighted toward velocity-friendly signals
-                    "viral_score": int(likes + comments * 8 + views * 0.02),
+                    "posted_at": posted_at,
+                    "age_days": round(age, 1),
+                    # engagement weighted toward active signals; relative score added below
+                    "engagement": int(likes + comments * 8 + views * 0.02),
                 })
+            if dropped_old:
+                errors.append(f"{platform}: dropped {dropped_old} post(s) older than {RECENCY_MAX_AGE_DAYS}d or undated")
         except HTTPException as e:
             errors.append(f"{platform}: {e.detail}")
+
+    # Viral score = outperformance × freshness. A post is measured against its
+    # OWN creator's median engagement in this batch (so big accounts don't win
+    # on size, and IG/TikTok scales cancel out), then decayed by age. 100 ≈ a
+    # creator's fresh, baseline post; 500 ≈ a 5× breakout this week.
+    baseline: dict[tuple[str, str], float] = {}
+    for key in {(i["platform"], i["creator"]) for i in items}:
+        vals = [float(i["engagement"]) for i in items if (i["platform"], i["creator"]) == key]
+        baseline[key] = max(median(vals), 1.0)
+    for i in items:
+        rel = i["engagement"] / baseline[(i["platform"], i["creator"])]
+        decay = 0.5 ** (i["age_days"] / VIRAL_DECAY_HALF_LIFE_DAYS)
+        i["viral_score"] = round(rel * decay * 100, 1)
 
     items.sort(key=lambda x: x["viral_score"], reverse=True)
     feed = {"scraped_at": datetime.now().isoformat(), "items": items[:120], "errors": errors}
@@ -1888,16 +2303,16 @@ def scrape_creators():
 DIGEST_MAX_AGE_H = 12
 
 
-@app.get("/api/hermes/ai-digest")
+@app.get("/api/mc/ai-digest")
 def get_ai_digest():
-    """Cached consolidated digest (regenerate with POST /api/hermes/ai-digest)."""
+    """Cached consolidated digest (regenerate with POST /api/mc/ai-digest)."""
     digest = _load_store("ai-digest", None)
     if not digest:
-        return {"available": False, "reason": "not generated yet — POST /api/hermes/ai-digest"}
+        return {"available": False, "reason": "not generated yet — POST /api/mc/ai-digest"}
     return {"available": True, **digest}
 
 
-@app.post("/api/hermes/ai-digest")
+@app.post("/api/mc/ai-digest")
 def generate_ai_digest():
     """Synthesize Sentinel's raw story links into ONE consolidated digest with
     viral-potential content ideas, via `hermes -z`. Slow (LLM): 1-3 min."""
@@ -1916,18 +2331,7 @@ def generate_ai_digest():
         '"why_viral": "<why this can go viral now>", "source_url": "<most relevant url>"}]} '
         "Pick the 5-7 stories with the highest viral potential for short-form content. Headlines:\n" + story_lines
     )
-    resp = run_hermes("-z", prompt, timeout=240)
-    raw = resp["stdout"].strip()
-    if "HTTP 429" in raw or "usage limit" in raw:
-        raise HTTPException(status_code=503, detail="LLM quota exhausted (Kimi 429). Wait for the quota refresh or add a fallback provider: hermes fallback add")
-    # Tolerate accidental fences or leading text around the JSON.
-    m = re.search(r"\{.*\}", raw, re.S)
-    if not m:
-        raise HTTPException(status_code=502, detail=f"model returned no JSON: {raw[:200]}")
-    try:
-        parsed = json.loads(m.group(0))
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=502, detail=f"model JSON invalid: {e}")
+    parsed = _llm_json(prompt, timeout=240)
     digest = {
         "generated_at": datetime.now().isoformat(),
         "summary": parsed.get("summary", ""),
@@ -1961,7 +2365,8 @@ def _gather_idea_inputs() -> tuple[str, str, str, dict]:
         stories = json.loads(latest.read_text(encoding="utf-8")).get("stories", [])[:12]
     brand = BRAND_DOC.read_text(encoding="utf-8", errors="replace")[:3000] if BRAND_DOC.exists() else ""
     viral_lines = "\n".join(
-        f"- @{v['creator']} ({v['platform']}, ⚡{v['viral_score']}, {v['likes']}L/{v['comments']}C/{v['views']}V): {v['caption'][:160]}"
+        f"- @{v['creator']} ({v['platform']}, ⚡{v.get('viral_score', 0)} = outperformance×freshness, "
+        f"{v.get('age_days', '?')}d old, {v['likes']}L/{v['comments']}C/{v['views']}V): {v['caption'][:160]}"
         for v in viral
     ) or "(no creator signals scraped yet)"
     news_lines = "\n".join(f"- {s['title']} ({s['source']}, score {s.get('score', 0)})" for s in stories) or "(no news cached)"
@@ -1970,17 +2375,21 @@ def _gather_idea_inputs() -> tuple[str, str, str, dict]:
 
 
 def _llm_json(prompt: str, timeout: int = 240) -> dict:
-    resp = run_hermes("-z", prompt, timeout=timeout)
-    raw = resp["stdout"].strip()
-    if "HTTP 429" in raw or "usage limit" in raw:
-        raise HTTPException(status_code=503, detail="LLM quota exhausted (429). Wait for refresh or add a fallback provider: hermes fallback add")
-    m = re.search(r"\{.*\}", raw, re.S)
-    if not m:
-        raise HTTPException(status_code=502, detail=f"model returned no JSON: {raw[:200]}")
+    """Synthesize a JSON object via Claude. The single chokepoint behind every
+    content endpoint (ideas, virality, digest, Metricool fallback)."""
     try:
-        return json.loads(m.group(0))
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=502, detail=f"model JSON invalid: {e}")
+        obj = claude_json(prompt, timeout=timeout)
+    except ClaudeError as e:
+        msg = str(e)
+        if "quota" in msg.lower() or "429" in msg:
+            raise HTTPException(status_code=503, detail="LLM quota exhausted (429). Wait for refresh.")
+        raise HTTPException(status_code=502, detail=f"Claude: {msg}")
+    if isinstance(obj, list):
+        # Some prompts ask for a bare array; wrap so dict-typed callers don't break.
+        return {"items": obj}
+    if not isinstance(obj, dict):
+        raise HTTPException(status_code=502, detail="model returned non-object JSON")
+    return obj
 
 
 @app.get("/api/content/ideas")
@@ -2101,7 +2510,7 @@ def generate_content_ideas():
     _save_store("content-ideas", result)
     return {"available": True, **result}
 
-@app.get("/api/hermes/sentinel")
+@app.get("/api/mc/sentinel")
 def get_hermes_sentinel():
     """Alias to existing /api/sentinel/digest logic."""
     latest_path = SENTINEL_CACHE_DIR / "latest.json"
@@ -2217,156 +2626,44 @@ def _cols(line: str) -> list[str]:
     return [c.strip() for c in re.split(r"\s{2,}", line.strip()) if c.strip()]
 
 
-@app.get("/api/hermes/overview")
+@app.get("/api/mc/overview")
 def get_hermes_overview():
-    """Parsed `hermes status` — model, API keys, messaging platforms, gateway."""
-    resp = run_hermes("status", timeout=90)
-    raw = resp["stdout"]
-    out: dict[str, Any] = {"model": None, "provider": None, "platforms": [],
-                           "gateway": {"running": False, "pids": []},
-                           "jobs": None, "sessions": None, "api_keys": [], "raw": raw}
-    section = ""
-    for line in raw.splitlines():
-        s = line.strip()
-        low = s.lower()
-        if not s:
-            continue
-        # Section headers are emoji-prefixed titles without ':' key-value shape.
-        if "api key" in low and ":" not in s:
-            section = "keys"; continue
-        if "messaging platforms" in low:
-            section = "platforms"; continue
-        if "gateway service" in low:
-            section = "gateway"; continue
-        if "scheduled jobs" in low:
-            section = "jobs"; continue
-        if "sessions" in low and ":" not in s:
-            section = "sessions"; continue
-        if "auth providers" in low or "api-key providers" in low or "terminal backend" in low or "environment" in low:
-            section = "env" if "environment" in low else "other"; continue
-
-        m = re.match(r"^(Model|Provider):\s+(.*)$", s)
-        if m:
-            out[m.group(1).lower()] = m.group(2).strip()
-            continue
-        if section == "keys":
-            km = re.match(r"^([\w ./()-]+?)\s{2,}(.+)$", s)
-            if km:
-                val = km.group(2)
-                out["api_keys"].append({
-                    "name": km.group(1).strip(),
-                    "set": "not set" not in val,
-                })
-            continue
-        if section == "platforms":
-            pm = re.match(r"^([\w ()-]+?)\s{2,}(.+)$", s)
-            if pm:
-                val = pm.group(2)
-                home = re.search(r"home:\s*([^)]+)\)", val)
-                out["platforms"].append({
-                    "name": pm.group(1).strip(),
-                    "configured": "configured" in val and "not configured" not in val,
-                    "home": home.group(1).strip() if home else None,
-                })
-            continue
-        if section == "gateway":
-            if low.startswith("status:"):
-                out["gateway"]["running"] = "running" in low
-            pid_m = re.search(r"PID\(s\):\s+([\d, ]+)", s) or re.search(r"PID:\s*(\d+)", s)
-            if pid_m:
-                out["gateway"]["pids"] = [int(p) for p in re.findall(r"\d+", pid_m.group(1))]
-            continue
-        if section == "jobs":
-            jm = re.match(r"^Jobs:\s+(.*)$", s)
-            if jm:
-                out["jobs"] = jm.group(1)
-            continue
-        if section == "sessions":
-            sm = re.match(r"^Active:\s+(.*)$", s)
-            if sm:
-                out["sessions"] = sm.group(1)
-            continue
-    return out
+    """Claude backend overview — model, MCP connectors, auth."""
+    return mc_diag.overview(DATA_DIR)
 
 
-@app.get("/api/hermes/skills")
+@app.get("/api/mc/skills")
 def get_hermes_skills():
-    """Parsed `hermes skills list` — installed skills with category/source/status."""
-    resp = run_hermes("skills", "list", timeout=90)
-    raw = resp["stdout"]
-    skills = []
-    for line in raw.splitlines():
-        cells = _split_table_row(line)
-        if len(cells) >= 5 and cells[0] and cells[0] != "Name" and not set(cells[0]) <= set("-+"):
-            skills.append({
-                "name": cells[0], "category": cells[1], "source": cells[2],
-                "trust": cells[3], "enabled": cells[4].lower() == "enabled",
-            })
-    summary = None
-    sm = re.search(r"(\d+) hub-installed, (\d+) builtin, (\d+) local\s+\W\s+(\d+) enabled, (\d+) disabled", raw)
-    if sm:
-        summary = {"hub": int(sm.group(1)), "builtin": int(sm.group(2)), "local": int(sm.group(3)),
-                   "enabled": int(sm.group(4)), "disabled": int(sm.group(5))}
-    return {"skills": skills, "summary": summary, "raw": raw}
+    """Installed Claude Code skills, scanned from the skills directories."""
+    return mc_diag.skills(_SKILLS_ROOTS)
 
 
-@app.get("/api/hermes/mcp")
+@app.get("/api/mc/mcp")
 def get_hermes_mcp():
-    """Parsed `hermes mcp list` — configured MCP servers."""
-    resp = run_hermes("mcp", "list", timeout=90)
-    raw = resp["stdout"]
-    servers = []
-    in_table = False
-    for line in raw.splitlines():
-        s = line.rstrip()
-        if re.match(r"^\s*Name\s{2,}Transport", s):
-            in_table = True
-            continue
-        if in_table:
-            if not s.strip() or set(s.strip()) <= set("- "):
-                if servers:
-                    break
-                continue
-            cells = _cols(s)
-            if len(cells) >= 4:
-                servers.append({"name": cells[0], "transport": cells[1], "tools": cells[2],
-                                "enabled": "enabled" in cells[3].lower()})
-    return {"servers": servers, "raw": raw}
+    """Configured MCP servers (`claude mcp list`)."""
+    return mc_diag.mcp_servers()
 
 
-@app.post("/api/hermes/mcp/{name}/test")
+@app.post("/api/mc/mcp/{name}/test")
 def test_hermes_mcp(name: str):
-    """`hermes mcp test <name>` — connection probe."""
-    resp = run_hermes("mcp", "test", name, timeout=120)
-    return {"message": resp["stdout"], "ok": resp["success"]}
+    """Probe an MCP server (`claude mcp get <name>`)."""
+    return mc_diag.mcp_test(name)
 
 
-@app.get("/api/hermes/plugins")
+@app.get("/api/mc/plugins")
 def get_hermes_plugins():
-    """Parsed `hermes plugins list --plain` — status/source/version/name rows."""
-    resp = run_hermes("plugins", "list", "--plain", timeout=90)
-    raw = resp["stdout"]
-    plugins = []
-    for line in raw.splitlines():
-        # e.g. "not enabled  bundled  1.0.0    browser-browser-use"
-        m = re.match(r"^(enabled|not enabled|disabled)\s{2,}(\S+)\s{2,}(\S+)\s{2,}(\S+)\s*$", line.strip())
-        if m:
-            plugins.append({"status": m.group(1), "source": m.group(2),
-                            "version": m.group(3), "name": m.group(4),
-                            "enabled": m.group(1) == "enabled"})
-    return {"plugins": plugins, "raw": raw}
+    """Plugins are managed by Claude Code — graceful empty surface."""
+    return mc_diag.plugins()
 
 
-@app.post("/api/hermes/plugins/{name}/enable")
+@app.post("/api/mc/plugins/{name}/enable")
 def enable_hermes_plugin(name: str):
-    resp = run_hermes("plugins", "enable", name, timeout=120)
-    return {"message": resp["stdout"]}
+    return {"message": "Plugins are managed by Claude Code (/plugin)."}
 
 
-@app.post("/api/hermes/plugins/{name}/disable")
+@app.post("/api/mc/plugins/{name}/disable")
 def disable_hermes_plugin(name: str):
-    resp = run_hermes("plugins", "disable", name, timeout=120)
-    return {"message": resp["stdout"]}
+    return {"message": "Plugins are managed by Claude Code (/plugin)."}
 
 
 GATEWAY_API_PORT = int(os.environ.get("HERMES_GATEWAY_API_PORT", "8642"))
@@ -2385,113 +2682,19 @@ def _gateway_api_alive() -> bool:
         return False
 
 
-@app.get("/api/hermes/gateway")
+@app.get("/api/mc/gateway")
 def get_hermes_gateway():
-    """Gateway service status + per-profile gateway list."""
-    # SERIAL on purpose. `hermes gateway status` finds the gateway by scanning
-    # process command lines — when `gateway list` runs concurrently (an earlier
-    # latency optimization), status matches its own sibling CLI invocation and
-    # reports a phantom "Gateway process running (PID: <the list call>)". That
-    # phantom made the UI show BOOTING forever and suppressed auto-recovery.
-    status = run_hermes("gateway", "status", timeout=60)
-    listing = run_hermes("gateway", "list", timeout=60)
-    raw_status, raw_list = status["stdout"], listing["stdout"]
-    service = {
-        # Match "Gateway process running (PID: n)" specifically — the scheduled
-        # task's own "Status: Running" line false-positives a bare substring.
-        "running": bool(re.search(r"process running", raw_status, re.I)),
-        "api_listening": _gateway_api_alive(),
-        "manager": None,
-        "pids": [int(p) for p in re.findall(r"process running \(PID:?\s*(\d+)", raw_status, re.I)],
-    }
-    mm = re.search(r"(Scheduled Task registered|Manager):\s*(.+)", raw_status)
-    if mm:
-        service["manager"] = mm.group(2).strip()
-    gateways = []
-    for line in raw_list.splitlines():
-        m = re.match(r"^\s+\S?\s*([\w-]+)(\s+\(current\))?\s+\W\s+(.*)$", line.rstrip())
-        if m and m.group(1).lower() != "gateways":
-            tail = m.group(3)
-            pid = re.search(r"PID\s+(\d+)", tail)
-            gateways.append({
-                "name": m.group(1),
-                "current": bool(m.group(2)),
-                "running": pid is not None,
-                "pid": int(pid.group(1)) if pid else None,
-            })
-    return {"service": service, "gateways": gateways, "raw": raw_status + "\n" + raw_list}
+    """No gateway under Claude — graceful empty status."""
+    return mc_diag.gateway()
 
 
 class GatewayActionPayload(BaseModel):
     action: str  # start | stop | restart
 
 
-@app.post("/api/hermes/gateway/action")
+@app.post("/api/mc/gateway/action")
 def gateway_action(payload: GatewayActionPayload):
-    if payload.action not in ("start", "stop", "restart"):
-        raise HTTPException(status_code=400, detail="action must be start|stop|restart")
-    # Hard-won lessons encoded here:
-    #  * `hermes gateway start` run from a TTY-less bridge can take the CLI's
-    #    direct-spawn fallback, producing a gateway that hangs forever without
-    #    logging or binding its port — a zombie that then poisons the CLI's
-    #    process-scan "already running" checks. So on Windows we start via the
-    #    Scheduled Task directly (clean pythonw environment, proven path).
-    #  * Liveness is judged ONLY by the gateway api port answering — process
-    #    scans match transient `hermes gateway *` CLI calls and hung zombies.
-    #  * A cold boot can take 60s+ under load; we wait a bounded 20s and
-    #    return pending=True so the UI keeps polling instead of blocking.
-    def _quiet_cli(*cli_args: str, timeout: int) -> None:
-        subprocess.run(
-            [HERMES_CMD, *cli_args],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout,
-            creationflags=CREATE_NO_WINDOW,
-        )
-
-    try:
-        if payload.action in ("stop", "restart"):
-            _quiet_cli("gateway", "stop", timeout=90)
-        if payload.action in ("start", "restart"):
-            started_via_task = False
-            if os.name == "nt":
-                # /End first: if a previous task instance is wedged in the
-                # "Running" state (dead pythonw, lingering cmd wrapper), /Run
-                # is a silent no-op with result 267009. /End on a not-running
-                # task errors harmlessly.
-                subprocess.run(
-                    ["schtasks", "/End", "/TN", "Hermes_Gateway"],
-                    capture_output=True, text=True, timeout=30,
-                    creationflags=CREATE_NO_WINDOW,
-                )
-                time.sleep(1)
-                r = subprocess.run(
-                    ["schtasks", "/Run", "/TN", "Hermes_Gateway"],
-                    capture_output=True, text=True, timeout=30,
-                    creationflags=CREATE_NO_WINDOW,
-                )
-                started_via_task = r.returncode == 0
-            if not started_via_task:
-                _quiet_cli("gateway", "start", timeout=120)
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail=f"gateway {payload.action} timed out")
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="Hermes CLI / schtasks not found")
-
-    if payload.action == "stop":
-        return {"message": "gateway stop: drained", "running": _gateway_api_alive(), "pending": False}
-
-    deadline = time.time() + 20
-    while time.time() < deadline:
-        if _gateway_api_alive():
-            return {"message": f"gateway {payload.action}: api answering on :{GATEWAY_API_PORT}", "running": True, "pending": False}
-        time.sleep(1.5)
-    return {
-        "message": f"gateway {payload.action} issued — still booting (can take 60s+ under load)",
-        "running": False,
-        "pending": True,
-    }
+    return mc_diag.gateway_action(payload.action)
 
 
 # ---------------------------------------------------------------------------
@@ -2529,44 +2732,24 @@ def _run_patch_script(mode: str) -> dict[str, Any]:
         )
 
 
-@app.get("/api/hermes/patches")
+@app.get("/api/mc/patches")
 def get_hermes_patches():
-    """Status of the local Hermes patches (applied / applicable / conflict)."""
-    return _run_patch_script("--check")
+    """Hermes local patches no longer apply under Claude — empty report."""
+    return {"mc_dir": "", "mode": "check", "patches": [], "all_applied": True,
+            "applicable": 0, "conflicts": 0}
 
 
-@app.post("/api/hermes/patches/apply")
+@app.post("/api/mc/patches/apply")
 def apply_hermes_patches():
-    """Re-apply any applicable local patches (idempotent; compile-verified).
-
-    Running workers keep the old code until they exit; the gateway picks up
-    the patched modules on its next worker spawn (fresh process), so no
-    restart is required for kanban workers. ``gateway_restart_suggested`` is
-    set when anything was applied, for the long-lived gateway process itself.
-    """
-    report = _run_patch_script("--apply")
-    report["gateway_restart_suggested"] = bool(report.get("changed"))
-    return report
+    """No Hermes patches to apply under Claude."""
+    return {"mc_dir": "", "mode": "apply", "patches": [], "all_applied": True,
+            "applicable": 0, "conflicts": 0, "changed": 0, "gateway_restart_suggested": False}
 
 
-@app.get("/api/hermes/send/targets")
+@app.get("/api/mc/send/targets")
 def get_send_targets():
-    """Parsed `hermes send --list` — configured delivery targets per platform."""
-    resp = run_hermes("send", "--list", timeout=60)
-    raw = resp["stdout"]
-    platforms: list[dict[str, Any]] = []
-    current: Optional[dict[str, Any]] = None
-    for line in raw.splitlines():
-        hm = re.match(r"^([A-Za-z][\w ]+):\s*$", line.strip())
-        if hm and "target" not in hm.group(1).lower():
-            current = {"platform": hm.group(1), "targets": []}
-            platforms.append(current)
-            continue
-        if current and line.startswith("  ") and line.strip():
-            t = line.strip()
-            if not t.lower().startswith(("use these", "bare platform")):
-                current["targets"].append(t)
-    return {"platforms": platforms, "raw": raw}
+    """Direct send is handled by MCP connectors under Claude — empty target list."""
+    return mc_diag.send_targets()
 
 
 class SendMessagePayload(BaseModel):
@@ -2575,252 +2758,162 @@ class SendMessagePayload(BaseModel):
     subject: Optional[str] = None
 
 
-@app.post("/api/hermes/send")
+@app.post("/api/mc/send")
 def send_hermes_message(payload: SendMessagePayload):
-    """`hermes send --to <target> --json <message>` — direct platform delivery."""
-    args = ["send", "--to", payload.target, "--json"]
-    if payload.subject:
-        args += ["--subject", payload.subject]
-    args.append(payload.message)
-    resp = run_hermes(*args, timeout=90)
-    return {"result": resp["data"], "message": resp["stdout"]}
+    """Platform delivery now goes through MCP connectors (Twilio, Metricool, …)."""
+    return {"result": None,
+            "message": "Direct send is handled by MCP connectors — use the relevant integration."}
 
 
-@app.get("/api/hermes/webhooks")
+@app.get("/api/mc/webhooks")
 def get_hermes_webhooks():
-    """`hermes webhook list` — subscriptions, or enabled=false with setup hint."""
-    resp = run_hermes("webhook", "list", timeout=60)
-    raw = resp["stdout"]
-    enabled = "not enabled" not in raw.lower()
-    subs = []
-    if enabled:
-        for line in raw.splitlines():
-            cells = _split_table_row(line) or _cols(line)
-            if len(cells) >= 2 and cells[0].lower() not in ("id", "route", "name"):
-                subs.append({"cells": cells})
-    return {"enabled": enabled, "subscriptions": subs, "raw": raw}
+    """Webhooks are not used under Claude — graceful empty surface."""
+    return mc_diag.webhooks()
 
 
-@app.get("/api/hermes/memory")
+@app.get("/api/mc/memory")
 def get_hermes_memory():
-    """Parsed `hermes memory status` — active provider + installed providers."""
-    resp = run_hermes("memory", "status", timeout=60)
-    raw = resp["stdout"]
-    out: dict[str, Any] = {"provider": None, "plugin_installed": False,
-                           "available": False, "providers": [], "raw": raw}
-    for line in raw.splitlines():
-        s = line.strip()
-        m = re.match(r"^Provider:\s+(\S+)", s)
-        if m:
-            out["provider"] = m.group(1)
-        if s.lower().startswith("plugin:"):
-            out["plugin_installed"] = "installed" in s.lower()
-        if s.lower().startswith("status:"):
-            out["available"] = "available" in s.lower()
-        pm = re.match(r"^\W?\s*([\w-]+)\s+\(([^)]+)\)(.*)$", s)
-        if pm and pm.group(2) and ("key" in pm.group(2).lower() or "local" in pm.group(2).lower()):
-            out["providers"].append({
-                "name": pm.group(1), "auth": pm.group(2),
-                "active": "active" in pm.group(3).lower(),
-            })
-    return out
+    """Claude memory directory status."""
+    return mc_diag.memory(_CLAUDE_HOME / "projects")
 
 
-@app.get("/api/hermes/curator")
+@app.get("/api/mc/curator")
 def get_hermes_curator():
-    """Parsed `hermes curator status` — runs, cadence, skill activity."""
-    resp = run_hermes("curator", "status", timeout=60)
-    raw = resp["stdout"]
-    out: dict[str, Any] = {"enabled": "ENABLED" in raw, "runs": None, "last_run": None,
-                           "interval": None, "skills_total": None, "active": None,
-                           "stale": None, "archived": None, "most_active": [], "raw": raw}
-    for line in raw.splitlines():
-        s = line.strip()
-        for key, field in (("runs:", "runs"), ("last run:", "last_run"), ("interval:", "interval")):
-            if s.lower().startswith(key):
-                out[field] = s.split(":", 1)[1].strip()
-        tm = re.match(r"^agent-created skills:\s+(\d+) total", s)
-        if tm:
-            out["skills_total"] = int(tm.group(1))
-        for field in ("active", "stale", "archived"):
-            fm = re.match(rf"^{field}\s+(\d+)$", s)
-            if fm:
-                out[field] = int(fm.group(1))
-    # "most active (top 5):" rows: name  activity=N use=N view=N patches=N last_activity=X
-    in_most = False
-    for line in raw.splitlines():
-        if "most active" in line.lower():
-            in_most = True
-            continue
-        if in_most:
-            am = re.match(r"^\s+([\w-]+)\s+activity=\s*(\d+).*last_activity=(.+)$", line)
-            if am:
-                out["most_active"].append({"name": am.group(1), "activity": int(am.group(2)),
-                                           "last_activity": am.group(3).strip()})
-            elif line.strip() and not line.startswith("  "):
-                break
-            if len(out["most_active"]) >= 5:
-                break
-    return out
+    """Skill curation is managed by Claude Code — graceful empty surface."""
+    return mc_diag.curator()
 
 
-@app.get("/api/hermes/insights")
+@app.get("/api/mc/insights")
 def get_hermes_insights(days: int = 30):
-    """Parsed `hermes insights --days N` — usage analytics."""
-    resp = run_hermes("insights", "--days", str(days), timeout=180)
-    raw = resp["stdout"]
-    out: dict[str, Any] = {"days": days, "overview": {}, "models": [], "platforms": [],
-                           "top_tools": [], "weekday_activity": [], "peak_hours": None, "raw": raw}
-    # Overview pairs can appear two per line; scan globally.
-    for key, field in (
-        ("Sessions", "sessions"), ("Messages", "messages"), ("Tool calls", "tool_calls"),
-        ("User messages", "user_messages"), ("Input tokens", "input_tokens"),
-        ("Output tokens", "output_tokens"), ("Total tokens", "total_tokens"),
-        ("Active time", "active_time"), ("Avg session", "avg_session"),
-        ("Avg msgs/session", "avg_msgs_per_session"),
-    ):
-        m = re.search(rf"{re.escape(key)}:\s+([~\d,.\w%/ ]+?)(?:\s{{2,}}|$)", raw, re.M)
-        if m:
-            val = m.group(1).strip()
-            num = val.replace(",", "")
-            out["overview"][field] = int(num) if num.isdigit() else val
-    section = ""
-    for line in raw.splitlines():
-        low = line.lower()
-        if "models used" in low:
-            section = "models"; continue
-        if "platforms" in low and "---" not in low:
-            section = "platforms"; continue
-        if "top tools" in low:
-            section = "tools"; continue
-        if "top skills" in low or "activity patterns" in low:
-            section = "activity" if "activity" in low else ""
-            continue
-        if "notable sessions" in low:
-            section = ""; continue
-        s = line.strip()
-        if not s or set(s) <= set("-– ") or s.lower().startswith(("model ", "platform ", "tool ", "peak hours", "active days", "best streak", "... and")):
-            pm = re.match(r"^Peak hours:\s+(.*)$", s)
-            if pm:
-                out["peak_hours"] = pm.group(1)
-            continue
-        if section == "models":
-            m = re.match(r"^(\S+)\s{2,}([\d,]+)\s{2,}([\d,]+)$", s)
-            if m:
-                out["models"].append({"model": m.group(1), "sessions": int(m.group(2).replace(",", "")),
-                                      "tokens": int(m.group(3).replace(",", ""))})
-        elif section == "platforms":
-            m = re.match(r"^(\S+)\s{2,}([\d,]+)\s{2,}([\d,]+)\s{2,}([\d,]+)$", s)
-            if m:
-                out["platforms"].append({"platform": m.group(1), "sessions": int(m.group(2).replace(",", "")),
-                                         "messages": int(m.group(3).replace(",", "")),
-                                         "tokens": int(m.group(4).replace(",", ""))})
-        elif section == "tools":
-            m = re.match(r"^(\S+)\s{2,}([\d,]+)\s{2,}([\d.]+)%$", s)
-            if m:
-                out["top_tools"].append({"tool": m.group(1), "calls": int(m.group(2).replace(",", "")),
-                                         "pct": float(m.group(3))})
-        elif section == "activity":
-            m = re.match(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\S*\s*(\d+)$", s)
-            if m:
-                out["weekday_activity"].append({"day": m.group(1), "sessions": int(m.group(2))})
-    return out
+    """Usage analytics derived from the native session store."""
+    sessions = SESSIONS.list(limit=1000)
+    msg_total = 0
+    for s in sessions:
+        detail = SESSIONS.get(s["id"])
+        if detail:
+            msg_total += detail.get("message_count", 0)
+    return mc_diag.insights(days, len(sessions), msg_total, mc_diag.current_model(DATA_DIR))
 
 
-@app.get("/api/hermes/doctor")
+@app.get("/api/mc/doctor")
 def get_hermes_doctor():
-    """`hermes doctor` — config/dependency diagnostics, classified per line."""
-    resp = run_hermes("doctor", timeout=180)
-    raw = resp["stdout"] + ("\n" + resp["stderr"] if resp["stderr"] else "")
-    checks = []
-    for line in raw.splitlines():
-        s = line.strip()
-        if not s:
-            continue
-        level = None
-        if re.match(r"^(✓|✔|OK\b|\[ok\])", s, re.I):
-            level = "ok"
-        elif re.match(r"^(⚠|WARN|warning)", s, re.I) or "warning" in s.lower():
-            level = "warn"
-        elif re.match(r"^(✗|✘|×|FAIL|ERROR)", s, re.I):
-            level = "fail"
-        if level:
-            checks.append({"level": level, "text": s.lstrip("✓✔✗✘×⚠ ").strip()})
-    counts = {lvl: sum(1 for c in checks if c["level"] == lvl) for lvl in ("ok", "warn", "fail")}
-    return {"checks": checks, "counts": counts, "raw": raw}
+    """Claude-native health checks (CLI, MCP connectivity, stores)."""
+    return mc_diag.doctor(DATA_DIR, Path(__file__).parent)
 
 
-@app.get("/api/hermes/logs")
+@app.get("/api/mc/logs")
 def get_hermes_logs(name: str = "agent", lines: int = 80, level: Optional[str] = None, since: Optional[str] = None):
-    """`hermes logs <name> -n <lines>` — tail of agent/errors/gateway/gui logs."""
-    if name not in ("agent", "errors", "gateway", "gui", "desktop"):
-        raise HTTPException(status_code=400, detail="name must be agent|errors|gateway|gui|desktop")
-    args = ["logs", name, "-n", str(max(1, min(lines, 500)))]
-    if level:
-        args += ["--level", level]
-    if since:
-        args += ["--since", since]
-    resp = run_hermes(*args, timeout=60)
-    return {"name": name, "lines": resp["stdout"].splitlines()}
+    """Tail the bridge log (Claude has no separate agent/gateway logs)."""
+    candidates = [Path(__file__).parent / "bridge.log",
+                  Path(__file__).parent / ".hermes" / "bridge.log"]
+    text = ""
+    for c in candidates:
+        if c.exists():
+            try:
+                text = c.read_text(encoding="utf-8", errors="replace")
+                break
+            except OSError:
+                continue
+    out_lines = text.splitlines()[-max(1, min(lines, 500)):]
+    return {"name": name, "lines": out_lines or ["(no bridge log yet)"]}
 
 
-@app.get("/api/hermes/model")
+@app.get("/api/mc/model")
 def get_hermes_model():
-    """Current model/provider (from status) + fallback chain."""
-    overview = get_hermes_overview()
-    fb = run_hermes("fallback", "list", timeout=60)
-    fb_raw = fb["stdout"]
-    fallbacks = []
-    if "no fallback providers" not in fb_raw.lower():
-        for line in fb_raw.splitlines():
-            m = re.match(r"^\s*(?:#?\d+[.)]?\s+)?(\S.*)$", line.strip())
-            if m and m.group(1) and "add one with" not in m.group(1).lower():
-                fallbacks.append(m.group(1))
-    return {"model": overview["model"], "provider": overview["provider"],
-            "fallbacks": fallbacks, "raw": fb_raw}
+    """Current Claude model + (no) fallback chain."""
+    return mc_diag.model_info(DATA_DIR)
 
 
-@app.get("/api/hermes/auth")
+@app.get("/api/mc/auth")
 def get_hermes_auth():
-    """Parsed `hermes auth list` — pooled provider credentials."""
-    resp = run_hermes("auth", "list", timeout=60)
-    raw = resp["stdout"]
-    providers = []
-    current = None
-    for line in raw.splitlines():
-        hm = re.match(r"^(\S+) \((\d+) credentials?\):", line.strip())
-        if hm:
-            current = {"provider": hm.group(1), "count": int(hm.group(2)), "credentials": []}
-            providers.append(current)
-            continue
-        cm = re.match(r"^#(\d+)\s+(\S+)\s+(\S+)\s+(\S+)", line.strip())
-        if cm and current:
-            current["credentials"].append({"index": int(cm.group(1)), "label": cm.group(2),
-                                           "kind": cm.group(3), "source": cm.group(4)})
-    return {"providers": providers, "raw": raw}
+    """Claude subscription auth — single Anthropic provider."""
+    return mc_diag.auth()
 
 
-@app.get("/api/hermes/checkpoints")
+@app.get("/api/mc/checkpoints")
 def get_hermes_checkpoints():
-    """`hermes checkpoints status` — shadow-repo disk usage."""
-    resp = run_hermes("checkpoints", "status", timeout=60)
-    return {"raw": resp["stdout"]}
+    """Checkpoints are managed by Claude Code."""
+    return mc_diag.simple_raw("Checkpoints are managed by Claude Code (rewind / /resume).")
 
 
-@app.get("/api/hermes/pairing")
+@app.get("/api/mc/pairing")
 def get_hermes_pairing():
-    """`hermes pairing list` — pending + approved DM users."""
-    resp = run_hermes("pairing", "list", timeout=60)
-    return {"raw": resp["stdout"]}
+    """No DM pairing under Claude."""
+    return mc_diag.simple_raw("DM pairing is not used under Claude.")
 
 
-@app.get("/api/hermes/security/audit")
+@app.get("/api/mc/security/audit")
 def run_security_audit():
-    """`hermes security audit` — OSV.dev supply-chain scan (slow, on demand)."""
-    resp = run_hermes("security", "audit", timeout=300)
-    raw = resp["stdout"]
-    vulns = len(re.findall(r"(CVE-\d{4}-\d+|GHSA-[\w-]+|OSV-[\w-]+)", raw))
-    return {"vulnerabilities": vulns, "raw": raw}
+    """Dependency audit — runs `npm audit` over the project, best-effort."""
+    try:
+        r = subprocess.run(["npm", "audit", "--json"], cwd=str(Path(__file__).parent),
+                           capture_output=True, text=True, timeout=180,
+                           encoding="utf-8", errors="replace",
+                           creationflags=CREATE_NO_WINDOW, stdin=subprocess.DEVNULL)
+        raw = r.stdout or r.stderr or ""
+    except (subprocess.SubprocessError, OSError, FileNotFoundError):
+        return {"vulnerabilities": 0, "raw": "npm audit unavailable."}
+    vulns = 0
+    try:
+        data = json.loads(raw)
+        vulns = (data.get("metadata", {}).get("vulnerabilities", {}) or {}).get("total", 0)
+    except json.JSONDecodeError:
+        vulns = len(re.findall(r"(CVE-\d{4}-\d+|GHSA-[\w-]+)", raw))
+    return {"vulnerabilities": vulns, "raw": raw[:5000]}
+
+
+# ---------------------------------------------------------------------------
+# LLM model switcher
+# ---------------------------------------------------------------------------
+# Curated catalog: provider must already be configured in config.yaml or .env.
+# key_env is checked at request time — a model is "enabled" only when its key
+# resolves to a non-empty string.
+MODEL_CATALOG = [
+    # Kimi direct — KIMI_API_KEY + kimi-coding provider
+    {"id": "kimi-k2.6",  "label": "Kimi K2.6",   "provider": "kimi-coding", "base_url": "https://api.kimi.com/coding", "key_env": "KIMI_API_KEY", "ctx_k": 128, "tags": ["coding", "fast"]},
+    {"id": "kimi-k2.5",  "label": "Kimi K2.5",   "provider": "kimi-coding", "base_url": "https://api.kimi.com/coding", "key_env": "KIMI_API_KEY", "ctx_k": 128, "tags": ["coding"]},
+    # Google AI direct — GOOGLE_API_KEY
+    {"id": "gemini-2.5-pro",   "label": "Gemini 2.5 Pro",   "provider": "google", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "key_env": "GOOGLE_API_KEY", "ctx_k": 1048, "tags": ["long-context", "powerful"]},
+    {"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "provider": "google", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "key_env": "GOOGLE_API_KEY", "ctx_k": 1048, "tags": ["fast", "cheap"]},
+    # OpenRouter — OPENROUTER_API_KEY (or providers.openrouter.api_key in config.yaml)
+    {"id": "anthropic/claude-opus-4-8",    "label": "Claude Opus 4.8",      "provider": "openrouter", "base_url": None, "key_env": "OPENROUTER_API_KEY", "ctx_k": 200,  "tags": ["powerful"]},
+    {"id": "anthropic/claude-sonnet-4-6",  "label": "Claude Sonnet 4.6",    "provider": "openrouter", "base_url": None, "key_env": "OPENROUTER_API_KEY", "ctx_k": 200,  "tags": ["balanced"]},
+    {"id": "anthropic/claude-haiku-4-5",   "label": "Claude Haiku 4.5",     "provider": "openrouter", "base_url": None, "key_env": "OPENROUTER_API_KEY", "ctx_k": 200,  "tags": ["fast", "cheap"]},
+    {"id": "google/gemini-2.5-pro",        "label": "Gemini 2.5 Pro",       "provider": "openrouter", "base_url": None, "key_env": "OPENROUTER_API_KEY", "ctx_k": 1048, "tags": ["long-context"]},
+    {"id": "google/gemini-2.5-flash",      "label": "Gemini 2.5 Flash",     "provider": "openrouter", "base_url": None, "key_env": "OPENROUTER_API_KEY", "ctx_k": 1048, "tags": ["fast", "cheap"]},
+    {"id": "x-ai/grok-3-beta",             "label": "Grok 3 Beta",          "provider": "openrouter", "base_url": None, "key_env": "OPENROUTER_API_KEY", "ctx_k": 131,  "tags": ["powerful"]},
+    {"id": "deepseek/deepseek-r2",         "label": "DeepSeek R2",          "provider": "openrouter", "base_url": None, "key_env": "OPENROUTER_API_KEY", "ctx_k": 64,   "tags": ["reasoning"]},
+    {"id": "meta-llama/llama-4-maverick",  "label": "Llama 4 Maverick",     "provider": "openrouter", "base_url": None, "key_env": "OPENROUTER_API_KEY", "ctx_k": 1000, "tags": ["open", "fast"]},
+    {"id": "qwen/qwen3-235b-a22b",         "label": "Qwen 3 235B",          "provider": "openrouter", "base_url": None, "key_env": "OPENROUTER_API_KEY", "ctx_k": 40,   "tags": ["reasoning", "open"]},
+    {"id": "mistralai/mistral-large-2411", "label": "Mistral Large",        "provider": "openrouter", "base_url": None, "key_env": "OPENROUTER_API_KEY", "ctx_k": 128,  "tags": ["balanced"]},
+]
+
+
+def _read_hermes_config() -> dict:
+    """Read the global hermes config.yaml. Returns empty dict on failure."""
+    cfg_path = HERMES_HOME / "config.yaml"
+    if not cfg_path.exists():
+        return {}
+    try:
+        import yaml
+        return yaml.safe_load(cfg_path.read_text(encoding="utf-8", errors="replace")) or {}
+    except Exception:
+        return {}
+
+
+@app.get("/api/mc/models")
+def get_models():
+    """Return the Claude model catalog with the currently active model."""
+    return mc_diag.models(DATA_DIR)
+
+
+@app.put("/api/mc/models")
+def set_model(payload: SetModelPayload):
+    """Persist the active Claude model (used by chat / brain calls)."""
+    try:
+        return mc_diag.set_model(DATA_DIR, payload.model)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ---------------------------------------------------------------------------

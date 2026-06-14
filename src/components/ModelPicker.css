@@ -1,0 +1,206 @@
+/* ── ModelPicker — compact LLM model switcher for Ghost Network ─────────── */
+
+.model-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ── Chip (trigger button) ─────────────────────────────────────────────────── */
+.mp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.70);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.mp-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.model-picker.is-open .mp-chip {
+  background: rgba(246, 78, 110, 0.12);
+  border-color: rgba(246, 78, 110, 0.40);
+  color: #f64e6e;
+}
+
+.mp-chip.is-saving {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.mp-chip.is-ok {
+  border-color: rgba(16, 185, 129, 0.60);
+  color: #10b981;
+}
+
+.mp-chip.is-err {
+  border-color: rgba(239, 68, 68, 0.60);
+  color: #ef4444;
+}
+
+.mp-icon {
+  font-size: 9px;
+  opacity: 0.75;
+  line-height: 1;
+}
+
+.mp-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mp-caret {
+  font-size: 7px;
+  opacity: 0.5;
+  margin-left: 2px;
+}
+
+/* ── Dropdown panel ─────────────────────────────────────────────────────────── */
+.mp-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 9999;
+  min-width: 280px;
+  background: rgba(12, 14, 20, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.60), 0 0 0 1px rgba(246, 78, 110, 0.08);
+  overflow: hidden;
+  animation: mpSlide 0.12s ease-out;
+}
+
+@keyframes mpSlide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.mp-header {
+  padding: 8px 12px 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: rgba(246, 78, 110, 0.80);
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ── Provider groups ─────────────────────────────────────────────────────────── */
+.mp-group {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mp-group:last-child {
+  border-bottom: none;
+}
+
+.mp-group-label {
+  padding: 5px 12px 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.28);
+  text-transform: uppercase;
+}
+
+/* ── Model rows ─────────────────────────────────────────────────────────────── */
+.mp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.65);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.10s;
+}
+
+.mp-row:hover:not(.is-disabled):not(.is-active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.mp-row.is-active {
+  background: rgba(246, 78, 110, 0.09);
+  color: #f64e6e;
+  cursor: default;
+}
+
+.mp-row.is-disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+
+/* Status dot */
+.mp-dot {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  transition: background 0.15s;
+}
+
+.mp-dot.lit {
+  background: #f64e6e;
+  box-shadow: 0 0 5px rgba(246, 78, 110, 0.70);
+}
+
+.mp-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.mp-ctx {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.28);
+  letter-spacing: 0.05em;
+}
+
+.mp-tags {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+}
+
+.mp-tag {
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  opacity: 0.80;
+}
+
+.mp-lock {
+  flex-shrink: 0;
+  font-size: 9px;
+  opacity: 0.50;
+  margin-left: auto;
+}

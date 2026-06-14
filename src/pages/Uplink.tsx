@@ -1,5 +1,5 @@
-// UPLINK — Hermes comms integrations: the messaging gateway service, the
-// per-platform channel matrix, a direct transmit console (`hermes send`), and
+// UPLINK — Mc comms integrations: the messaging gateway service, the
+// per-platform channel matrix, a direct transmit console (`mc send`), and
 // webhook event subscriptions. All live from the CLI via the bridge.
 import { useEffect, useMemo, useState } from 'react';
 import { useCapabilitiesStore } from '../stores/useCapabilitiesStore';
@@ -84,7 +84,7 @@ export default function Uplink() {
         </Panel>
         <Panel label="WEBHOOKS" className="min-h-[84px]">
           <Stat label="event subscriptions" value={webhooks ? (webhooks.enabled ? `${webhooks.subscriptions.length}` : 'OFF') : '—'}
-            sub={webhooks && !webhooks.enabled ? 'hermes gateway setup to enable' : undefined}
+            sub={webhooks && !webhooks.enabled ? 'mc gateway setup to enable' : undefined}
             tone={webhooks?.enabled ? 'good' : 'warn'} />
         </Panel>
       </div>
@@ -137,7 +137,7 @@ export default function Uplink() {
         </div>
 
         {/* Transmit console */}
-        <Panel label="TRANSMIT · HERMES SEND" className="min-h-[280px]" bodyClass="flex flex-col gap-2">
+        <Panel label="TRANSMIT · CLAUDE SEND" className="min-h-[280px]" bodyClass="flex flex-col gap-2">
           <div>
             <div className="font-mono text-[10px] text-[#545454] tracking-[0.15em] uppercase mb-1">target</div>
             <div className="flex gap-1.5">
@@ -179,13 +179,13 @@ export default function Uplink() {
               <div className="font-mono text-[10px] text-[#b8b8b8] leading-relaxed">
                 <Pill tone="warn" className="mb-2">PLATFORM DISABLED</Pill>
                 <div className="text-[#545454] mt-1.5">
-                  Event-driven agent activation is off. Enable with <span className="text-[#f64e6e]">hermes gateway setup</span> or
-                  set <span className="text-white">WEBHOOK_ENABLED=true</span> in ~/.hermes/.env, then restart the gateway.
+                  Event-driven agent activation is off. Enable with <span className="text-[#f64e6e]">mc gateway setup</span> or
+                  set <span className="text-white">WEBHOOK_ENABLED=true</span> in ~/.mc/.env, then restart the gateway.
                 </div>
               </div>
             )}
             {webhooks?.enabled && !webhooks.subscriptions.length && (
-              <div className="font-mono text-[11px] text-[#545454]">enabled — no subscriptions yet (hermes webhook add)</div>
+              <div className="font-mono text-[11px] text-[#545454]">enabled — no subscriptions yet (mc webhook add)</div>
             )}
             {webhooks?.enabled && webhooks.subscriptions.map((s, i) => (
               <div key={i} className="font-mono text-[10px] text-[#b8b8b8] border-b border-white/[0.05] py-1 truncate">

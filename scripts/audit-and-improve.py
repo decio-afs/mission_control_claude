@@ -58,6 +58,7 @@ DEMO_PATTERNS = [
     r"DemoBadge",
     r"MOCK_",
     r"mock[A-Z]",
+    # Only flag hardcoded arrays when they are NOT preceded by live data mapping
     r"const\s+(trends|slides|queue|rows|nav|channels|nodes|edges)\s*:",
     r"const\s+(trends|slides|queue|rows|nav|channels|nodes|edges)\s*=\s*\[",
     r"sampleData",
@@ -70,6 +71,12 @@ DEMO_PATTERNS = [
     r"//\s*NOTE:\s*static demo",
     r"//\s*NOTE:\s*no Hermes source",
 ]
+
+# Files that are KNOWN to use live data but may match DEMO_PATTERNS accidentally
+# (e.g., ContentFactory maps live Hermes tasks into campaigns/drafts/calendar)
+LIVE_OVERRIDES = {
+    "ContentFactory.tsx",
+}
 
 # Patterns that indicate a component is LIVE (fetching from Hermes bridge)
 LIVE_PATTERNS = [
@@ -237,6 +244,9 @@ def analyze_pages() -> dict[str, Any]:
         elif has_demo_imports and not has_live_imports:
             if is_intentional_demo:
                 demo.append(component)
+            elif name in LIVE_OVERRIDES:
+                # Known live component that happens to match a demo pattern
+                live.append(component)
             else:
                 # A non-intentional-demo page using only static data → STRANDED
                 stranded.append(component)
@@ -247,6 +257,8 @@ def analyze_pages() -> dict[str, Any]:
             if is_intentional_demo:
                 component["note"] = "Intentional demo module now has bridge imports — migration in progress?"
                 live.append(component)
+            elif name in LIVE_OVERRIDES:
+                live.append(component)
             else:
                 component["note"] = "Uses both live and demo data — verify no mock fallback"
                 stranded.append(component)
@@ -254,6 +266,8 @@ def analyze_pages() -> dict[str, Any]:
             # No clear data source detected
             if is_intentional_demo:
                 demo.append(component)
+            elif name in LIVE_OVERRIDES:
+                live.append(component)
             else:
                 unknown.append(component)
 
@@ -284,16 +298,50 @@ def analyze_stores() -> list[dict]:
         # Check live stores actually call bridge
         if store_file.name.startswith("use") and store_file.name.endswith("Store.ts"):
             if "getHermes" not in content and "api.ts" not in content:
-                # Local-only store (e.g. useChatStore with localStorage)
-                if store_file.name == "useChatStore.ts":
-                    # ChatTerminal does use sendHermesChat directly, so it's hybrid
+                # UI-coordination stores (drilldown open/close, task focus, notify
+                # history) legitimately never touch the bridge — they consume live
+                # data via other stores or only hold UI state. They declare this
+                # with a "bloodhound" marker comment. Don't flag those, and NEVER
+                # suggest adding an import to satisfy this check: an unused import
+                # fails `tsc -b` (noUnusedLocals) and breaks the desktop build.
+                live_store_consumers = ["useGhostStore", "useTaskStore", "useSystemStore", "useBriefingStore", "useChatStore"]
+                is_ui_coordination = "bloodhound" in content.lower() or any(ls in content for ls in live_store_consumers)
+                if store_file.name == "useChatStore.ts" or is_ui_coordination:
+                    # useChatStore is hybrid (calls sendHermesChat); marked stores
+                    # are intentional UI-state only.
                     pass
                 else:
                     issues.append({
                         "severity": "medium",
                         "component": store_file.stem,
                         "issue": f"Store {store_file.name} does not import from api.ts — may not fetch live Hermes data",
-                        "fix": f"Wire {store_file.name} to call bridge functions from api.ts",
+                        "fix": (
+                            f"If {store_file.name} should display live data, wire it to CALL a bridge "
+                            "function from api.ts (an actually-invoked call, e.g. getHermes*). If it is "
+                            "intentionally UI-state only, add a '// Live-data context (bloodhound): ...' "
+                            "comment explaining where its data comes from. NEVER add an unused import — "
+                            "tsc's noUnusedLocals fails the build on unused imports."
+                        ),
+                    })
+
+        # Check stores that import api.ts but don't actually call bridge functions
+        if store_file.name.startswith("use") and store_file.name.endswith("Store.ts"):
+            # Use regex to detect actual import statements from api.ts, not just
+            # comments or strings that happen to contain "api.ts".
+            has_api_import = bool(re.search(r"from\s+['\"]\.\./lib/api['\"]", content))
+            if has_api_import and "getHermes" not in content:
+                # UI-coordination stores (drilldown, focus, notify) import api.ts
+                # for bloodhound context but don't fetch directly — they consume
+                # live data from other stores. Only flag if there's no evidence
+                # they consume live store data.
+                live_store_consumers = ["useGhostStore", "useTaskStore", "useSystemStore", "useBriefingStore", "useChatStore"]
+                consumes_live = any(ls in content for ls in live_store_consumers)
+                if not consumes_live:
+                    issues.append({
+                        "severity": "medium",
+                        "component": store_file.stem,
+                        "issue": f"Store {store_file.name} imports api.ts but does not call bridge functions or consume live stores — may be stranded",
+                        "fix": f"Wire {store_file.name} to call bridge functions from api.ts or consume live store data",
                     })
 
     return issues
@@ -351,13 +399,16 @@ def analyze_routing() -> list[dict]:
 
     if layout_file.exists():
         content = read_file_text(layout_file)
+        # Layout.tsx now imports MODULES from src/lib/nav.ts instead of inline paths
+        # Check for the MODULES import to confirm navigation is configured
+        has_modules_import = "MODULES" in content and "from '../lib/nav'" in content
         nav_count = content.count("path:")
-        if nav_count < 10:
+        if not has_modules_import and nav_count < 10:
             issues.append({
                 "severity": "medium",
                 "component": "Navigation",
                 "issue": f"Layout.tsx only has {nav_count} nav paths, expected >=10",
-                "fix": "Add missing MODULES entries to Layout.tsx",
+                "fix": "Add missing MODULES entries to Layout.tsx or src/lib/nav.ts",
             })
 
     return issues
@@ -664,6 +715,11 @@ Fix Mission Control web app so it displays REAL data from Hermes bridge instead 
 - Preserve existing cyberpunk visual style
 - Add error states so UI shows when data fails to load
 - Test build after every change
+- NEVER add an unused import (e.g. `import { bridge }` just to mark a file as
+  live-data) — tsc's noUnusedLocals fails `npm run desktop` on unused imports,
+  and an eslint-disable comment does NOT silence tsc. To mark a UI-state-only
+  store, use a `// Live-data context (bloodhound): ...` comment instead.
+- `tsc -b && vite build` must pass before you finish
 
 ## Report Back
 When complete, write a summary of changes to `.hermes/audit-report.md`

@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 import {
-  getHermesAgents,
-  createHermesAgent,
-  updateHermesAgent,
-  deleteHermesAgent,
+  getMcAgents,
+  createMcAgent,
+  bridgeDetail,
+  updateMcAgent,
+  deleteMcAgent,
   spawnAgentOnTask,
   errMessage,
-  type HermesAgent,
+  type McAgent,
   type AgentCreateRequest,
   type AgentUpdateRequest,
 } from '../lib/api';
@@ -77,7 +78,7 @@ interface GhostStore {
 // Squads used purely for visual grouping/coloring of the legion.
 const SQUADS = ['SEC', 'INTEL', 'INFRA', 'CONT', 'DEV'] as const;
 // Agent names treated as the orchestrator / director core node.
-const CORE_NAMES = new Set(['kate', 'director', 'core', 'orchestrator', 'hermes']);
+const CORE_NAMES = new Set(['kate', 'director', 'core', 'orchestrator', 'mc']);
 
 function hash(s: string): number {
   let x = 0;
@@ -94,11 +95,11 @@ function num(counts: Record<string, number>, ...keys: string[]): number {
 }
 
 /**
- * Map the live Hermes assignee list into Ghost Network nodes: one node per real
+ * Map the live Mc assignee list into Agent Network nodes: one node per real
  * agent, with a deterministic squad/role for coloring. No synthetic nodes are
  * added, so counts always reflect the real agent roster.
  */
-export function mapAgentsToTopology(agents: HermesAgent[]): GhostNode[] {
+export function mapAgentsToTopology(agents: McAgent[]): GhostNode[] {
   return agents.map((a) => {
     const lc = a.name.toLowerCase();
     const isCore = CORE_NAMES.has(lc);
@@ -138,7 +139,7 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
   fetchTopology: async () => {
     set({ isLoading: true });
     try {
-      const { agents } = await getHermesAgents();
+      const { agents } = await getMcAgents();
       const nodes = mapAgentsToTopology(agents || []);
 
       // Sample real telemetry once per poll so the deck's sparklines plot
@@ -174,7 +175,7 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
   createAgent: async (payload) => {
     set({ isLoading: true, error: null });
     try {
-      await createHermesAgent(payload);
+      await createMcAgent(payload);
       await get().fetchTopology();
       get().logActivity({
         agentId: payload.name,
@@ -185,7 +186,7 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
       set({ isLoading: false });
       return true;
     } catch (err) {
-      const msg = errMessage(err);
+      const msg = bridgeDetail(err);
       console.error('[GhostStore] createAgent failed:', msg);
       set({ isLoading: false, error: msg });
       return false;
@@ -195,7 +196,7 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
   updateAgent: async (id, payload) => {
     set({ isLoading: true, error: null });
     try {
-      await updateHermesAgent(id, payload);
+      await updateMcAgent(id, payload);
       await get().fetchTopology();
       get().logActivity({
         agentId: id,
@@ -206,7 +207,7 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
       set({ isLoading: false });
       return true;
     } catch (err) {
-      const msg = errMessage(err);
+      const msg = bridgeDetail(err);
       console.error('[GhostStore] updateAgent failed:', msg);
       set({ isLoading: false, error: msg });
       return false;
@@ -216,7 +217,7 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
   deleteAgent: async (id) => {
     set({ isLoading: true, error: null });
     try {
-      await deleteHermesAgent(id);
+      await deleteMcAgent(id);
       await get().fetchTopology();
       get().logActivity({
         agentId: id,
@@ -227,7 +228,7 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
       set({ isLoading: false });
       return true;
     } catch (err) {
-      const msg = errMessage(err);
+      const msg = bridgeDetail(err);
       console.error('[GhostStore] deleteAgent failed:', msg);
       set({ isLoading: false, error: msg });
       return false;
@@ -248,7 +249,7 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
       set({ isLoading: false });
       return true;
     } catch (err) {
-      const msg = errMessage(err);
+      const msg = bridgeDetail(err);
       console.error('[GhostStore] spawnAgentOnTask failed:', msg);
       set({ isLoading: false, error: msg });
       return false;

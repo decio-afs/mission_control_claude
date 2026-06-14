@@ -1,15 +1,18 @@
-// Content Factory — live content pipeline fed from Hermes kanban tasks, the
-// planned-post calendar (media uploads + Ayrshare auto-posting), and Apify
+// Content Factory — live content pipeline fed from Mc kanban tasks, the
+// planned-post calendar (Metricool auto-posting via its MCP), and Apify
 // creator viral signals.
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Panel, Pill, CornerBrackets, Stat } from '../components/cyberpunk/ui';
 import { useContentStore } from '../stores/useContentStore';
+import { useGhostStore } from '../stores/useGhostStore';
+import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import {
   addCalendarItem, getCreators, watchCreator, scrapeCreators, errMessage,
-  getContentIdeas, generateContentIdeas, createHermesTask,
+  getContentIdeas, generateContentIdeas, createMcTask,
   consumeContentIdea, skipContentIdea,
-  uploadContentMedia, attachCalendarMedia, scheduleCalendarItem, pushCalendarItemToBuffer,
-  type CreatorsResponse, type ContentIdeas,
+  uploadContentMedia, attachCalendarMedia, scheduleCalendarItem,
+  predictCalendarVirality, getMetricoolBrands, syncMetricoolBrands,
+  type CreatorsResponse, type ContentIdeas, type MetricoolBrands,
 } from '../lib/api';
 
 const statusTone: Record<string, 'good' | 'warn' | 'info' | 'neutral' | 'bad'> = {
@@ -35,12 +38,25 @@ function formatDate(d: string) {
 
 export default function ContentFactory() {
   const { campaigns, drafts, calendar, isLoading, error, lastSync, refresh } = useContentStore();
+  const nodes = useGhostStore((s) => s.nodes);
 
   useEffect(() => {
     refresh();
     const id = setInterval(() => refresh(), 30000);
     return () => clearInterval(id);
   }, [refresh]);
+
+  // A content card IS a kanban task — clicking it opens the same detail/control
+  // slide-over the Operations Center uses, so a finished task's deliverable
+  // (result / summary / runs / worker log) is finally readable from the Factory.
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const profiles = useMemo(() => {
+    const set = new Set<string>();
+    nodes.filter((n) => n.type !== 'squad').forEach((n) => set.add(n.name));
+    campaigns.forEach((c) => { if (c.assignee && c.assignee !== 'unassigned') set.add(c.assignee); });
+    return [...set].sort();
+  }, [nodes, campaigns]);
+  const allTasks = useMemo(() => campaigns.map((c) => ({ id: c.id, title: c.title })), [campaigns]);
 
   const summary = useMemo(() => {
     const total = campaigns.length;
@@ -60,12 +76,29 @@ export default function ContentFactory() {
       .slice(0, 7);
   }, [calendar]);
 
-  // ── Plan-post form (local calendar store; Ayrshare scheduling when keyed) ──
+  // ── Plan-post form (local calendar store; Metricool scheduling on publish) ──
   const [pTitle, setPTitle] = useState('');
   const [pDate, setPDate] = useState('');
   const [pPlatform, setPPlatform] = useState('instagram');
   const [planBusy, setPlanBusy] = useState(false);
   const [planMsg, setPlanMsg] = useState<string | null>(null);
+
+  // Connected Metricool profiles — constrains where posts can actually go.
+  const [brands, setBrands] = useState<MetricoolBrands | null>(null);
+  useEffect(() => { getMetricoolBrands().then(setBrands).catch(() => setBrands(null)); }, []);
+  const handleSyncBrands = async () => {
+    setPlanMsg('syncing connected accounts from Metricool… (LLM, ~1 min)');
+    try {
+      setBrands(await syncMetricoolBrands());
+      setPlanMsg('Metricool accounts synced ✓');
+    } catch (e) {
+      setPlanMsg(errMessage(e));
+    }
+  };
+  const connectedNetworks = useMemo(
+    () => Object.keys(brands?.brands?.[0]?.networks ?? {}),
+    [brands],
+  );
 
   const handlePlan = async (publish: boolean) => {
     if (!pTitle.trim() || !pDate || planBusy) return;
@@ -74,7 +107,7 @@ export default function ContentFactory() {
     try {
       const r = await addCalendarItem({ title: pTitle.trim(), date: pDate, platform: pPlatform, publish });
       setPTitle('');
-      setPlanMsg(publish ? `pushed to Buffer Ideas ✓ (${r.item.buffer_id ?? r.item.status})` : 'planned ✓');
+      setPlanMsg(publish ? `scheduled on Metricool ✓ (${r.item.scheduled_for ?? r.item.date}) — auto-publishes` : 'planned ✓');
       await refresh();
     } catch (e) {
       setPlanMsg(`failed: ${errMessage(e)}`);
@@ -104,15 +137,15 @@ export default function ContentFactory() {
     }
   };
 
-  // Per-idea actions: plan it, push it to Buffer Ideas, or hand it to an agent.
+  // Per-idea actions: plan it, schedule it on Metricool, or hand it to an agent.
   const ideaToCalendar = async (idea: { title: string; platform: string; hook: string }, publish: boolean) => {
-    const key = `${idea.title}|${publish ? 'buf' : 'plan'}`;
+    const key = `${idea.title}|${publish ? 'pub' : 'plan'}`;
     setIdeaActionBusy(key);
     try {
       const date = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
       await addCalendarItem({ title: idea.title, date, platform: idea.platform || 'instagram', body: idea.hook, publish });
       const left = await consumeIdea(idea.title);
-      setIdeasMsg((publish ? `"${idea.title.slice(0, 40)}" → Buffer Ideas ✓` : `"${idea.title.slice(0, 40)}" planned for ${date} ✓`) + (left !== null ? ` · ${left} left in deck` : ''));
+      setIdeasMsg((publish ? `"${idea.title.slice(0, 40)}" → scheduled on Metricool ✓` : `"${idea.title.slice(0, 40)}" planned for ${date} ✓`) + (left !== null ? ` · ${left} left in deck` : ''));
       await refresh();
     } catch (e) {
       setIdeasMsg(errMessage(e));
@@ -157,9 +190,9 @@ export default function ContentFactory() {
     const key = `${idea.title}|task`;
     setIdeaActionBusy(key);
     try {
-      await createHermesTask({
+      await createMcTask({
         title: `Produce content: ${idea.title}`,
-        body: `Platform: ${idea.platform} · Format: ${idea.format}\nHook: ${idea.hook}\nWhy now: ${idea.why_now}\nPattern source: ${idea.pattern_source}\n\nDeliverable: final caption + script/copy ready to post, in the DA Agency / Ghost Legion brand voice (see BRAND_STRATEGY.md).`,
+        body: `Platform: ${idea.platform} · Format: ${idea.format}\nHook: ${idea.hook}\nWhy now: ${idea.why_now}\nPattern source: ${idea.pattern_source}\n\nDeliverable: final caption + script/copy ready to post, in the DA Agency / Agent Legion brand voice (see BRAND_STRATEGY.md).`,
         triage: true,
       });
       const left = await consumeIdea(idea.title);
@@ -171,8 +204,8 @@ export default function ContentFactory() {
     }
   };
 
-  // ── Calendar production flow: attach media in-dashboard, then push the
-  //    complete package (copy + plan + media note) into Buffer Ideas. ──
+  // ── Calendar production flow: attach media in-dashboard, then book the
+  //    post on Metricool (auto-publishes at the planned time). ──
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mediaFor, setMediaFor] = useState<string | null>(null);
   const [calBusy, setCalBusy] = useState<string | null>(null);
@@ -209,29 +242,30 @@ export default function ContentFactory() {
     }
   };
 
-  const pushToBuffer = async (itemId: string) => {
+  const scheduleItem = async (itemId: string) => {
     setCalBusy(itemId);
-    setCalMsg('pushing package to Buffer Ideas…');
+    setCalMsg('booking post on Metricool… (LLM hop, ~1 min)');
     try {
-      await pushCalendarItemToBuffer(itemId);
-      setCalMsg('complete package in Buffer Ideas ✓ — open Buffer to publish');
+      const { item } = await scheduleCalendarItem(itemId);
+      setCalMsg(`scheduled ✓ — auto-publishes ${item.scheduled_for ?? item.date}`);
       await refresh();
     } catch (err) {
-      setCalMsg(errMessage(err));
+      setCalMsg(errMessage(err)); // surfaces "brands not synced" / "platform not connected" guidance
     } finally {
       setCalBusy(null);
     }
   };
 
-  const scheduleItem = async (itemId: string) => {
+  const predictItem = async (itemId: string) => {
     setCalBusy(itemId);
-    setCalMsg('uploading media + booking post via Ayrshare…');
+    setCalMsg('running media through the Higgsfield virality predictor… (1-3 min)');
     try {
-      await scheduleCalendarItem(itemId);
-      setCalMsg('post scheduled ✓');
+      const { item } = await predictCalendarVirality(itemId);
+      const v = item.virality;
+      setCalMsg(v ? `virality ${v.score ?? '?'}/100 · ${v.verdict} — ${v.hook_strength}` : 'prediction returned no data');
       await refresh();
     } catch (err) {
-      setCalMsg(errMessage(err)); // surfaces the "AYRSHARE_API_KEY not set" guidance
+      setCalMsg(errMessage(err));
     } finally {
       setCalBusy(null);
     }
@@ -244,9 +278,9 @@ export default function ContentFactory() {
     setIdeaActionBusy(key);
     try {
       const date = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
-      await createHermesTask({
+      await createMcTask({
         title: `Produce carousel: ${idea.title}`,
-        body: `Create a complete Instagram carousel for the DA Agency / Ghost Legion brand (voice + positioning in BRAND_STRATEGY.md at the Mission Control repo root).\n\nIdea: ${idea.title}\nHook: ${idea.hook}\nWhy now: ${idea.why_now}\nPattern source: ${idea.pattern_source}\n\nSteps:\n1. Write the final caption (hook, body, CTA, hashtags) and slide-by-slide copy for 5-7 slides.\n2. Generate ONE image per slide with the Higgsfield MCP image tools — consistent style: premium cyberpunk, coral #f64e6e on near-black, bold typographic slides using the slide copy. Collect every hosted image URL.\n3. File the finished package on the Mission Control calendar by running exactly this in your terminal (fill in the real values, JSON-escape the caption):\n   curl -s -X POST http://localhost:8767/api/content/calendar -H "Content-Type: application/json" -d "{\\"title\\":\\"${idea.title.replace(/"/g, '')}\\",\\"date\\":\\"${date}\\",\\"platform\\":\\"instagram\\",\\"body\\":\\"<FINAL CAPTION>\\",\\"media_urls\\":[<IMAGE URLS>]}"\n4. Report the caption, the slide copy, and the calendar item id.`,
+        body: `Create a complete Instagram carousel for the DA Agency / Agent Legion brand (voice + positioning in BRAND_STRATEGY.md at the Mission Control repo root).\n\nIdea: ${idea.title}\nHook: ${idea.hook}\nWhy now: ${idea.why_now}\nPattern source: ${idea.pattern_source}\n\nSteps:\n1. Write the final caption (hook, body, CTA, hashtags) and slide-by-slide copy for 5-7 slides.\n2. Generate ONE image per slide with the Higgsfield MCP image tools — consistent style: premium cyberpunk, coral #f64e6e on near-black, bold typographic slides using the slide copy. Collect every hosted image URL.\n3. File the finished package on the Mission Control calendar by running exactly this in your terminal (fill in the real values, JSON-escape the caption):\n   curl -s -X POST http://localhost:8767/api/content/calendar -H "Content-Type: application/json" -d "{\\"title\\":\\"${idea.title.replace(/"/g, '')}\\",\\"date\\":\\"${date}\\",\\"platform\\":\\"instagram\\",\\"body\\":\\"<FINAL CAPTION>\\",\\"media_urls\\":[<IMAGE URLS>]}"\n4. Report the caption, the slide copy, and the calendar item id.`,
         triage: true,
       });
       const left = await consumeIdea(idea.title);
@@ -340,8 +374,8 @@ export default function ContentFactory() {
           {!ideasBusy && !ideas?.available && (
             <div className="font-mono text-[11px] text-[#707070]">
               {'>'} This is where your content strategy gets made: GENERATE feeds the scraped viral
-              signals (below), today's Sentinel AI news, and BRAND_STRATEGY.md into Hermes and
-              returns ranked ideas — each one can be planned, pushed to Buffer, or handed to an agent.
+              signals (below), today's Sentinel AI news, and BRAND_STRATEGY.md into Mc and
+              returns ranked ideas — each one can be planned, scheduled on Metricool, or handed to an agent.
             </div>
           )}
           {!ideasBusy && ideas?.available && (
@@ -384,9 +418,9 @@ export default function ContentFactory() {
                         {ideaActionBusy === `${idea.title}|plan` ? '…' : '+ PLAN'}
                       </button>
                       <button onClick={() => void ideaToCalendar(idea, true)} disabled={ideaActionBusy !== null}
-                        title="File the raw idea in Buffer Ideas now"
+                        title="Schedule the raw idea on Metricool now (auto-publishes at the planned time)"
                         className="text-[10px] font-mono border border-white/10 text-[#b8b8b8] py-1 hover:border-[#f64e6e] hover:text-[#f64e6e] disabled:opacity-30">
-                        {ideaActionBusy === `${idea.title}|buf` ? '…' : '→ BUFFER'}
+                        {ideaActionBusy === `${idea.title}|pub` ? '…' : '→ METRICOOL'}
                       </button>
                       <button onClick={() => void ideaToTask(idea)} disabled={ideaActionBusy !== null}
                         title="Create a kanban task — an agent produces the final caption/script"
@@ -432,13 +466,16 @@ export default function ContentFactory() {
           {error ? (
             <div className="text-red-400 font-mono text-xs">{error}</div>
           ) : campaigns.length === 0 ? (
-            <div className="text-[#545454] font-mono text-xs">No content campaigns found in Hermes tasks.</div>
+            <div className="text-[#545454] font-mono text-xs">No content campaigns found in Mc tasks.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {campaigns.map((c) => (
-                <div
+                <button
                   key={c.id}
-                  className="p-3 border border-white/10 bg-[#080808] relative overflow-hidden"
+                  type="button"
+                  onClick={() => setOpenTaskId(c.id)}
+                  title="Open task detail — read/copy the deliverable, runs, and worker log"
+                  className={`text-left w-full p-3 border bg-[#080808] relative overflow-hidden transition-colors hover:border-[#f64e6e]/40 ${openTaskId === c.id ? 'border-[#f64e6e]' : 'border-white/10'}`}
                 >
                   <div className="flex justify-between items-start mb-2">
                     <Pill tone={statusTone[c.status] || 'neutral'}>{c.platform}</Pill>
@@ -455,7 +492,7 @@ export default function ContentFactory() {
                     <span className="text-[10px] font-mono text-[#545454]">P{c.priority}</span>
                   </div>
                   <CornerBrackets color="rgba(246,78,110,0.15)" />
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -468,9 +505,12 @@ export default function ContentFactory() {
           ) : (
             <div className="flex flex-col gap-1">
               {drafts.map((d) => (
-                <div
+                <button
                   key={d.id}
-                  className="flex items-center justify-between p-2 border border-white/5 bg-[#080808] hover:border-white/10 transition-colors"
+                  type="button"
+                  onClick={() => setOpenTaskId(d.id)}
+                  title="Open task detail — read/copy the deliverable, runs, and worker log"
+                  className={`w-full text-left flex items-center justify-between p-2 border bg-[#080808] transition-colors hover:border-[#f64e6e]/30 ${openTaskId === d.id ? 'border-[#f64e6e]' : 'border-white/5'}`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <span
@@ -484,7 +524,7 @@ export default function ContentFactory() {
                     <Pill tone={statusTone[d.status] || 'neutral'}>{d.platform}</Pill>
                     <span className="text-[10px] font-mono text-[#545454]">P{d.priority}</span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -499,7 +539,21 @@ export default function ContentFactory() {
           className="shrink-0"
           right={<span className="text-[#545454]">UPCOMING</span>}
         >
-          {/* Plan a post — stored locally; scheduled to socials via Buffer once BUFFER_ACCESS_TOKEN is set */}
+          {/* Connected Metricool profiles — the only networks posts can go to */}
+          {brands?.available && brands.brands?.[0] ? (
+            <div className="font-mono text-[10px] text-[#707070] mb-2 flex items-center gap-2 flex-wrap">
+              <span className="text-emerald-400">● {brands.brands[0].name}</span>
+              {Object.entries(brands.brands[0].networks).map(([net, handle]) => (
+                <span key={net} title={`@${handle}`}>{net}: <span className="text-[#b8b8b8]">@{handle}</span></span>
+              ))}
+            </div>
+          ) : (
+            <button onClick={() => void handleSyncBrands()}
+              className="font-mono text-[10px] text-amber-400 border border-amber-400/30 bg-amber-400/5 px-2 py-1.5 mb-2 text-left hover:bg-amber-400/10 w-full">
+              ⚠ Metricool accounts not synced — click to pull connected profiles via the MCP (~1 min)
+            </button>
+          )}
+          {/* Plan a post — stored locally; → METRICOOL books it for auto-publishing */}
           <div className="flex flex-col gap-1.5 mb-3">
             <input value={pTitle} onChange={(e) => setPTitle(e.target.value)} placeholder="plan a post — title / hook…"
               className="bg-[#050505] border border-white/10 px-2 py-1.5 text-[11px] font-mono text-white focus:border-[#f64e6e]/50 outline-none" />
@@ -508,16 +562,16 @@ export default function ContentFactory() {
                 className="flex-1 bg-[#050505] border border-white/10 px-2 py-1 text-[10px] font-mono text-[#b8b8b8] outline-none" />
               <select value={pPlatform} onChange={(e) => setPPlatform(e.target.value)}
                 className="bg-[#050505] border border-white/10 px-1 py-1 text-[10px] font-mono text-[#b8b8b8] outline-none">
-                {['instagram', 'tiktok', 'youtube', 'linkedin', 'twitter'].map((p) => <option key={p} value={p}>{p}</option>)}
+                {(connectedNetworks.length ? connectedNetworks : ['instagram', 'threads', 'tiktok']).map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
               <button onClick={() => void handlePlan(false)} disabled={planBusy || !pTitle.trim() || !pDate}
                 className="text-[10px] font-mono border border-white/10 text-[#b8b8b8] px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e] disabled:opacity-30">
                 {planBusy ? '…' : '+ PLAN'}
               </button>
               <button onClick={() => void handlePlan(true)} disabled={planBusy || !pTitle.trim() || !pDate}
-                title="Plan locally AND push to Buffer Ideas"
+                title="Plan locally AND schedule on Metricool (auto-publishes at the planned time)"
                 className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] px-2 py-1 hover:bg-[#f64e6e]/20 disabled:opacity-30">
-                {planBusy ? '…' : '→ BUFFER'}
+                {planBusy ? '…' : '→ METRICOOL'}
               </button>
             </div>
             {planMsg && <div className="font-mono text-[10px] text-sky-400">▸ {planMsg}</div>}
@@ -543,22 +597,29 @@ export default function ContentFactory() {
                     <div className="text-xs text-white truncate">{item.title}</div>
                     <div className="text-[10px] font-mono text-[#707070]">{item.status}</div>
                   </div>
+                  {item.virality && (
+                    <span
+                      title={`${item.virality.verdict} · hook: ${item.virality.hook_strength} · risk: ${item.virality.retention_risk}`}
+                      className={`font-mono text-[10px] shrink-0 ${(item.virality.score ?? 0) >= 70 ? 'text-emerald-400' : (item.virality.score ?? 0) >= 40 ? 'text-amber-400' : 'text-[#f64e6e]'}`}>
+                      🔮 {item.virality.score ?? '?'}
+                    </span>
+                  )}
                   <Pill tone={statusTone[item.status] || 'neutral'}>{item.platform}</Pill>
                   {(item as { planned?: boolean }).planned && (
                     <div className="flex gap-1 shrink-0">
+                      <button onClick={() => void predictItem(item.id)} disabled={calBusy !== null}
+                        title="Predict virality of the attached media (Higgsfield) — advisory, does not block scheduling"
+                        className="text-[10px] font-mono border border-white/10 text-[#b8b8b8] px-1.5 py-0.5 hover:border-violet-400 hover:text-violet-400 disabled:opacity-30">
+                        {calBusy === item.id ? '…' : '🔮'}
+                      </button>
                       <button onClick={() => onPickMedia(item.id)} disabled={calBusy !== null}
                         title="Attach the video/image for this post (staged in the dashboard)"
                         className="text-[10px] font-mono border border-white/10 text-[#b8b8b8] px-1.5 py-0.5 hover:border-[#f64e6e] hover:text-[#f64e6e] disabled:opacity-30">
                         {calBusy === item.id && mediaFor === item.id ? '…' : '📎'}
                       </button>
-                      <button onClick={() => void pushToBuffer(item.id)} disabled={calBusy !== null}
-                        title="Push the complete package (copy + plan + media note) into Buffer Ideas"
-                        className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] px-1.5 py-0.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">
-                        ⬆
-                      </button>
                       <button onClick={() => void scheduleItem(item.id)} disabled={calBusy !== null}
-                        title="Auto-schedule the real post (media + date) — requires AYRSHARE_API_KEY"
-                        className="text-[10px] font-mono border border-white/10 text-[#b8b8b8] px-1.5 py-0.5 hover:border-emerald-400 hover:text-emerald-400 disabled:opacity-30">
+                        title="Book the post on Metricool — auto-publishes at the planned time"
+                        className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] px-1.5 py-0.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">
                         ⏱
                       </button>
                     </div>
@@ -575,7 +636,7 @@ export default function ContentFactory() {
           className="flex-1 min-h-[260px]"
           right={
             <button onClick={() => void handleScrape()} disabled={scraping || !creators?.watchlist.length}
-              title={creators?.configured === false ? 'Set APIFY_API_TOKEN in ~/.hermes/.env first' : 'Scrape the watchlist now'}
+              title={creators?.configured === false ? 'Set APIFY_API_TOKEN in ~/.mc/.env first' : 'Scrape the watchlist now'}
               className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] px-2 py-0.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">
               {scraping ? 'SCRAPING…' : '▷ SCRAPE'}
             </button>
@@ -584,7 +645,7 @@ export default function ContentFactory() {
         >
           {creators?.configured === false && (
             <div className="font-mono text-[10px] text-amber-400 border border-amber-400/30 bg-amber-400/5 px-2 py-1.5 mb-2">
-              ⚠ APIFY_API_TOKEN not set — add it to ~/.hermes/.env, restart the bridge, and scraping goes live.
+              ⚠ APIFY_API_TOKEN not set — add it to ~/.mc/.env, restart the bridge, and scraping goes live.
             </div>
           )}
           <div className="flex gap-1.5 mb-2">
@@ -624,7 +685,9 @@ export default function ContentFactory() {
                   className="block p-2 border border-white/5 bg-[#080808] hover:border-[#f64e6e]/40 transition-colors">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="font-mono text-[10px] text-[#f64e6e]">@{p.creator} · {p.platform === 'instagram' ? 'IG' : 'TT'}</span>
-                    <span className="font-mono text-[10px] text-amber-400 shrink-0">⚡ {p.viral_score.toLocaleString()}</span>
+                    <span className="font-mono text-[10px] text-amber-400 shrink-0">
+                      ⚡ {p.viral_score.toLocaleString()}{p.age_days != null ? <span className="text-[#545454]"> · {Math.round(p.age_days)}d</span> : null}
+                    </span>
                   </div>
                   <div className="text-[11px] text-[#b8b8b8] line-clamp-2">{p.caption || '(no caption)'}</div>
                   <div className="font-mono text-[10px] text-[#545454] mt-1">
@@ -636,6 +699,15 @@ export default function ContentFactory() {
           )}
         </Panel>
       </div>
+
+      <TaskDetailDrawer
+        key={openTaskId ?? 'none'}
+        taskId={openTaskId}
+        profiles={profiles}
+        allTasks={allTasks}
+        onClose={() => setOpenTaskId(null)}
+        onOpenTask={(id) => setOpenTaskId(id)}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 @echo off
-title Mission Control - Hermes
+title Mission Control - Claude
 cd /d "%~dp0"
 
 where node >nul 2>nul || (echo [X] Node.js not found - install from https://nodejs.org & pause & exit /b 1)

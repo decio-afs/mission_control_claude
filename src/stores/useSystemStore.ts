@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import { getHermesStatus, errMessage } from '../lib/api';
+import { getMcStatus, errMessage } from '../lib/api';
 
 interface SystemVitals {
-  hermesOnline: boolean;
-  hermesVersion: string;
+  mcOnline: boolean;
+  mcVersion: string;
   connectionLatencyMs: number;
   activeRunners: number;
 }
@@ -14,15 +14,15 @@ interface SystemStore {
   error: string | null;
   lastSync: Date | null;
   updateVitals: (vitals: Partial<SystemVitals>) => void;
-  fetchHermesStatus: () => Promise<void>;
+  fetchMcStatus: () => Promise<void>;
 }
 
 const MAX_HISTORY = 40;
 
 export const useSystemStore = create<SystemStore>((set) => ({
   vitals: {
-    hermesOnline: false,
-    hermesVersion: 'unknown',
+    mcOnline: false,
+    mcVersion: 'unknown',
     connectionLatencyMs: 0,
     activeRunners: 0,
   },
@@ -32,16 +32,16 @@ export const useSystemStore = create<SystemStore>((set) => ({
 
   updateVitals: (newVitals) => set((state) => ({ vitals: { ...state.vitals, ...newVitals } })),
 
-  fetchHermesStatus: async () => {
+  fetchMcStatus: async () => {
     const start = performance.now();
     try {
-      const data = await getHermesStatus();
+      const data = await getMcStatus();
       const latency = Math.round(performance.now() - start);
       set((state) => ({
         vitals: {
           ...state.vitals,
-          hermesOnline: true,
-          hermesVersion: data.hermes_version?.split('\n')[0] || 'connected',
+          mcOnline: true,
+          mcVersion: data.mc_version?.split('\n')[0] || 'connected',
           connectionLatencyMs: latency,
         },
         latencyHistory: [...state.latencyHistory, latency].slice(-MAX_HISTORY),
@@ -50,8 +50,8 @@ export const useSystemStore = create<SystemStore>((set) => ({
       }));
     } catch (err) {
       set((state) => ({
-        vitals: { ...state.vitals, hermesOnline: false, hermesVersion: 'disconnected' },
-        error: errMessage(err) || 'Hermes bridge unreachable',
+        vitals: { ...state.vitals, mcOnline: false, mcVersion: 'disconnected' },
+        error: errMessage(err) || 'Mc bridge unreachable',
       }));
     }
   },

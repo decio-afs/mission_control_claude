@@ -1,12 +1,12 @@
-// agentMetrics — pure, client-side performance aggregation over the Hermes queue.
+// agentMetrics — pure, client-side performance aggregation over the Mc queue.
 //
 // Mission Control already polls the full kanban task list into useTaskStore
-// (`hermesTasks`). Each task carries `assignee`, `status`, and epoch-second
+// (`mcTasks`). Each task carries `assignee`, `status`, and epoch-second
 // timestamps (`created_at` / `started_at` / `completed_at`). That's enough to
 // derive per-agent operational analytics — throughput, success rate, average
 // task duration and recent activity — without any new bridge endpoint. This is
 // the data source for the War Room "AGENT PERFORMANCE" leaderboard.
-import type { HermesTask } from './api';
+import type { McTask } from './api';
 
 export interface AgentMetric {
   agent: string;
@@ -34,7 +34,7 @@ const READY = new Set(['ready', 'pending', 'queued', 'todo']);
  * (most-completed first, then success rate). `nowMs` is passed in (not read via
  * Date.now) so callers stay render-pure — supply 0 to disable the 24h window.
  */
-export function computeAgentMetrics(tasks: HermesTask[], nowMs = 0): AgentMetric[] {
+export function computeAgentMetrics(tasks: McTask[], nowMs = 0): AgentMetric[] {
   const cutoffSec = nowMs > 0 ? nowMs / 1000 - 24 * 3600 : 0;
   const byAgent = new Map<string, { m: AgentMetric; durTotal: number; durCount: number }>();
 

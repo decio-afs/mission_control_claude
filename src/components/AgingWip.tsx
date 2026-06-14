@@ -8,7 +8,7 @@
 // own; it consumes the already-polled task store.
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { HermesTask } from '../lib/api';
+import type { McTask } from '../lib/api';
 import { computeAgingWip, STALE_SEC, type AgingBucket } from '../lib/agingWip';
 import { fmtDuration } from '../lib/agentMetrics';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
@@ -31,7 +31,7 @@ function bucketColor(loSec: number): string {
   return '#ef4444'; // ≥ 1d — stale
 }
 
-export default function AgingWip({ tasks, nowMs }: { tasks: HermesTask[]; nowMs: number }) {
+export default function AgingWip({ tasks, nowMs }: { tasks: McTask[]; nowMs: number }) {
   const navigate = useNavigate();
   const focus = useTaskFocusStore((s) => s.focus);
   const ag = useMemo(() => computeAgingWip(tasks, nowMs), [tasks, nowMs]);

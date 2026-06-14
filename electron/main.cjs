@@ -1,6 +1,6 @@
 // Electron main process for Mission Control (local desktop app).
 // Responsibilities:
-//   1. Launch the Hermes bridge (hermes-bridge.py) as a child process.
+//   1. Launch the Mission Control bridge (mission-control-bridge.py) as a child process.
 //   2. Wait for the bridge to answer, then open the desktop window.
 //   3. Tear the bridge down when the app quits.
 const { app, BrowserWindow, shell, session, ipcMain } = require('electron');
@@ -27,8 +27,8 @@ const MAX_RAPID_RESTARTS = 5;
 
 function startBridge() {
   const py = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
-  console.log(`[mc] starting Hermes bridge: ${py} hermes-bridge.py (port ${BRIDGE_PORT})`);
-  bridgeProc = spawn(py, ['hermes-bridge.py'], {
+  console.log(`[mc] starting Mission Control bridge: ${py} mission-control-bridge.py (port ${BRIDGE_PORT})`);
+  bridgeProc = spawn(py, ['mission-control-bridge.py'], {
     cwd: ROOT,
     env: { ...process.env, BRIDGE_PORT },
     stdio: 'inherit',
@@ -97,7 +97,7 @@ async function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     backgroundColor: '#050505',
-    title: 'Mission Control · Hermes',
+    title: 'Mission Control · Claude',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

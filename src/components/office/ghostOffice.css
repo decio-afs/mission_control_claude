@@ -1,0 +1,174 @@
+/* Ghost Office — CLAUDE Agent Tower shell.
+   Adapted from Agents_GUI/css/style.css, scoped under .tower-stage so the
+   pixel HUD can live inside the Nexus stage without leaking globals. */
+
+.tower-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a14;
+  overflow: hidden;
+  user-select: none;
+}
+
+.tower-stage #game {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #0a0a14;
+}
+
+.tower-stage #hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--font-mono, "Courier New", monospace);
+  color: #9ef0a0;
+}
+
+.tower-stage #hud-top {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-shadow: 0 0 6px rgba(110, 255, 140, 0.7);
+}
+
+.tower-stage #hud-conn.conn-live { color: #5cf2c0; text-shadow: 0 0 6px rgba(92, 242, 192, 0.8); }
+.tower-stage #hud-conn.conn-mock { color: #f2a95c; text-shadow: 0 0 6px rgba(242, 169, 92, 0.8); }
+.tower-stage #hud-conn.conn-err  { color: #f25c7a; text-shadow: 0 0 6px rgba(242, 92, 122, 0.8); }
+
+.tower-stage #hud-panel {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 10px 12px;
+  background: rgba(8, 12, 24, 0.88);
+  border: 2px solid #3a4a6a;
+  box-shadow: 0 0 12px rgba(80, 120, 255, 0.25), inset 0 0 18px rgba(20, 30, 60, 0.8);
+  font-size: 12px;
+  line-height: 1.6;
+  pointer-events: auto;
+}
+.tower-stage #hud-panel.hidden { display: none; }
+.tower-stage #panel-name { color: #7ad7ff; font-weight: bold; font-size: 14px; letter-spacing: 1px; }
+.tower-stage #panel-role { color: #8a93b5; }
+.tower-stage #panel-status { color: #9ef0a0; }
+.tower-stage #panel-status.st-working { color: #ffd75c; }
+.tower-stage #panel-status.st-error { color: #f25c7a; }
+.tower-stage #panel-task { color: #c8d0e8; font-style: italic; }
+.tower-stage #panel-close {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  color: #f25c7a;
+  cursor: pointer;
+  font-size: 11px;
+}
+.tower-stage #panel-close:hover { color: #ff9ab0; }
+
+.tower-stage #panel-skin { color: #c8a0ff; }
+.tower-stage #panel-skin-btn {
+  margin-top: 6px;
+  background: #1a2438;
+  border: 1px solid #3a4a6a;
+  color: #7ad7ff;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.tower-stage #panel-skin-btn:hover { background: #24344e; }
+
+/* view bar */
+.tower-stage #view-bar {
+  position: absolute;
+  top: 30px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+.tower-stage #view-bar button {
+  background: rgba(12, 18, 32, 0.85);
+  border: 1px solid #3a4a6a;
+  color: #9ef0a0;
+  font-family: var(--font-mono, "Courier New", monospace);
+  font-size: 11px;
+  font-weight: bold;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.tower-stage #view-bar button:hover { background: #1c2a44; }
+.tower-stage #view-floor-label {
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  min-width: 120px;
+  text-align: center;
+  text-shadow: 0 0 6px rgba(110, 255, 140, 0.4);
+}
+
+/* skin gallery */
+.tower-stage #gallery {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 6, 12, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  z-index: 10;
+}
+.tower-stage #gallery.hidden { display: none; }
+.tower-stage #gallery-box {
+  background: #0c1220;
+  border: 2px solid #3a4a6a;
+  box-shadow: 0 0 24px rgba(80, 120, 255, 0.3);
+  padding: 12px;
+  max-width: 80%;
+  max-height: 84%;
+  overflow-y: auto;
+}
+.tower-stage #gallery-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: #7ad7ff;
+}
+.tower-stage #gallery-close { color: #f25c7a; cursor: pointer; }
+.tower-stage #gallery-close:hover { color: #ff9ab0; }
+.tower-stage #gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.tower-stage .skin-cell {
+  background: #131a2c;
+  border: 1px solid #2a3a5a;
+  padding: 6px 4px 4px;
+  text-align: center;
+  cursor: pointer;
+}
+.tower-stage .skin-cell:hover { border-color: #7ad7ff; background: #1a2438; }
+.tower-stage .skin-cell.current { border-color: #ffd75c; box-shadow: 0 0 8px rgba(255, 215, 92, 0.35); }
+.tower-stage .skin-cell canvas { image-rendering: pixelated; }
+.tower-stage .skin-name {
+  font-size: 9px;
+  color: #8a93b5;
+  margin-top: 3px;
+  letter-spacing: 1px;
+}

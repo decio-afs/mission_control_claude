@@ -2,7 +2,7 @@
 //
 // History: these tabs (Intel Deck, Workflow Builder, Archives, Broadcast
 // Uplink) started as static design ports. They now render real bridge data —
-// creator intel (Apify pipeline), the Hermes kanban, the Sentinel digest
+// creator intel (Apify pipeline), the Mc kanban, the Sentinel digest
 // archive, and the channel/gateway matrix — behind internal sub-tabs. The
 // legacy routes redirect to /design-lab?tab=<id>, so deep links and the
 // command palette still land here.

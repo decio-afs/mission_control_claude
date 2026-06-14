@@ -1,16 +1,16 @@
 // TaskSearch — global ⌘F / Ctrl+F task finder for Mission Control.
 //
 // Distinct from the ⌘K Command Palette (which jumps to nav modules / agents):
-// this is a deep, task-only filter across the entire Hermes queue by title, id,
+// this is a deep, task-only filter across the entire Mc queue by title, id,
 // assignee or status. Selecting a task routes to Operations and focuses it
 // (scroll-into-view + highlight) via useTaskFocusStore. Reads useTaskStore's
-// already-globally-polled hermesTasks — no new bridge endpoint.
+// already-globally-polled mcTasks — no new bridge endpoint.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTaskStore } from '../stores/useTaskStore';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
 import { Label, Pill } from './cyberpunk/ui';
-import type { HermesTask } from '../lib/api';
+import type { McTask } from '../lib/api';
 
 const STATUS_FILTERS = ['ALL', 'READY', 'RUNNING', 'BLOCKED', 'DONE', 'FAILED'] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -59,7 +59,7 @@ export default function TaskSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const { hermesTasks } = useTaskStore();
+  const { mcTasks } = useTaskStore();
   const focus = useTaskFocusStore((s) => s.focus);
 
   const close = () => { setOpen(false); setQuery(''); setActive(0); setStatusFilter('ALL'); };
@@ -85,12 +85,12 @@ export default function TaskSearch() {
     return () => clearTimeout(id);
   }, [open]);
 
-  const results = useMemo<HermesTask[]>(() => {
-    const byStatus = hermesTasks.filter((t) => matchesFilter(t.status, statusFilter));
+  const results = useMemo<McTask[]>(() => {
+    const byStatus = mcTasks.filter((t) => matchesFilter(t.status, statusFilter));
     if (!query.trim()) {
       return [...byStatus].sort((a, b) => (b.created_at || 0) - (a.created_at || 0)).slice(0, 50);
     }
-    const scored: { task: HermesTask; score: number }[] = [];
+    const scored: { task: McTask; score: number }[] = [];
     for (const t of byStatus) {
       const hay = `${t.title} ${t.id} ${t.assignee || ''} ${t.status}`;
       const s = fuzzyScore(query, hay);
@@ -98,11 +98,11 @@ export default function TaskSearch() {
     }
     scored.sort((a, b) => a.score - b.score);
     return scored.slice(0, 50).map((s) => s.task);
-  }, [hermesTasks, query, statusFilter]);
+  }, [mcTasks, query, statusFilter]);
 
   const safeActive = results.length ? Math.min(active, results.length - 1) : 0;
 
-  const choose = (task: HermesTask | undefined) => {
+  const choose = (task: McTask | undefined) => {
     if (!task) return;
     close();
     focus(task.id);
@@ -172,7 +172,7 @@ export default function TaskSearch() {
         <div ref={listRef} className="max-h-[46vh] overflow-auto py-1">
           {results.length === 0 && (
             <div className="px-4 py-6 text-center text-[11px] font-mono text-[#545454]">
-              {hermesTasks.length === 0 ? 'No tasks in the queue yet.' : `No tasks match${query ? ` “${query}”` : ''}.`}
+              {mcTasks.length === 0 ? 'No tasks in the queue yet.' : `No tasks match${query ? ` “${query}”` : ''}.`}
             </div>
           )}
           {results.map((t, idx) => {

@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useTaskStore } from '../stores/useTaskStore';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
 import { useNotifyStore } from '../stores/useNotifyStore';
-import type { HermesTask } from '../lib/api';
+import type { McTask } from '../lib/api';
 
-// Watches the globally-polled Hermes task store (Layout polls every 7s) and fires
+// Watches the globally-polled Mc task store (Layout polls every 7s) and fires
 // an OS desktop notification whenever a task crosses from a non-terminal status
 // into a terminal one (done / completed / failed). Pairs with the live worker-log
 // tail: clicking the notification jumps straight into the task in Operations.
@@ -16,7 +16,7 @@ const TERMINAL = new Set(['done', 'completed', 'failed']);
 const isTerminal = (s: string) => TERMINAL.has(s);
 
 export default function TaskNotifier() {
-  const hermesTasks = useTaskStore((s) => s.hermesTasks);
+  const mcTasks = useTaskStore((s) => s.mcTasks);
   const enabled = useNotifyStore((s) => s.enabled);
   const bumpSent = useNotifyStore((s) => s.bumpSent);
   const record = useNotifyStore((s) => s.record);
@@ -29,7 +29,7 @@ export default function TaskNotifier() {
 
   useEffect(() => {
     const cur = new Map<string, string>();
-    for (const t of hermesTasks) cur.set(t.id, t.status);
+    for (const t of mcTasks) cur.set(t.id, t.status);
 
     const seen = prev.current;
     prev.current = cur;
@@ -40,7 +40,7 @@ export default function TaskNotifier() {
     const canFireOs =
       enabled && typeof Notification !== 'undefined' && Notification.permission === 'granted';
 
-    for (const t of hermesTasks) {
+    for (const t of mcTasks) {
       const before = seen.get(t.id);
       // Act only on a genuine transition: we saw it before in a non-terminal
       // state and it is now terminal. New tasks that appear already-terminal,
@@ -66,12 +66,12 @@ export default function TaskNotifier() {
         }
       }
     }
-  }, [hermesTasks, enabled, focus, navigate, bumpSent, record]);
+  }, [mcTasks, enabled, focus, navigate, bumpSent, record]);
 
   return null;
 }
 
-function fire(t: HermesTask, onClick: () => void) {
+function fire(t: McTask, onClick: () => void) {
   const failed = t.status === 'failed';
   const title = failed ? '✕ Task failed' : '✓ Task complete';
   const who = t.assignee ? ` · ${t.assignee}` : '';

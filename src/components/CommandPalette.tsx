@@ -1,7 +1,7 @@
 // CommandPalette — global ⌘K / Ctrl+K launcher for Mission Control.
 //
 // A keyboard-first jump-to for an ops dashboard: fuzzy-search across every
-// navigation module plus LIVE Hermes entities (agents from useGhostStore,
+// navigation module plus LIVE Mc entities (agents from useGhostStore,
 // tasks from useTaskStore — both already polled by Layout). Selecting a result
 // routes to the relevant screen. No new bridge endpoint needed: it reads the
 // same live stores the rest of the app subscribes to.
@@ -61,7 +61,7 @@ export default function CommandPalette() {
   const listRef = useRef<HTMLDivElement>(null);
 
   const { nodes } = useGhostStore();
-  const { hermesTasks } = useTaskStore();
+  const { mcTasks } = useTaskStore();
   const openDrilldown = useAgentDrilldownStore((s) => s.open);
 
   const close = () => { setOpen(false); setQuery(''); setActive(0); };
@@ -109,7 +109,7 @@ export default function CommandPalette() {
         keywords: `${n.name} ${n.squad || ''} ${n.type} agent`,
       }));
 
-    const tsk: Item[] = hermesTasks.slice(0, 60).map((t) => ({
+    const tsk: Item[] = mcTasks.slice(0, 60).map((t) => ({
       kind: 'task',
       id: `task-${t.id}`,
       title: t.title,
@@ -120,12 +120,12 @@ export default function CommandPalette() {
 
     const actions: Item[] = [
       { kind: 'action', id: 'act-new-task', title: 'New Task', sub: 'Open Operations queue', path: '/operations', keywords: 'new task create operations queue' },
-      { kind: 'action', id: 'act-new-agent', title: 'New Agent', sub: 'Open Ghost Network', path: '/network', keywords: 'new agent create registry hub' },
-      { kind: 'action', id: 'act-chat', title: 'Ghost Comms', sub: 'Talk to Hermes', path: '/chat', keywords: 'chat ask hermes comms talk' },
+      { kind: 'action', id: 'act-new-agent', title: 'New Agent', sub: 'Open Agent Network', path: '/network', keywords: 'new agent create registry hub' },
+      { kind: 'action', id: 'act-chat', title: 'Claude Chat', sub: 'Talk to Mc', path: '/chat', keywords: 'chat ask mc comms talk' },
     ];
 
     return [...mods, ...actions, ...agents, ...tsk];
-  }, [nodes, hermesTasks]);
+  }, [nodes, mcTasks]);
 
   const results = useMemo(() => {
     if (!query.trim()) {

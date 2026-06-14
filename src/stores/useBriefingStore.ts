@@ -1,14 +1,14 @@
 import { create } from 'zustand';
 import {
-  getHermesBriefing,
+  getMcBriefing,
   getSentinelDigest,
   errMessage,
-  type HermesBriefing,
+  type McBriefing,
   type SentinelDigest,
 } from '../lib/api';
 
 interface BriefingStore {
-  briefing: HermesBriefing | null;
+  briefing: McBriefing | null;
   sentinel: SentinelDigest | null;
   loading: boolean;
   sentinelLoading: boolean;
@@ -31,7 +31,7 @@ export const useBriefingStore = create<BriefingStore>((set) => ({
   refresh: async () => {
     set({ loading: true });
     try {
-      const data = await getHermesBriefing();
+      const data = await getMcBriefing();
       set({
         briefing: data,
         error: null,

@@ -1,0 +1,94 @@
+{
+  "notes": [
+    {
+      "id": "iter-11-life-1-action-errors",
+      "iteration": 11,
+      "date": "2026-06-14",
+      "title": "Failed task actions now tell you why instead of doing nothing",
+      "summary": "When an action in the task detail panel failed — claim, complete, block, promote, reassign, comment and the rest — the button just quietly refreshed and the action appeared to do nothing, with no hint of what went wrong. A failed action now shows a clear red message explaining the reason (for example 'task is not running'), pulled straight from the backend, and you can dismiss it with the ✕.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": ["src/components/TaskDetailDrawer.tsx", "src/stores/useTaskStore.ts"]
+    },
+    {
+      "id": "iter-10-deliv-4-workspace-browser",
+      "iteration": 10,
+      "date": "2026-06-14",
+      "title": "Browse and read a task's actual output files in the panel",
+      "summary": "Last run added the workspace path to the task detail panel, but you still had to leave the dashboard and open that folder yourself to see what a task produced — so files an agent wrote, like a finished competitor analysis, were sitting on disk invisible. The ARTIFACTS section now has a BROWSE FILES button that lists the files a task created and opens any of them to read right there, and shows the commits and changes when the work was done on a git branch.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": ["src/components/TaskDetailDrawer.tsx", "src/lib/api.ts", "hermes-bridge.py"]
+    },
+    {
+      "id": "iter-9-deliv-4-artifacts",
+      "iteration": 9,
+      "date": "2026-06-14",
+      "title": "Task detail now shows where a task's files & branch live",
+      "summary": "When a task's deliverable was a set of files or a git branch, the detail panel never told you where to find it — the workspace folder wasn't shown at all, and the branch name was a cramped, cut-off label you couldn't copy. The panel now has an ARTIFACTS section listing the full workspace path and branch, each with a one-click COPY button, so you can jump straight to the files or check out the branch.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": ["src/components/TaskDetailDrawer.tsx"]
+    },
+    {
+      "id": "iter-8-deliv-3-raw-output",
+      "iteration": 8,
+      "date": "2026-06-14",
+      "title": "Finished tasks with no written summary are no longer blank",
+      "summary": "Some tasks finished without an agent writing a summary or result, so the task detail panel showed an empty space where the outcome should be — the work looked like it produced nothing, even though its full output was sitting in the worker log. Those tasks now automatically show the tail of the worker log as their result, labeled 'raw output', so a completed task is never a blank slate.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": ["src/components/TaskDetailDrawer.tsx"]
+    },
+    {
+      "id": "iter-7-failed-column",
+      "iteration": 7,
+      "date": "2026-06-13",
+      "title": "Failed tasks now have their own FAILED column",
+      "summary": "Tasks that failed were quietly piled into the BLOCKED column, so you couldn't tell a genuine failure apart from a task waiting on something — and the BLOCKED header count didn't even include them, so the numbers didn't add up. The Mission Kanban board now has a dedicated FAILED column with its own count, and the header BLOCKED and FAILED tallies each match their column exactly.",
+      "category": "lifecycle",
+      "severity": "high",
+      "files": ["src/pages/OperationsCenter.tsx"]
+    },
+    {
+      "id": "iter-6-deliv-2-reason",
+      "iteration": 6,
+      "date": "2026-06-13",
+      "title": "Blocked & failed tasks now show WHY they're stuck",
+      "summary": "When a task was blocked or failed, the reason an agent recorded (for example 'no web-access tools in environment') was saved but never shown anywhere in the dashboard — you couldn't tell why a task stalled. The task detail panel now puts that reason in a clear banner at the top for any blocked or failed task, and every entry in the event timeline shows its reason, message, or error text.",
+      "category": "deliverable",
+      "severity": "high",
+      "files": ["src/components/TaskDetailDrawer.tsx"]
+    },
+    {
+      "id": "iter-5-patch-notes",
+      "iteration": 5,
+      "date": "2026-06-13",
+      "title": "New: Patch Notes panel in Settings",
+      "summary": "You can now see what the autonomous bug-hunt routine has fixed without reading any logs. Open the topbar gear (⚙ UI) and click PATCH NOTES for a newest-first changelog — each run that ships a fix adds a plain-English entry here automatically.",
+      "category": "ui",
+      "severity": "low",
+      "files": ["src/components/PatchNotes.tsx", "src/components/Layout.tsx", "src/lib/api.ts", "hermes-bridge.py"]
+    },
+    {
+      "id": "iter-4-deliv-1",
+      "iteration": 4,
+      "date": "2026-06-13",
+      "title": "Content Factory deliverables are now reachable",
+      "summary": "Finished content tasks were flipping to DONE with no way to read the written post or caption — the deliverable was effectively lost from the Factory. Campaign and draft cards now open the task detail drawer, so the result, summary, runs, and worker log are readable and copyable right from the Content Factory.",
+      "category": "deliverable",
+      "severity": "high",
+      "files": ["src/pages/ContentFactory.tsx"]
+    },
+    {
+      "id": "iter-1-queue",
+      "iteration": 1,
+      "date": "2026-06-13",
+      "title": "Topbar QUEUE count no longer double-counts",
+      "summary": "READY tasks were being tallied in both the 'pending' and 'ready' buckets, inflating the topbar QUEUE number. The buckets are now disjoint and QUEUE explicitly shows pending + ready, so the figure is trustworthy.",
+      "category": "bug",
+      "severity": "medium",
+      "files": ["src/stores/useTaskStore.ts", "src/components/Layout.tsx"]
+    }
+  ]
+}

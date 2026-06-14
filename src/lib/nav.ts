@@ -9,16 +9,16 @@ export interface NavModule {
 }
 
 export const MODULES: NavModule[] = [
-  // Ghost Network is the primary dashboard: the live agent mesh, plus the
+  // Agent Network is the primary dashboard: the live agent mesh, plus the
   // agent Registry (CRUD) and the orchestrator command bar all in one place.
-  { id: 'network',    path: '/network',    label: 'Ghost Network',   short: 'Network',  num: '00' },
+  { id: 'network',    path: '/network',    label: 'Agent Network',   short: 'Network',  num: '00' },
   { id: 'warroom',    path: '/war-room',   label: 'War Room',        short: 'War Room', num: '01' },
   { id: 'operations', path: '/operations', label: 'Operations',      short: 'Ops',      num: '02' },
-  { id: 'chat',       path: '/chat',       label: 'Ghost Comms',     short: 'Chat',     num: '03' },
+  { id: 'chat',       path: '/chat',       label: 'Claude Chat',     short: 'Chat',     num: '03' },
   { id: 'factory',    path: '/factory',    label: 'Content Factory', short: 'Factory',  num: '04' },
   { id: 'briefing',   path: '/briefing',   label: 'Briefing',        short: 'Brief',    num: '05' },
   { id: 'leads',      path: '/leads',      label: 'Lead Tracker',    short: 'Leads',    num: '06' },
-  // Full Hermes capability surface: skills/plugins/MCP, comms, runtime health.
+  // Full Mc capability surface: skills/plugins/MCP, comms, runtime health.
   { id: 'arsenal',    path: '/arsenal',    label: 'Arsenal',         short: 'Arsenal',  num: '07' },
   { id: 'uplink',     path: '/uplink',     label: 'Uplink',          short: 'Uplink',   num: '08' },
   { id: 'systems',    path: '/systems',    label: 'Systems',         short: 'Systems',  num: '09' },

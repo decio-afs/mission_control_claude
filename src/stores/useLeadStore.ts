@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getHermesAgents, errMessage, type HermesAgent } from '../lib/api';
+import { getMcAgents, errMessage, type McAgent } from '../lib/api';
 
 export interface Lead {
   id: string;
@@ -17,8 +17,8 @@ interface LeadStore {
   fetchLeads: () => Promise<void>;
 }
 
-// The bridge has no /api/hermes/leads endpoint. Leads are derived from the live
-// Hermes agent roster: each agent becomes a lead whose status and score are a
+// The bridge has no /api/mc/leads endpoint. Leads are derived from the live
+// Mc agent roster: each agent becomes a lead whose status and score are a
 // deterministic function of their task counts, so the registry is stable across
 // refreshes and reflects real activity.
 
@@ -42,7 +42,7 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function mapAgentToLead(a: HermesAgent): Lead {
+function mapAgentToLead(a: McAgent): Lead {
   const counts = a.counts || {};
   const done = num(counts, 'done', 'completed');
   const running = num(counts, 'running', 'in_progress', 'active', 'started');
@@ -83,7 +83,7 @@ export const useLeadStore = create<LeadStore>((set) => ({
   fetchLeads: async () => {
     set({ isLoading: true });
     try {
-      const { agents } = await getHermesAgents();
+      const { agents } = await getMcAgents();
       const leads = (agents || [])
         .map(mapAgentToLead)
         .sort((a, b) => b.score - a.score);

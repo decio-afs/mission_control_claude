@@ -1,14 +1,14 @@
 import { create } from 'zustand';
 import {
-  getHermesActivity,
-  getHermesBriefing,
+  getMcActivity,
+  getMcBriefing,
   errMessage,
   type SentinelDigest,
   type SentinelStory,
 } from '../lib/api';
 
 // The bridge has no /api/sentinel/digest endpoint. The Sentinel digest is
-// composed from live Hermes signals: the recent activity feed becomes the story
+// composed from live Mc signals: the recent activity feed becomes the story
 // list, enriched with the daily briefing's trend lines and directives. Either
 // source alone is enough to render a digest; only when both fail do we surface
 // an error.
@@ -46,8 +46,8 @@ export const useSentinelStore = create<SentinelStore>((set) => ({
     set({ isLoading: true });
     try {
       const [activityRes, briefingRes] = await Promise.allSettled([
-        getHermesActivity(),
-        getHermesBriefing(),
+        getMcActivity(),
+        getMcBriefing(),
       ]);
 
       const stories: SentinelStory[] = [];
@@ -84,7 +84,7 @@ export const useSentinelStore = create<SentinelStore>((set) => ({
             ? errMessage(activityRes.reason)
             : briefingRes.status === 'rejected'
               ? errMessage(briefingRes.reason)
-              : 'No Hermes activity available for digest.';
+              : 'No Mc activity available for digest.';
         console.error('[SentinelStore] fetchDigest failed:', reason);
         set({ isLoading: false, error: reason });
         return;

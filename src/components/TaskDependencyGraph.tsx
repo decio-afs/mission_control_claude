@@ -4,12 +4,12 @@
 // expands the connected dependency neighborhood (bounded depth + node budget),
 // lays the tasks out in topological columns (ancestors left → descendants right),
 // draws status-coloured nodes with bezier dependency edges, and lets you walk the
-// graph by re-centering on any node. Pure client aggregation of getHermesTaskDetail
+// graph by re-centering on any node. Pure client aggregation of getMcTaskDetail
 // (which already returns parents + children) — no new bridge endpoint.
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
-import type { HermesTask, TaskDetail } from '../lib/api';
-import { getHermesTaskDetail } from '../lib/api';
+import type { McTask, TaskDetail } from '../lib/api';
+import { getMcTaskDetail } from '../lib/api';
 
 // expansion bounds — keeps live-bridge fetches (each shells out to the CLI) sane
 const MAX_DEPTH = 2; // levels traversed each direction (up = parents, down = children)
@@ -28,14 +28,14 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const colorOf = (s?: string) => STATUS_COLOR[s ?? ''] ?? '#545454';
 
-interface GraphNode { id: string; depth: number; task: HermesTask | null }
+interface GraphNode { id: string; depth: number; task: McTask | null }
 
 export default function TaskDependencyGraph({ rootId, onClose, onOpenTask }: {
   rootId: string | null;
   onClose: () => void;
   onOpenTask: (id: string) => void;
 }) {
-  const hermesTasks = useTaskStore((s) => s.hermesTasks);
+  const mcTasks = useTaskStore((s) => s.mcTasks);
   const [centerId, setCenterId] = useState<string | null>(rootId);
   const [details, setDetails] = useState<Map<string, TaskDetail>>(new Map());
   const [depth, setDepth] = useState<Map<string, number>>(new Map());
@@ -46,8 +46,8 @@ export default function TaskDependencyGraph({ rootId, onClose, onOpenTask }: {
   useEffect(() => { setCenterId(rootId); }, [rootId]);
 
   const metaOf = useCallback(
-    (id: string): HermesTask | null => details.get(id)?.task ?? hermesTasks.find((t) => t.id === id) ?? null,
-    [details, hermesTasks],
+    (id: string): McTask | null => details.get(id)?.task ?? mcTasks.find((t) => t.id === id) ?? null,
+    [details, mcTasks],
   );
 
   // Bounded bidirectional BFS from the center. Parents push depth-1, children
@@ -65,7 +65,7 @@ export default function TaskDependencyGraph({ rootId, onClose, onOpenTask }: {
       let truncatedHit = false;
       const fetchDetail = async (id: string) => {
         if (cache.has(id)) return cache.get(id)!;
-        const d = await getHermesTaskDetail(id).catch(() => null);
+        const d = await getMcTaskDetail(id).catch(() => null);
         if (d) cache.set(id, d);
         return d;
       };

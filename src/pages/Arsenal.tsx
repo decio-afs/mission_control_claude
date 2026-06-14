@@ -1,6 +1,6 @@
 // ARSENAL — the agent capability surface: installed skills, plugins, MCP
 // servers, the external memory provider, and the background skill curator.
-// Everything renders live from the Hermes CLI via the bridge.
+// Everything renders live from the Mc CLI via the bridge.
 import { useEffect, useMemo, useState } from 'react';
 import { useCapabilitiesStore } from '../stores/useCapabilitiesStore';
 import { Panel, Pill, Stat } from '../components/cyberpunk/ui';
@@ -119,7 +119,7 @@ export default function Arsenal() {
           }
           bodyClass="overflow-y-auto"
         >
-          {arsenalLoading && !skills.length && <div className="font-mono text-[11px] text-[#545454]">querying hermes skills…</div>}
+          {arsenalLoading && !skills.length && <div className="font-mono text-[11px] text-[#545454]">querying mc skills…</div>}
           {!arsenalLoading && !skills.length && <div className="font-mono text-[11px] text-[#545454]">no skills reported by the CLI</div>}
           <div className="flex flex-col gap-3">
             {skillsByCategory.map(([cat, list]) => (
@@ -150,7 +150,7 @@ export default function Arsenal() {
         <div className="flex flex-col gap-2 min-h-0">
           {/* MCP servers */}
           <Panel label="MCP SERVERS" className="shrink-0">
-            {!mcpServers.length && <div className="font-mono text-[11px] text-[#545454]">{arsenalLoading ? 'querying…' : 'no MCP servers configured — hermes mcp add'}</div>}
+            {!mcpServers.length && <div className="font-mono text-[11px] text-[#545454]">{arsenalLoading ? 'querying…' : 'no MCP servers configured — mc mcp add'}</div>}
             <div className="flex flex-col gap-2">
               {mcpServers.map((s) => (
                 <div key={s.name} className="border border-white/[0.08] bg-[#0b0b0b] p-2">
@@ -246,7 +246,7 @@ export default function Arsenal() {
         {pluginMsg && <div className="font-mono text-[10px] text-sky-400 mb-2">▸ {pluginMsg}</div>}
         {!visiblePlugins.length && (
           <div className="font-mono text-[11px] text-[#545454]">
-            {arsenalLoading ? 'querying hermes plugins…' : pluginFilter ? 'no plugins match the filter' : 'no plugins enabled — toggle ALL to browse the catalog'}
+            {arsenalLoading ? 'querying mc plugins…' : pluginFilter ? 'no plugins match the filter' : 'no plugins enabled — toggle ALL to browse the catalog'}
           </div>
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1.5">

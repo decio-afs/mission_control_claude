@@ -2,13 +2,13 @@
 //
 // Run #11's throughput view answers "how many tasks finished each hour" (a raw
 // per-hour histogram). This answers the *operational* question one level up: is
-// the queue keeping up, or falling behind? It folds the already-polled Hermes
-// task list (`useTaskStore.hermesTasks`) into a trailing window and accumulates
+// the queue keeping up, or falling behind? It folds the already-polled Mc
+// task list (`useTaskStore.mcTasks`) into a trailing window and accumulates
 // arrivals (created) and completions (done) into two cumulative series — the gap
 // between them is the net backlog the window added or burned down. Plus the live,
 // window-independent count of still-open work (instantaneous WIP). No new bridge
 // endpoint: a pure fold over the queue, same source as the leaderboard/throughput.
-import type { HermesTask } from './api';
+import type { McTask } from './api';
 
 const DONE = new Set(['done', 'complete', 'completed']);
 // Statuses that are "closed" (no longer outstanding work) for the open-backlog
@@ -57,7 +57,7 @@ export interface BacklogTrend {
  * accumulating created/done into cumulative series. `nowMs` is passed in (never
  * read via Date.now) so callers stay render-pure; supply 0 for an inert result.
  */
-export function computeBacklogTrend(tasks: HermesTask[], nowMs = 0, hours = 24): BacklogTrend {
+export function computeBacklogTrend(tasks: McTask[], nowMs = 0, hours = 24): BacklogTrend {
   // Open backlog is window-independent — count it even with no window seeded yet.
   let openBacklog = 0;
   for (const t of tasks) {

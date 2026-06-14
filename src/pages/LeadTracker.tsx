@@ -124,7 +124,7 @@ export default function LeadTracker() {
           </div>
         }
       >
-        {/* Add-lead form — agents can also POST /api/hermes/leads directly */}
+        {/* Add-lead form — agents can also POST /api/mc/leads directly */}
         <div className="flex flex-wrap gap-1.5 mb-3 items-center">
           <input value={nName} onChange={(e) => setNName(e.target.value)} placeholder="lead name / company…"
             onKeyDown={(e) => { if (e.key === 'Enter') void handleAdd(); }}
@@ -148,7 +148,7 @@ export default function LeadTracker() {
           </div>
         ) : leads.length === 0 ? (
           <div className="text-[#545454] font-mono text-xs">
-            No leads yet — add one above, or let agents push leads via POST /api/hermes/leads
+            No leads yet — add one above, or let agents push leads via POST /api/mc/leads
             (e.g. the RFP-research tasks on the kanban).
           </div>
         ) : (

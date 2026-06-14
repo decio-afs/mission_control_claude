@@ -1,13 +1,13 @@
 // taskThroughput — pure, client-side completion-velocity aggregation.
 //
 // Mission Control already polls the full kanban task list into useTaskStore
-// (`hermesTasks`). Each task carries `status` and epoch-second timestamps
+// (`mcTasks`). Each task carries `status` and epoch-second timestamps
 // (`created_at` / `started_at` / `completed_at`). Bucketing completed tasks by
 // `completed_at` into fixed hourly windows yields a temporal throughput view —
 // "how many tasks finished each hour" — that complements the War Room agent
 // leaderboard (which is a per-agent total, with no time axis). No new bridge
 // endpoint: this is a pure fold over the already-polled queue.
-import type { HermesTask } from './api';
+import type { McTask } from './api';
 
 const DONE = new Set(['done', 'complete', 'completed']);
 const HOUR_SEC = 3600;
@@ -46,7 +46,7 @@ export interface Throughput {
  * `nowMs` is passed in (never read via Date.now) so callers stay render-pure;
  * supply 0 and you get an empty, inert result (no window to bucket into).
  */
-export function computeThroughput(tasks: HermesTask[], nowMs = 0, hours = 12): Throughput {
+export function computeThroughput(tasks: McTask[], nowMs = 0, hours = 12): Throughput {
   const empty: Throughput = { buckets: [], totalDone: 0, totalCreated: 0, peak: 0, peakLabel: null, avgPerHour: 0, hours };
   if (nowMs <= 0 || hours <= 0) return empty;
 

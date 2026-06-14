@@ -237,7 +237,7 @@ export default function ChatTerminal() {
     else toggleListening();
   };
 
-  // ── Session rename (writes through to Hermes) ────────────────────────────
+  // ── Session rename (writes through to Mc) ────────────────────────────
   const startRename = (id: string, current: string) => { setRenamingId(id); setRenameValue(current); };
   const commitRename = () => {
     if (renamingId && renameValue.trim()) void rename(renamingId, renameValue.trim());
@@ -402,7 +402,7 @@ export default function ChatTerminal() {
 
       {/* Chat area */}
       <Panel
-        label={`GHOST COMMS // ${activeTitle()}`}
+        label={`CLAUDE CHAT // ${activeTitle()}`}
         right={<span className="text-[#545454]">{messages.filter((m) => m.role !== 'system').length} transmissions{loadingTranscript ? ' · loading…' : ''}</span>}
         className="min-h-0"
         bodyClass="flex flex-col min-h-0"
@@ -421,7 +421,7 @@ export default function ChatTerminal() {
                 <span className={`text-[10px] font-mono tracking-[0.15em] uppercase ${
                   msg.role === 'user' ? 'text-[#f64e6e]' : msg.role === 'assistant' ? 'text-emerald-400' : 'text-amber-400'
                 }`}>
-                  {msg.role === 'user' ? 'OPERATOR' : msg.role === 'assistant' ? 'HERMES' : 'SYSTEM'}
+                  {msg.role === 'user' ? 'OPERATOR' : msg.role === 'assistant' ? 'CLAUDE' : 'SYSTEM'}
                 </span>
                 <span className="text-[10px] font-mono text-[#545454]">{formatTime(msg.timestamp)}</span>
               </div>
@@ -446,7 +446,7 @@ export default function ChatTerminal() {
           {sending && (
             <div className="flex items-center gap-2 p-2 border border-white/10 bg-[#080808] mr-8">
               <div className="w-1.5 h-1.5 bg-[#f64e6e]" style={{ animation: 'pulse 1s ease-in-out infinite' }} />
-              <span className="text-[10px] font-mono text-[#545454]">HERMES is processing...</span>
+              <span className="text-[10px] font-mono text-[#545454]">CLAUDE is processing...</span>
             </div>
           )}
           {messages.length === 0 && !sending && (

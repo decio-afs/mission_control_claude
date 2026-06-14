@@ -1,17 +1,17 @@
 // TaskThroughput — a completions-per-hour histogram for the War Room.
 //
 // Renders the temporal throughput produced by computeThroughput() (pure fold of
-// the live Hermes task queue, bucketed by `completed_at`): one bar per trailing
+// the live Mc task queue, bucketed by `completed_at`): one bar per trailing
 // hour, with a faint "created" demand overlay, a selectable window (12/24/48h),
 // and a peak / total / avg summary. No bridge endpoint of its own — it consumes
 // the already-polled task store, the same source as the agent leaderboard.
 import { useMemo, useState } from 'react';
-import type { HermesTask } from '../lib/api';
+import type { McTask } from '../lib/api';
 import { computeThroughput } from '../lib/taskThroughput';
 
 const WINDOWS = [12, 24, 48] as const;
 
-export default function TaskThroughput({ tasks, nowMs }: { tasks: HermesTask[]; nowMs: number }) {
+export default function TaskThroughput({ tasks, nowMs }: { tasks: McTask[]; nowMs: number }) {
   const [hours, setHours] = useState<(typeof WINDOWS)[number]>(12);
   const tp = useMemo(() => computeThroughput(tasks, nowMs, hours), [tasks, nowMs, hours]);
 

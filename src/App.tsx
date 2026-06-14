@@ -18,7 +18,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/network" replace />} />
-          {/* Live Hermes-backed modules */}
+          {/* Live Mc-backed modules */}
           <Route path="network" element={<GhostNetwork />} />
           <Route path="war-room" element={<WarRoom />} />
           <Route path="operations" element={<OperationsCenter />} />
@@ -26,7 +26,7 @@ function App() {
           <Route path="factory" element={<ContentFactory />} />
           <Route path="briefing" element={<BriefingTerminal />} />
           <Route path="chat" element={<ChatTerminal />} />
-          {/* Full Hermes capability surface */}
+          {/* Full Mc capability surface */}
           <Route path="arsenal" element={<Arsenal />} />
           <Route path="uplink" element={<Uplink />} />
           <Route path="systems" element={<Systems />} />
@@ -38,9 +38,9 @@ function App() {
           <Route path="archives" element={<Navigate to="/design-lab?tab=archives" replace />} />
           <Route path="broadcast" element={<Navigate to="/design-lab?tab=broadcast" replace />} />
           <Route path="signal-intelligence" element={<Navigate to="/war-room" replace />} />
-          {/* Hermes Command was a redundant mashup of the other live tabs, and
-              Agent Hub's CRUD was folded into Ghost Network (agent detail panel
-              + Orbital roster). All three redirect to the Ghost Network dashboard. */}
+          {/* Mc Command was a redundant mashup of the other live tabs, and
+              Agent Hub's CRUD was folded into Agent Network (agent detail panel
+              + Orbital roster). All three redirect to the Agent Network dashboard. */}
           <Route path="command" element={<Navigate to="/network" replace />} />
           <Route path="cyberpunk" element={<Navigate to="/network" replace />} />
           <Route path="agent-hub" element={<Navigate to="/network" replace />} />

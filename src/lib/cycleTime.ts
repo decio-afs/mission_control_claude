@@ -10,7 +10,7 @@
 // histogram, so an operator sees the SLA *shape*, not just a count. No bridge
 // endpoint: a pure fold over the already-polled task store, the same source as
 // the throughput histogram, backlog burn-down, and agent leaderboard.
-import type { HermesTask } from './api';
+import type { McTask } from './api';
 
 const DONE = new Set(['done', 'complete', 'completed']);
 const HOUR_SEC = 3600;
@@ -115,7 +115,7 @@ function bucketize(samples: number[]): DurationBucket[] {
  * result. Durations are clamped to strictly-positive (a stamp pair that is zero
  * or inverted — clock skew / missing start — is dropped from that distribution).
  */
-export function computeCycleStats(tasks: HermesTask[], nowMs = 0, hours = 24): CycleStats {
+export function computeCycleStats(tasks: McTask[], nowMs = 0, hours = 24): CycleStats {
   const empty: CycleStats = {
     lead: { ...EMPTY_STATS }, cycle: { ...EMPTY_STATS },
     leadBuckets: bucketize([]), cycleBuckets: bucketize([]),

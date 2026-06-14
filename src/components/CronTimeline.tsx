@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { HermesCronJob } from '../lib/api';
+import type { McCronJob } from '../lib/api';
 import { upcomingFires, parseSchedule, fireLabel, formatCountdown } from '../lib/cronSchedule';
 
 // Next-24h cron agenda — one thin lane per job plotting every upcoming fire as a
@@ -11,7 +11,7 @@ import { upcomingFires, parseSchedule, fireLabel, formatCountdown } from '../lib
 const WINDOW_MS = 24 * 3600 * 1000;
 const MAX_TICKS = 300; // dense jobs (e.g. every-5m) get a continuous band, not 1000 nodes
 
-export default function CronTimeline({ jobs, nowMs }: { jobs: HermesCronJob[]; nowMs: number }) {
+export default function CronTimeline({ jobs, nowMs }: { jobs: McCronJob[]; nowMs: number }) {
   // Bucket the live clock to the minute: the tick layout shifts < 0.001% per
   // second across a 24h window, so recomputing every second is wasted work.
   const minuteBucket = Math.floor((nowMs || 0) / 60000);

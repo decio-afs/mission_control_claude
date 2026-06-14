@@ -1,18 +1,18 @@
 import { create } from 'zustand';
 import {
-  getHermesTasks,
+  getMcTasks,
   getContentPipeline,
   errMessage,
-  type HermesTask,
+  type McTask,
   type ContentCampaign,
   type ContentDraft,
   type ContentCalendarItem,
 } from '../lib/api';
 
 // Primary source: the bridge's /api/content/pipeline — kanban-derived
-// campaigns/drafts PLUS the planned-post calendar store (Buffer-synced).
+// campaigns/drafts PLUS the planned-post calendar store (Metricool-scheduled).
 // If that call fails, fall back to deriving everything client-side from the
-// raw kanban tasks so the Factory still renders real Hermes data.
+// raw kanban tasks so the Factory still renders real Mc data.
 
 interface ContentStore {
   campaigns: ContentCampaign[];
@@ -26,23 +26,23 @@ interface ContentStore {
 
 type ContentStatus = ContentCampaign['status'];
 
-// Keywords that flag a Hermes task as content/marketing work.
+// Keywords that flag a Mc task as content/marketing work.
 const CONTENT_KEYWORDS = [
   'content', 'post', 'blog', 'social', 'twitter', 'tweet', 'linkedin', 'instagram',
   'reel', 'video', 'youtube', 'newsletter', 'email', 'campaign', 'article', 'draft',
   'copy', 'copywriting', 'seo', 'marketing', 'caption', 'thread',
 ];
 
-function haystack(t: HermesTask): string {
+function haystack(t: McTask): string {
   return `${t.title} ${t.body ?? ''} ${(t.skills || []).join(' ')}`.toLowerCase();
 }
 
-function isContentTask(t: HermesTask): boolean {
+function isContentTask(t: McTask): boolean {
   const hay = haystack(t);
   return CONTENT_KEYWORDS.some((k) => hay.includes(k));
 }
 
-function platformFor(t: HermesTask): string {
+function platformFor(t: McTask): string {
   const hay = haystack(t);
   if (hay.includes('twitter') || hay.includes('tweet') || hay.includes('thread')) return 'Twitter';
   if (hay.includes('linkedin')) return 'LinkedIn';
@@ -91,10 +91,10 @@ export const useContentStore = create<ContentStore>((set) => ({
       // fall through to the client-side kanban derivation
     }
     try {
-      const { tasks } = await getHermesTasks();
+      const { tasks } = await getMcTasks();
       const all = tasks || [];
       // Prefer genuine content tasks; if none are tagged, fall back to the full
-      // task list so the Factory still renders real Hermes data instead of an
+      // task list so the Factory still renders real Mc data instead of an
       // empty shell.
       const matched = all.filter(isContentTask);
       const source = matched.length > 0 ? matched : all;

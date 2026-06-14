@@ -8,7 +8,7 @@
 // from cycleTime, not re-declared), so an operator can spot tasks silently
 // rotting in the queue at a glance and jump straight to the oldest offenders.
 // No bridge endpoint: a pure fold over the already-polled task store.
-import type { HermesTask } from './api';
+import type { McTask } from './api';
 import { BUCKET_BOUNDS } from './cycleTime';
 
 // A task is "open" (work-in-progress) unless it has reached a terminal state.
@@ -60,7 +60,7 @@ export interface AgingStats {
  * in (never Date.now during render); supply 0 for an inert result. `topN` caps
  * the oldest-offenders list.
  */
-export function computeAgingWip(tasks: HermesTask[], nowMs = 0, topN = 8): AgingStats {
+export function computeAgingWip(tasks: McTask[], nowMs = 0, topN = 8): AgingStats {
   const buckets: AgingBucket[] = BUCKET_BOUNDS.map((b) => ({ label: b.label, loSec: b.lo, hiSec: b.hi, count: 0 }));
   const empty: AgingStats = { buckets, oldest: [], openCount: 0, staleCount: 0, maxAgeSec: 0 };
   if (nowMs <= 0) return empty;

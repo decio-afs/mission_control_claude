@@ -1,6 +1,6 @@
 // WorkerLogStream — live tail of a task's worker log.
 //
-// The Hermes bridge exposes `getHermesTaskLog(taskId, tail)`, which returns the
+// The Mc bridge exposes `getMcTaskLog(taskId, tail)`, which returns the
 // last N bytes of the worker's log file. That's a snapshot, not a stream — so we
 // turn it into a live tail by re-polling on an interval while a task is running:
 // each poll replaces the buffer with the freshest tail (which already contains any
@@ -9,7 +9,7 @@
 // Pure client polling — no new bridge endpoint. The ▶ LIVE / ⏸ PAUSE toggle lets
 // the operator watch a running task's output advance without re-opening the drawer.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getHermesTaskLog } from '../lib/api';
+import { getMcTaskLog } from '../lib/api';
 
 const TAIL_BYTES = 8000;
 const POLL_MS = 2000;
@@ -23,7 +23,7 @@ export default function WorkerLogStream({ taskId, isRunning }: { taskId: string;
   const pinned = useRef(true);
 
   const fetchTail = useCallback(async () => {
-    const r = await getHermesTaskLog(taskId, TAIL_BYTES).catch(() => ({ log: '(no log file for this task)' }));
+    const r = await getMcTaskLog(taskId, TAIL_BYTES).catch(() => ({ log: '(no log file for this task)' }));
     setLog(r.log || '(empty)');
   }, [taskId]);
 

@@ -1,9 +1,9 @@
-<!-- AGENTS.md — Mission Control (Hermes Edition) -->
+<!-- AGENTS.md — Mission Control (Claude) -->
 # Mission Control — Agent Documentation
 
 > **Mission Control** is a cyberpunk-themed **local desktop app** (Electron) for
-> the **Hermes Agent** system. Every module renders **live data** — from the
-> local Hermes install via a FastAPI bridge, plus external content pipelines
+> **Claude**. Every module renders **live data** — from the
+> local Claude install via a FastAPI bridge, plus external content pipelines
 > (Apify, Buffer, Brave) that flow **only through the bridge**. No mock data
 > anywhere, nothing deployed — it runs only on the user's machine.
 
@@ -12,7 +12,7 @@
 ## Architecture
 
 ```
-Electron window (React, file://) ──HTTP──▶ hermes-bridge.py (FastAPI :8767) ──subprocess──▶ hermes CLI
+Electron window (React, file://) ──HTTP──▶ mission-control-bridge.py (FastAPI :8767) ──subprocess──▶ claude CLI
         │                                          │
         └─ reuses or spawns the bridge             ├──▶ .hermes/data/*.json  (leads, calendar, creators, digests — gitignored)
                                                    └──▶ external APIs (Apify, Buffer GraphQL, Ayrshare, Brave)
@@ -23,7 +23,7 @@ Hermes gateway (separate service) ──▶ Telegram bots + cron ticker + embedd
   `/api/ping`; if a bridge is already running it **reuses it** (never
   double-binds :8767), otherwise spawns one and supervises it (auto-restart
   with backoff). Exposes a `bridge:start` IPC for the diagnostics panel.
-- **`hermes-bridge.py`** — FastAPI wrapper around the `hermes` CLI plus the
+- **`mission-control-bridge.py`** — FastAPI wrapper around the `claude` CLI plus the
   file-backed data stores and external-API pipelines. All subprocesses run
   with `CREATE_NO_WINDOW` (a console-less bridge must not flash terminals).
   API keys are read from the bridge env **or `~/.hermes/.env`** (AppData on
@@ -54,7 +54,7 @@ the bridge — do not regress them:
 - The gateway hosts Telegram **and the kanban dispatcher** — when it dies,
   messaging *and* agent task dispatch silently stop.
 
-### Bridge endpoint groups (≈70 endpoints; see `hermes-bridge.py` + `api.ts`)
+### Bridge endpoint groups (≈70 endpoints; see `mission-control-bridge.py` + `api.ts`)
 
 | Group | Endpoints (representative) | Backed by |
 |---|---|---|
@@ -116,7 +116,7 @@ tasks burn their iteration budget and bounce back to TODO forever).
 electron/
 ├── main.cjs                 # Reuse-or-spawn bridge, supervision, bridge:start IPC
 └── preload.cjs              # window.missionControl { desktop, bridgePort, startBridge }
-hermes-bridge.py             # FastAPI ↔ hermes CLI + data stores + external pipelines
+mission-control-bridge.py             # FastAPI ↔ claude CLI + data stores + external pipelines
 vite.config.ts               # + mc-bridge-launcher dev middleware (/__bridge/start)
 BRAND_STRATEGY.md            # Brand positioning/voice — grounds the Idea Engine
 .hermes/
@@ -178,7 +178,7 @@ Legacy paths (`/command`, `/agent-hub`, `/intelligence`, …) redirect.
 ```bash
 npm run desktop      # build UI + open desktop window (reuses or starts the bridge)
 npm run dev          # vite dev server (browser; DIAG popup can start the bridge)
-npm run bridge       # python hermes-bridge.py (standalone, foreground)
+npm run bridge       # python mission-control-bridge.py (standalone, foreground)
 npm run build        # tsc -b && vite build → dist/
 npm run lint
 ```
@@ -190,7 +190,7 @@ npm run lint
 ## Conventions
 
 - **Everything flows through the bridge.** The React app never calls external
-  services directly — Apify/Buffer/Ayrshare/Brave live in `hermes-bridge.py`.
+  services directly — Apify/Buffer/Ayrshare/Brave live in `mission-control-bridge.py`.
   New data need → bridge endpoint → type in `api.ts` → store → page.
 - **No demo data, ever.** Honest empty states with guidance ("add creators,
   then SCRAPE") instead of fabricated rows. Unconfigured integrations say so

@@ -1,5 +1,5 @@
 {
-  "name": "hermes-mission-control",
+  "name": "mission-control",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -9,18 +9,22 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "bridge": "python hermes-bridge.py",
+    "bridge": "python mission-control-bridge.py",
     "desktop": "tsc -b && vite build && electron .",
     "desktop:dev": "electron ."
   },
   "dependencies": {
+    "@reduxjs/toolkit": "^2.8.0",
+    "@types/three": "^0.184.1",
     "autoprefixer": "^10.4.27",
     "axios": "^1.14.0",
     "postcss": "^8.5.8",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-redux": "^9.2.0",
     "react-router-dom": "^7.14.0",
     "tailwindcss": "^4.2.2",
+    "three": "^0.184.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

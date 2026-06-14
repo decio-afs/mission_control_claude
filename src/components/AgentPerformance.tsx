@@ -1,7 +1,7 @@
 // AgentPerformance — a per-agent operational leaderboard for the War Room.
 //
 // Renders the analytics produced by computeAgentMetrics() (pure aggregation of
-// the live Hermes task queue): throughput (done), in-flight load, failure count,
+// the live Mc task queue): throughput (done), in-flight load, failure count,
 // success rate, average task duration and 24h completions — ranked best-first.
 // No bridge endpoint of its own; it consumes the already-polled task store.
 // Column headers are click-to-sort; the default (null) preserves the upstream

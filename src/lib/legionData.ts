@@ -1,8 +1,8 @@
-// Static "Ghost Legion" design data for the showcase modules ported from the
+// Static "Agent Legion" design data for the showcase modules ported from the
 // original Mission Control design (Intel, Factory, Briefing, Builder, Archives,
-// Broadcast). These modules have NO Hermes data source, so they render this
-// curated demo data to preserve the full design. The Hermes-backed modules
-// (Command, Ghost Network, War Room, Operations) use live bridge data instead.
+// Broadcast). These modules have NO Mc data source, so they render this
+// curated demo data to preserve the full design. The Mc-backed modules
+// (Command, Agent Network, War Room, Operations) use live bridge data instead.
 
 export const SQUAD_META: Record<string, { hue: number; label: string; color: string }> = {
   CORE: { hue: 350, label: 'CORE', color: '#f64e6e' },
@@ -36,5 +36,5 @@ export const TRENDS: Trend[] = [
 
 // (Briefing went live — its static data was removed; see useBriefingStore.)
 
-// Small badge marking a module as design/demo data (not live Hermes).
-export const DEMO_NOTE = 'DEMO DATA · NOT HERMES';
+// Small badge marking a module as design/demo data (not live Mc).
+export const DEMO_NOTE = 'DEMO DATA · NOT CLAUDE';

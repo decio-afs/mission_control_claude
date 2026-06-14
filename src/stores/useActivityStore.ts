@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import { getHermesActivity, errMessage, type HermesActivity } from '../lib/api';
+import { getMcActivity, errMessage, type McActivity } from '../lib/api';
 
 interface ActivityStore {
-  activities: HermesActivity[];
+  activities: McActivity[];
   isLoading: boolean;
   error: string | null;
   lastSync: Date | null;
@@ -24,7 +24,7 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
   fetchActivities: async () => {
     set({ isLoading: true });
     try {
-      const { activities } = await getHermesActivity();
+      const { activities } = await getMcActivity();
       set({
         activities: activities || [],
         error: null,

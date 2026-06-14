@@ -1,24 +1,24 @@
-# Mission Control · Hermes Edition
+# Mission Control · Claude
 
-A **local desktop app** (Electron) for the **Hermes Agent** system. Every screen
-renders **live data** from your local Hermes install — agents, kanban tasks, cron
+A **local desktop app** (Electron) for **Claude**. Every screen
+renders **live data** from your local Claude install — agents, kanban tasks, cron
 jobs, and bridge status. Nothing is deployed and nothing leaves your machine.
 
 ```
 ┌──────────────────────────┐   spawns    ┌──────────────────┐  subprocess  ┌──────────┐
-│  Electron desktop window │ ──────────▶ │  hermes-bridge   │ ───────────▶ │  hermes  │
+│  Electron desktop window │ ──────────▶ │  mission-control-bridge   │ ───────────▶ │  hermes  │
 │  (React app, file://)    │   on launch │  (FastAPI :8767) │   CLI calls  │  CLI     │
 └──────────────────────────┘ ◀──HTTP──── └──────────────────┘              └──────────┘
 ```
 
-The desktop process launches the Hermes bridge for you and shuts it down on quit —
+The desktop process launches the Mission Control bridge for you and shuts it down on quit —
 one window, no separate servers to babysit.
 
 ## Modules
 
 **Live (real Hermes data):**
 
-| Module             | Source (Hermes CLI)                                          |
+| Module             | Source (Claude CLI)                                          |
 |--------------------|-------------------------------------------------------------|
 | **Hermes Command** | `kanban assignees`, `kanban list`, `cron list`, `chat -q` (spawn) |
 | **Ghost Network**  | `kanban assignees` → agent topology visualization           |
@@ -32,14 +32,14 @@ Static demo data lives in `src/lib/legionData.ts`.
 
 ## Prerequisites
 
-- [Hermes Agent](https://github.com/) installed and on your `PATH` (`hermes --version`)
+- [Claude](https://github.com/) installed and on your `PATH` (`hermes --version`)
 - Python 3.11+ with `fastapi` and `uvicorn` (`pip install fastapi uvicorn`)
 - Node 20+
 
 ## Run (desktop app)
 
 **Simplest — double-click `start.bat`** (Windows). It installs deps on first run,
-builds the UI, opens the desktop window, and auto-starts/stops the Hermes bridge.
+builds the UI, opens the desktop window, and auto-starts/stops the Mission Control bridge.
 
 Or from a terminal:
 

@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import {
-  getHermesHealth,
+  getMcHealth,
   probeEndpoint,
   BRIDGE_ENDPOINTS,
   errMessage,
-  type HermesHealth,
+  type McHealth,
 } from '../lib/api';
 
 export interface EndpointHealth {
@@ -20,7 +20,7 @@ export interface EndpointHealth {
 }
 
 interface HealthStore {
-  meta: HermesHealth | null;
+  meta: McHealth | null;
   endpoints: EndpointHealth[];
   probing: boolean;
   error: string | null;
@@ -51,9 +51,9 @@ export const useHealthStore = create<HealthStore>((set, get) => ({
     set({ probing: true, error: null });
 
     // Pull bridge meta (uptime, CLI version) — non-fatal if it fails.
-    let meta: HermesHealth | null = get().meta;
+    let meta: McHealth | null = get().meta;
     try {
-      meta = await getHermesHealth();
+      meta = await getMcHealth();
     } catch (e) {
       set({ error: errMessage(e) });
     }

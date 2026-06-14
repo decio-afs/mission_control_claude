@@ -44,3 +44,12 @@ Thumbs.db
 # Mission Control runtime data (bridge-managed local stores)
 .hermes/data/
 .hermes/cli-inventory.txt
+
+# graphify knowledge graph output
+graphify-out/
+
+# Bridge-managed local kanban state
+kanban.json
+
+# Scratch generation output (images, backups)
+.tmp-gen/

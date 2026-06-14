@@ -1,10 +1,10 @@
-// Ghost Network — "NEXUS // Orchestration Deck".
+// Agent Network — "NEXUS // Orchestration Deck".
 //
-// Ported from the Claude Design "jarvis" handoff bundle and wired to LIVE Hermes
+// Ported from the Claude Design "jarvis" handoff bundle and wired to LIVE Mc
 // data: the agent roster, orbital mesh, grid cards and detail panel all render
-// real agents from useGhostStore; the activity stream is the live Hermes feed;
-// and the command bar issues real directives to the orchestrator via sendHermesChat.
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+// real agents from useGhostStore; the activity stream is the live Mc feed;
+// and the command bar issues real directives to the orchestrator via sendMcChat.
+import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useGhostStore, agentLoad, type GhostNode } from '../stores/useGhostStore';
 import { useActivityStore } from '../stores/useActivityStore';
@@ -13,7 +13,15 @@ import { useTaskStore } from '../stores/useTaskStore';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
 import { useAgentCrud } from '../components/useAgentCrud';
 import { useChatStore } from '../stores/useChatStore';
+import { useVoiceLink, type VoicePhase } from '../components/useVoiceLink';
+import OrbCore3D, { type OrbState } from '../components/OrbCore3D';
+import { useSettingsStore } from '../stores/useSettingsStore';
+import ModelPicker from '../components/ModelPicker';
 import './ghostNexus.css';
+
+// Rich-mode pixel tower (CLAUDE Agent Tower) — code-split so the lightweight
+// deck never pays for the canvas engine unless the setting is on.
+const GhostOffice = lazy(() => import('../components/office/GhostOffice'));
 
 // ── static lookups ─────────────────────────────────────────────────────────
 type Status = 'working' | 'active' | 'idle' | 'warn';
@@ -46,14 +54,14 @@ const DEFAULT_GLYPH = 'M3 5h18M3 12h18M3 19h12';
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const pad = (n: number) => String(n).padStart(2, '0');
 
-interface NexAgent {
+export interface NexAgent {
   id: string; name: string; role: string; domain: string;
   status: Status; online: boolean; color: string; ring: 0 | 1;
   load: number; task: string; running: number; queue: number;
   squad: string; tags: string[]; glyph: string;
 }
 
-interface FeedLine { id: string; ts: number; ag: string; kind: string; text: string; jarvis: boolean; fresh: boolean; }
+export interface FeedLine { id: string; ts: number; ag: string; kind: string; text: string; jarvis: boolean; fresh: boolean; }
 
 function deriveStatus(n: GhostNode): Status {
   const online = n.status === 'active' || n.status === 'online';
@@ -101,16 +109,16 @@ const cssVars = (o: Record<string, string>) => o as React.CSSProperties;
 export default function GhostNetwork() {
   const { nodes, fetchTopology, history, agentLoadHistory } = useGhostStore();
   const { activities, startPolling, stopPolling } = useActivityStore();
-  const { hermesTasks, reassignTask, fetchTasks } = useTaskStore();
+  const { mcTasks, reassignTask, fetchTasks } = useTaskStore();
   const focusTask = useTaskFocusStore((s) => s.focus);
   const navigate = useNavigate();
   const openDrilldown = useAgentDrilldownStore((s) => s.open);
   // Agent CRUD (create / edit / delete / spawn) — lives in the detail panel now
   // that the orbital roster + detail panel replace the old Registry table.
   const crud = useAgentCrud();
-  // Shared chat/session store — the command bar drives the active Hermes session
+  // Shared chat/session store — the command bar drives the active Mc session
   // (persisted + resumable), so the conversation survives tab switches and is the
-  // same session you see in Ghost Comms.
+  // same session you see in Claude Chat.
   const {
     init: initChat, send: sendChat, sending, activeMessages,
     sessions: chatSessions, activeId: chatActiveId, isDraft: chatIsDraft,
@@ -121,12 +129,24 @@ export default function GhostNetwork() {
   const [input, setInput] = useState('');
   const [paused, setPaused] = useState(false);
   const [zoomLabel, setZoomLabel] = useState('100%');
-  // ORBIT = the hero mesh; GRID = the dense card view (scales past ~20 agents).
-  const [layout, setLayout] = useState<'orbital' | 'grid'>('orbital');
+  // ORBIT = the hero mesh; GRID = the dense card view (scales past ~20 agents);
+  // OFFICE = the rich pixel cutaway, only offered while the settings toggle is on.
+  const richUI = useSettingsStore((s) => s.richNetworkUI);
+  const [layout, setLayout] = useState<'orbital' | 'grid' | 'office'>(
+    () => (useSettingsStore.getState().richNetworkUI ? 'office' : 'orbital'),
+  );
+  // Follow the settings toggle: turning rich UI on lands you in the office,
+  // turning it off always falls back to the lightweight mesh.
+  useEffect(() => { setLayout(richUI ? 'office' : 'orbital'); }, [richUI]);
   // Reroute-queue control in the detail panel (real kanban reassign verb).
   const [rerouteTo, setRerouteTo] = useState('');
   const [rerouting, setRerouting] = useState(false);
   const [rerouteMsg, setRerouteMsg] = useState<string | null>(null);
+  // Voice Link — the core orb is the voice interface; turns ride the same
+  // chat session as the command bar, so they land in the feed.
+  const voice = useVoiceLink();
+  // WebGL orb with CSS-layer fallback if context creation fails.
+  const [glFailed, setGlFailed] = useState(false);
 
   useEffect(() => { initChat(); }, [initChat]);
 
@@ -181,10 +201,10 @@ export default function GhostNetwork() {
   const selectedTasks = useMemo(() => {
     if (!selected) return [];
     const name = selected.name.toLowerCase();
-    return hermesTasks
+    return mcTasks
       .filter((t) => (t.assignee || '').toLowerCase() === name && OPEN_STATUSES.has(t.status))
       .sort((a, b) => (a.status === 'running' ? -1 : 0) - (b.status === 'running' ? -1 : 0) || b.created_at - a.created_at);
-  }, [hermesTasks, selected]);
+  }, [mcTasks, selected]);
   const runningTask = selectedTasks.find((t) => t.status === 'running');
   const reroutable = selectedTasks.filter((t) => REROUTABLE.has(t.status));
 
@@ -221,7 +241,7 @@ export default function GhostNetwork() {
   // ── selection helpers ──
   const select = useCallback((id: string | null) => setSelectedId((cur) => (cur === id ? null : id)), []);
 
-  // ── command directive → shared Hermes chat session ──
+  // ── command directive → shared Mc chat session ──
   const runDirective = useCallback((textRaw: string) => {
     const text = textRaw.trim();
     if (!text || sending) return;
@@ -237,7 +257,17 @@ export default function GhostNetwork() {
   // glance at the mesh shows exactly who is working. The core brightens while
   // it's thinking (directive in flight) or while the fleet is executing.
   const isLit = (a: NexAgent) => a.running > 0 || a.status === 'warn';
-  const coreLit = sending || running > 0;
+  const coreLit = sending || running > 0 || voice.active;
+
+  // Voice-aware core status — the orb wears the conversation state.
+  const VOICE_STATUS: Record<VoicePhase, string | null> = {
+    off: null, listening: 'LISTENING', transcribing: 'TRANSCRIBING', thinking: 'THINKING', speaking: 'SPEAKING',
+  };
+  const coreStatus = VOICE_STATUS[voice.phase] || (sending ? 'THINKING' : coreLit ? 'ACTIVE' : 'STANDBY');
+  const orbState: OrbState =
+    voice.phase === 'listening' || voice.phase === 'transcribing' || voice.phase === 'speaking' ? voice.phase
+    : sending || voice.phase === 'thinking' ? 'thinking'
+    : coreLit ? 'active' : 'standby';
 
   // ── merged feed (live activity + the active chat conversation) ──
   const feed = useMemo<FeedLine[]>(() => {
@@ -276,6 +306,8 @@ export default function GhostNetwork() {
 
   useEffect(() => {
     const stage = stageBodyRef.current; if (!stage) return;
+    // Office view scrolls natively — no wheel-zoom / drag-pan hijacking.
+    if (layout === 'office') return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const s = orbitSpaceRef.current; if (!s) return;
@@ -290,7 +322,7 @@ export default function GhostNetwork() {
     let drag = false, sx = 0, sy = 0;
     const onDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest('.agent-node') || t.closest('.zoomctl')) return;
+      if (t.closest('.agent-node') || t.closest('.zoomctl') || t.closest('.core')) return;
       drag = true; sx = e.clientX - zoomRef.current.px; sy = e.clientY - zoomRef.current.py;
       stage.classList.add('grabbing'); stage.setPointerCapture(e.pointerId);
     };
@@ -308,7 +340,7 @@ export default function GhostNetwork() {
       stage.removeEventListener('pointerup', onUp);
       stage.removeEventListener('pointercancel', onUp);
     };
-  }, [applyZoom]);
+  }, [applyZoom, layout]);
 
   // rings for orbital
   const rings = useMemo(() => {
@@ -342,7 +374,6 @@ export default function GhostNetwork() {
     <div className={`nexus${paused ? ' paused' : ''}`} data-layout={layout}>
       <div className="fx fx-grid" />
       <div className="fx fx-scan" />
-      <div className="fx fx-vignette" />
 
       <div className="main">
         {/* LEFT RAIL — roster */}
@@ -386,20 +417,41 @@ export default function GhostNetwork() {
         {/* CENTER STAGE */}
         <section className="col stage">
           <div className="stage-head">
-            <div className="stage-title"><b>AGENT MESH</b><span>// {coreNode ? coreNode.name : 'arcan'} core · {total} nodes</span></div>
+            <div className="stage-title"><b>{layout === 'office' ? 'AGENT TOWER' : 'AGENT MESH'}</b><span>// {coreNode ? coreNode.name : 'arcan'} core · {total} nodes</span></div>
             <div className="stage-stats">
               <div className="chip"><span className="dot" /><span className="k">AGENTS</span><b>{onlineCount}/{total}</b></div>
               <div className="chip"><span className="dot cyan" /><span className="k">RUNNING</span><b>{running}</b></div>
               <div className="chip"><span className={`dot ${queue ? 'amber' : ''}`} /><span className="k">QUEUE</span><b>{queue}</b></div>
+              <ModelPicker />
             </div>
             <div className="view-toggle">
               <button className={layout === 'orbital' ? 'on' : ''} onClick={() => setLayout('orbital')} title="Orbital mesh view">Orbit</button>
               <button className={layout === 'grid' ? 'on' : ''} onClick={() => setLayout('grid')} title="Dense card grid view">Grid</button>
+              {richUI && <button className={layout === 'office' ? 'on' : ''} onClick={() => setLayout('office')} title="Pixel office view (rich UI)">Office</button>}
               <button onClick={() => crud.openCreate()} title="Create a new agent">+ Agent</button>
             </div>
           </div>
 
           <div className="stage-body" ref={stageBodyRef}>
+            {/* OFFICE VIEW — rich pixel cutaway; mounted only in office layout so
+                the lazy chunk is fetched on first use and idle otherwise. */}
+            {layout === 'office' && (
+              <Suspense fallback={<div className="office-fallback">BOOTING OFFICE FLOOR…</div>}>
+                <GhostOffice
+                  agents={agents}
+                  selectedId={selectedId}
+                  onSelect={select}
+                  coreName={coreNode ? coreNode.name.toUpperCase() : 'ARCAN'}
+                  coreStatus={coreStatus}
+                  coreLit={coreLit}
+                  feed={feed}
+                  running={running}
+                  queue={queue}
+                  onlineCount={onlineCount}
+                  total={total}
+                />
+              </Suspense>
+            )}
             <div className="orbital">
               <div className="orbit-space" ref={orbitSpaceRef}>
                 {rings.map((r) => (
@@ -427,15 +479,51 @@ export default function GhostNetwork() {
                     })}
                   </div>
                 ))}
-                <div className={`core${coreLit ? '' : ' standby'}${sending ? ' thinking' : ''}`}>
-                  <div className="layer orb-halo" /><div className="layer orb-dial" /><div className="layer orb-ring-o" />
-                  <div className="layer orb-ring-r" /><div className="layer orb-ring-i" /><div className="layer orb-sweep" />
-                  <div className="layer orb-sphere" />
-                  <div className="layer orb-hot"><span className="flare-h" /><span className="flare-v" /></div>
+                <div
+                  className={`core${coreLit ? '' : ' standby'}${sending || voice.phase === 'thinking' ? ' thinking' : ''}${voice.active ? ` voice-${voice.phase}` : ''}`}
+                  style={cssVars({ '--vlvl': voice.level.toFixed(3) })}
+                  role="button"
+                  title={voice.phase === 'off' ? 'Tap to open a voice link with the orchestrator'
+                    : voice.phase === 'listening' ? 'Listening — pause to send, tap to send now'
+                    : voice.phase === 'speaking' ? 'Speaking — tap to interrupt' : 'Working…'}
+                  onClick={(e) => { e.stopPropagation(); voice.tapOrb(); }}
+                >
+                  {!glFailed ? (
+                    <>
+                      {/* WebGL heart + the CSS dial/sweep HUD chrome on top */}
+                      <OrbCore3D state={orbState} level={voice.level} paused={paused} onFallback={() => setGlFailed(true)} />
+                      <div className="layer orb-dial" /><div className="layer orb-sweep" />
+                    </>
+                  ) : (
+                    <>
+                      {/* CSS fallback orb (no WebGL on this machine) */}
+                      <div className="layer orb-halo" /><div className="layer orb-dial" /><div className="layer orb-ring-o" />
+                      <div className="layer orb-ring-r" /><div className="layer orb-ring-i" /><div className="layer orb-sweep" />
+                      <div className="layer orb-gyro" /><div className="layer orb-gyro2" />
+                      <div className="layer orb-motes">
+                        {[
+                          { mx: '5%', ms: '3px', dur: '8s', del: '0s', dir: 'normal' },
+                          { mx: '10%', ms: '2px', dur: '13s', del: '-4s', dir: 'reverse' },
+                          { mx: '2.5%', ms: '2px', dur: '19s', del: '-9s', dir: 'normal' },
+                          { mx: '7.5%', ms: '3px', dur: '11s', del: '-2s', dir: 'reverse' },
+                          { mx: '13%', ms: '2px', dur: '23s', del: '-12s', dir: 'normal' },
+                        ].map((m, i) => (
+                          <i key={i} style={{ ...cssVars({ '--mx': m.mx, '--ms': m.ms }), animationDuration: m.dur, animationDelay: m.del, animationDirection: m.dir as 'normal' | 'reverse' }} />
+                        ))}
+                      </div>
+                      <div className="layer orb-sphere" />
+                      <div className="layer orb-hot"><span className="flare-h" /><span className="flare-v" /></div>
+                    </>
+                  )}
                   <div className="core-stat cs-top">{running} RUNNING</div>
                   <div className="core-stat cs-bl">{queue} QUEUED</div>
                   <div className="core-stat cs-br">{onlineCount}/{total} ACTIVE</div>
-                  <div className="core-label"><b>{coreNode ? coreNode.name.toUpperCase() : 'ARCAN'}</b><span>ORCHESTRATOR · {sending ? 'THINKING' : coreLit ? 'ACTIVE' : 'STANDBY'}</span></div>
+                  <div className="core-label">
+                    <b>{coreNode ? coreNode.name.toUpperCase() : 'ARCAN'}</b>
+                    <span>ORCHESTRATOR · {coreStatus}</span>
+                    {voice.active && <i className="vhint">{voice.engine === 'elevenlabs' ? 'ELEVENLABS' : 'BROWSER VOICE'} · ESC ENDS</i>}
+                    {voice.error && <i className="verr">▸ {voice.error}</i>}
+                  </div>
                 </div>
               </div>
             </div>
@@ -585,7 +673,7 @@ export default function GhostNetwork() {
 
       {/* COMMAND BAR — real directives to the orchestrator */}
       <footer className="commandbar">
-        {/* Session control — the active session is shared with Ghost Comms and
+        {/* Session control — the active session is shared with Claude Chat and
             persists across tabs. Switch, start fresh, or pop out to the full
             workspace for history + projects. */}
         <div className="flex items-center gap-1 mr-1 shrink-0">
@@ -607,9 +695,18 @@ export default function GhostNetwork() {
           >+</button>
           <Link
             to="/chat"
-            title="Open in Ghost Comms — full history, rename & projects"
+            title="Open in Claude Chat — full history, rename & projects"
             className="h-[26px] w-[26px] shrink-0 flex items-center justify-center border border-white/15 text-[#b8b8b8] hover:border-sky-400 hover:text-sky-400 text-[11px]"
           >⤢</Link>
+          <button
+            onClick={() => (voice.active ? voice.end() : voice.start())}
+            title={voice.active ? 'End the voice link (Esc)' : 'Voice Link — or just tap the core orb'}
+            className={`h-[26px] px-2 shrink-0 flex items-center justify-center gap-1 border text-[10px] font-mono ${
+              voice.active
+                ? 'border-[#f64e6e] text-[#f64e6e] bg-[#f64e6e]/10 animate-pulse'
+                : 'border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e]'
+            }`}
+          >◉ {voice.active ? 'LIVE' : 'VOICE'}</button>
         </div>
         <div className="cmd-pre"><span className="pr">ARCAN</span><span>▷</span></div>
         <input

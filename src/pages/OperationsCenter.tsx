@@ -1,6 +1,6 @@
-// Operations Center — full Hermes kanban board.
+// Operations Center — full Mc kanban board.
 //
-// A column-per-status board backed live by `hermes kanban`, with a per-task
+// A column-per-status board backed live by `mc kanban`, with a per-task
 // detail/control slide-over (TaskDetailDrawer) exposing the full verb set:
 // claim / complete / block / unblock / promote / schedule / archive / reassign /
 // reclaim / comment / edit / link / unlink. Plus task creation (full fields),
@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
-import { getHermesCron, runHermesCron, createHermesCron, decomposeTask, errMessage, type HermesCronJob, type HermesTask } from '../lib/api';
+import { getMcCron, runMcCron, createMcCron, decomposeTask, errMessage, type McCronJob, type McTask } from '../lib/api';
 import { parseSchedule, formatCountdown, fireLabel, type ParsedSchedule } from '../lib/cronSchedule';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import CronTimeline from '../components/CronTimeline';
@@ -21,14 +21,14 @@ const COLUMNS: { key: string; label: string; tone: string }[] = [
   { key: 'running', label: 'RUNNING', tone: '#f59e0b' },
   { key: 'review', label: 'REVIEW', tone: '#ff795e' },
   { key: 'blocked', label: 'BLOCKED', tone: '#ef4444' },
+  { key: 'failed', label: 'FAILED', tone: '#b91c1c' },
   { key: 'scheduled', label: 'SCHEDULED', tone: '#6b7280' },
   { key: 'done', label: 'DONE', tone: '#10b981' },
 ];
 
-// Normalize any Hermes status string to one of our columns.
+// Normalize any Mc status string to one of our columns.
 function colOf(status: string): string {
   if (status === 'completed') return 'done';
-  if (status === 'failed') return 'blocked';
   if (status === 'pending') return 'todo';
   return COLUMNS.some((c) => c.key === status) ? status : 'todo';
 }
@@ -42,7 +42,7 @@ function ago(unixSeconds: number): string {
 }
 
 export default function OperationsCenter() {
-  const { hermesTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, createTask, claimHermesTaskById, completeHermesTaskById } = useTaskStore();
+  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
   const nodes = useGhostStore((s) => s.nodes);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -69,7 +69,7 @@ export default function OperationsCenter() {
 
   // cron modal
   const [cronOpen, setCronOpen] = useState(false);
-  const [cron, setCron] = useState<HermesCronJob[]>([]);
+  const [cron, setCron] = useState<McCronJob[]>([]);
   const [cronSchedule, setCronSchedule] = useState('');
   const [cronPrompt, setCronPrompt] = useState('');
   const [cronName, setCronName] = useState('');
@@ -79,7 +79,7 @@ export default function OperationsCenter() {
   // is open (seeded once, never read via Date.now() inside render).
   const [cronNow, setCronNow] = useState(0);
 
-  const loadCron = () => getHermesCron().then((d) => setCron(d.jobs || [])).catch(() => {});
+  const loadCron = () => getMcCron().then((d) => setCron(d.jobs || [])).catch(() => {});
 
   useEffect(() => { fetchTasks(); fetchStats(); fetchBoards(); fetchDiagnostics(); loadCron(); }, [fetchTasks, fetchStats, fetchBoards, fetchDiagnostics]);
 
@@ -108,7 +108,7 @@ export default function OperationsCenter() {
 
   const currentBoard = boards.find((b) => b.is_current);
   const diagCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.length || 0), 0);
-  const allTasks = useMemo(() => hermesTasks.map((t) => ({ id: t.id, title: t.title })), [hermesTasks]);
+  const allTasks = useMemo(() => mcTasks.map((t) => ({ id: t.id, title: t.title })), [mcTasks]);
 
   // Task Search (⌘F) → open that task's drawer directly.
   const { focusId, nonce, clear: clearFocus } = useTaskFocusStore();
@@ -122,17 +122,17 @@ export default function OperationsCenter() {
   const profiles = useMemo(() => {
     const set = new Set<string>();
     nodes.filter((n) => n.type !== 'squad').forEach((n) => set.add(n.name));
-    hermesTasks.forEach((t) => { if (t.assignee) set.add(t.assignee); });
+    mcTasks.forEach((t) => { if (t.assignee) set.add(t.assignee); });
     return [...set].sort();
-  }, [nodes, hermesTasks]);
+  }, [nodes, mcTasks]);
 
   const visibleTasks = useMemo(
-    () => hermesTasks.filter((t) => assigneeFilter === 'ALL' || (t.assignee || 'unassigned') === assigneeFilter),
-    [hermesTasks, assigneeFilter],
+    () => mcTasks.filter((t) => assigneeFilter === 'ALL' || (t.assignee || 'unassigned') === assigneeFilter),
+    [mcTasks, assigneeFilter],
   );
 
   const byColumn = useMemo(() => {
-    const map: Record<string, HermesTask[]> = {};
+    const map: Record<string, McTask[]> = {};
     COLUMNS.forEach((c) => (map[c.key] = []));
     visibleTasks.forEach((t) => { (map[colOf(t.status)] ||= []).push(t); });
     // priority desc within a column, then newest first
@@ -159,7 +159,7 @@ export default function OperationsCenter() {
     if (!cronSchedule.trim()) return;
     setCronLoading(true); setCronError(null);
     try {
-      const data = await createHermesCron({ schedule: cronSchedule.trim(), prompt: cronPrompt.trim() || undefined, name: cronName.trim() || undefined });
+      const data = await createMcCron({ schedule: cronSchedule.trim(), prompt: cronPrompt.trim() || undefined, name: cronName.trim() || undefined });
       setCron(data.jobs || []); setCronSchedule(''); setCronPrompt(''); setCronName('');
     } catch (err) { setCronError(errMessage(err)); } finally { setCronLoading(false); }
   };
@@ -181,10 +181,11 @@ export default function OperationsCenter() {
       <div className="shrink-0 flex flex-wrap items-center gap-2">
         <span className="font-mono text-[11px] tracking-[0.2em] text-white font-bold">MISSION KANBAN</span>
         <div className="flex items-center gap-2 text-[10px] font-mono">
-          <Chip k="TOTAL" v={summary?.total ?? hermesTasks.length} c="text-white" />
+          <Chip k="TOTAL" v={summary?.total ?? mcTasks.length} c="text-white" />
           <Chip k="READY" v={stats?.by_status?.ready ?? summary?.ready ?? 0} c="text-sky-400" />
           <Chip k="RUNNING" v={stats?.by_status?.running ?? summary?.running ?? 0} c="text-amber-400" />
           <Chip k="BLOCKED" v={stats?.by_status?.blocked ?? summary?.blocked ?? 0} c="text-red-400" />
+          <Chip k="FAILED" v={stats?.by_status?.failed ?? summary?.failed ?? 0} c="text-red-500" />
           <Chip k="DONE" v={stats?.by_status?.done ?? summary?.completed ?? 0} c="text-emerald-400" />
           {oldestReady != null && <Chip k="OLDEST READY" v={`${ago(Math.floor(Date.now() / 1000) - oldestReady)}`} c="text-[#b8b8b8]" />}
         </div>
@@ -242,8 +243,8 @@ export default function OperationsCenter() {
                     </div>
                     {(col.key === 'ready' || col.key === 'running') && (
                       <div className="mt-1.5 flex">
-                        {col.key === 'ready' && <span onClick={(e) => { e.stopPropagation(); void claimHermesTaskById(t.id); }} className="flex-1 text-center text-[10px] font-mono border border-white/10 py-0.5 hover:border-amber-400 hover:text-amber-400 cursor-pointer">CLAIM</span>}
-                        {col.key === 'running' && <span onClick={(e) => { e.stopPropagation(); void completeHermesTaskById(t.id); }} className="flex-1 text-center text-[10px] font-mono border border-white/10 py-0.5 hover:border-emerald-400 hover:text-emerald-400 cursor-pointer">COMPLETE</span>}
+                        {col.key === 'ready' && <span onClick={(e) => { e.stopPropagation(); void claimMcTaskById(t.id); }} className="flex-1 text-center text-[10px] font-mono border border-white/10 py-0.5 hover:border-amber-400 hover:text-amber-400 cursor-pointer">CLAIM</span>}
+                        {col.key === 'running' && <span onClick={(e) => { e.stopPropagation(); void completeMcTaskById(t.id); }} className="flex-1 text-center text-[10px] font-mono border border-white/10 py-0.5 hover:border-emerald-400 hover:text-emerald-400 cursor-pointer">COMPLETE</span>}
                       </div>
                     )}
                   </button>
@@ -318,7 +319,7 @@ export default function OperationsCenter() {
             <input type="checkbox" checked={cTriage} onChange={(e) => setCTriage(e.target.checked)} />
             Park in TRIAGE (a specifier fleshes out the spec before promotion)
           </label>
-          <button onClick={() => void handleCreate()} disabled={!cTitle.trim()} className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">+ CREATE HERMES TASK</button>
+          <button onClick={() => void handleCreate()} disabled={!cTitle.trim()} className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">+ CREATE CLAUDE TASK</button>
         </Modal>
       )}
 
@@ -344,7 +345,7 @@ export default function OperationsCenter() {
 
       {/* CRON MODAL */}
       {cronOpen && (
-        <Modal title="SCHEDULED JOBS · hermes cron" onClose={() => setCronOpen(false)}>
+        <Modal title="SCHEDULED JOBS · mc cron" onClose={() => setCronOpen(false)}>
           {cron.length > 0 && <CronTimeline jobs={cron} nowMs={cronNow} />}
           {cron.length > 0 && (
             <div className="flex items-center justify-between px-2 text-[10px] font-mono tracking-[0.2em] uppercase text-[#545454]">
@@ -363,7 +364,7 @@ export default function OperationsCenter() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <CronNextFire sched={sched} nowMs={cronNow} />
-                  <button onClick={() => void runHermesCron(j.id)} className="text-[10px] font-mono border border-white/10 px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">RUN</button>
+                  <button onClick={() => void runMcCron(j.id)} className="text-[10px] font-mono border border-white/10 px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">RUN</button>
                 </div>
               </div>
             ))}
