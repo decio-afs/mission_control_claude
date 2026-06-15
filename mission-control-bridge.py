@@ -1566,37 +1566,6 @@ def _extract_date(text: str) -> str | None:
 # ---------------------------------------------------------------------------
 # New Hermes endpoints (Phase 1)
 # ---------------------------------------------------------------------------
-
-class GenerateContentPayload(BaseModel):
-    platform: str
-    topic: str
-
-@app.get("/api/mc/content/ideas")
-def get_content_ideas():
-    """Return placeholder content ideas."""
-    return {
-        "ideas": [
-            {"id": "1", "title": "AI Content Idea 1", "platform": "instagram", "status": "draft"},
-            {"id": "2", "title": "AI Content Idea 2", "platform": "twitter", "status": "draft"},
-            {"id": "3", "title": "AI Content Idea 3", "platform": "linkedin", "status": "draft"},
-        ]
-    }
-
-@app.get("/api/mc/content/calendar")
-def get_content_calendar():
-    """Return placeholder content calendar."""
-    return {
-        # Real planned posts from the local calendar store (no demo data).
-        "calendar": _load_store("calendar", []),
-    }
-
-@app.post("/api/mc/content/generate")
-def generate_content(payload: GenerateContentPayload):
-    """Accept platform and topic, return a queued generation job."""
-    import uuid
-    return {"job_id": f"gen_{uuid.uuid4().hex[:8]}", "status": "queued"}
-
-# ---------------------------------------------------------------------------
 # Local data stores (.hermes/data/) — real, file-backed pipelines that both the
 # dashboard and Hermes agents (via these endpoints) read and write. No demo data.
 # ---------------------------------------------------------------------------
