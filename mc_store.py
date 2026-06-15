@@ -398,6 +398,51 @@ class MCStore:
                                              "message": f"link {p} -> {c} references a missing task"}]})
         return out
 
+    def reconcile_board(self, threshold_seconds: Optional[float] = None) -> dict[str, Any]:
+        """Self-heal the board: reclaim running tasks whose claim has gone stale.
+
+        A claim is stale when its ``started_at`` is older than ``threshold_seconds``
+        (default ``STALE_CLAIM_SECONDS``). Stale-running tasks are returned to
+        ``ready`` with ``started_at`` cleared and a ``reconciled`` event recording
+        why — the fleet's auto-recovery from a dead/abandoned agent. The
+        ``stale_claim`` diagnostic surfaces these; before this verb the only fix
+        was a manual per-task reclaim, so a single dead agent could freeze the
+        whole board indefinitely.
+        """
+        thr = STALE_CLAIM_SECONDS if threshold_seconds is None else float(threshold_seconds)
+        with self._lock:
+            tasks = self._tasks()
+            now = _now()
+            m = self._meta()
+            reclaimed: list[dict[str, Any]] = []
+            for t in tasks:
+                if t.get("status") != "running":
+                    continue
+                started = t.get("started_at")
+                if not isinstance(started, (int, float)):
+                    continue
+                age = now - started
+                if age <= thr:
+                    continue
+                hrs = int(age // 3600)
+                t["status"] = "ready"
+                t["started_at"] = None
+                reason = (f"stale claim auto-reclaimed after {hrs}h "
+                          f"(assignee {t.get('assignee') or 'unassigned'} unresponsive)")
+                self._event(m, str(t.get("id")), "reconciled",
+                            {"reason": reason, "stale_hours": hrs})
+                reclaimed.append({"id": str(t.get("id")), "title": t.get("title"),
+                                  "assignee": t.get("assignee"), "stale_hours": hrs})
+            if reclaimed:
+                self._save_tasks(tasks)
+                self._save_meta(m)
+            return {
+                "reclaimed": reclaimed,
+                "threshold_hours": round(thr / 3600, 2),
+                "message": (f"reconcile: {len(reclaimed)} stale claim(s) reclaimed"
+                            if reclaimed else "reconcile: no stale claims found"),
+            }
+
     # --------------------------------------------------------------- boards
     def boards(self) -> list[dict[str, Any]]:
         m = self._meta()

@@ -20,6 +20,7 @@ import {
   getMcTaskDetail,
   getKanbanStats,
   getKanbanDiagnostics,
+  reconcileKanban,
   getMcBoards,
   createMcBoard,
   switchMcBoard,
@@ -80,6 +81,7 @@ interface TaskStore {
   switchBoard: (slug: string) => Promise<boolean>;
   createBoard: (slug: string, name?: string, description?: string, switchTo?: boolean) => Promise<boolean>;
   fetchDiagnostics: () => Promise<void>;
+  reconcileBoard: (thresholdHours?: number) => Promise<number>;
   specifyTask: (taskId: string) => Promise<boolean>;
   fetchTaskDetail: (taskId: string) => Promise<TaskDetail | null>;
   addMcTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<McTask | null>;
@@ -221,6 +223,27 @@ export const useTaskStore = create<TaskStore>((set, get) => {
         set({ diagnostics: diagnostics || [] });
       } catch (err) {
         console.error('[TaskStore] fetchDiagnostics failed:', errMessage(err));
+      }
+    },
+
+    // Self-heal: reclaim stale running claims, then refresh the board so the
+    // freed tasks reappear as ready and the stale_claim diagnostics clear.
+    // Returns the number of tasks reclaimed.
+    reconcileBoard: async (thresholdHours) => {
+      try {
+        const res = await reconcileKanban(thresholdHours);
+        const n = res.reclaimed?.length || 0;
+        if (n > 0) {
+          await get().fetchTasks();
+          await get().fetchStats();
+        }
+        await get().fetchDiagnostics();
+        return n;
+      } catch (err) {
+        const msg = errMessage(err);
+        console.error('[TaskStore] reconcileBoard failed:', msg);
+        set({ error: msg });
+        return 0;
       }
     },
 

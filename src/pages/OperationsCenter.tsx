@@ -41,13 +41,29 @@ function ago(unixSeconds: number): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
+// A done task "has a deliverable" when it produced something retrievable. The
+// authoritative signal is `has_deliverable`, computed once per list by the bridge
+// (mc_store) — true for a written result, a git branch, ANY run summary (i.e. a
+// non-empty latest_summary), OR a non-empty workspace dir (the common case here,
+// where the deliverable is a file the agent wrote). Computing it server-side
+// catches summary-only / file-only deliverables that the list payload's raw
+// fields miss, with no per-card fetch (BUGHUNT DONE-CARD-2). We still OR in the
+// raw result/branch fields as a defensive fallback for older payloads that
+// predate the server flag. workspace_path itself is intentionally NOT used: it
+// is set on virtually every task even when empty (BUGHUNT iter #10/#12).
+function hasDeliverable(t: McTask): boolean {
+  return Boolean(t.has_deliverable || t.result?.trim() || t.branch_name?.trim());
+}
+
 export default function OperationsCenter() {
-  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
+  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
   const nodes = useGhostStore((s) => s.nodes);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [assigneeFilter, setAssigneeFilter] = useState('ALL');
   const [diagOpen, setDiagOpen] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileMsg, setReconcileMsg] = useState<string | null>(null);
   const [boardModal, setBoardModal] = useState(false);
   const [newBoardSlug, setNewBoardSlug] = useState('');
   const [newBoardName, setNewBoardName] = useState('');
@@ -236,6 +252,7 @@ export default function OperationsCenter() {
                     <div className="flex items-center justify-between text-[10px] font-mono text-[#545454]">
                       <span className="text-[#b8b8b8] truncate">{t.assignee || 'unassigned'}</span>
                       <span className="flex items-center gap-1.5 shrink-0">
+                        {col.key === 'done' && hasDeliverable(t) && <span title="Deliverable available — open to view the result/branch" className="text-emerald-400">◆</span>}
                         {t.priority !== 0 && <span title="priority">P{t.priority}</span>}
                         {t.skills?.length > 0 && <span title="skills">⚙{t.skills.length}</span>}
                         <span>{ago(t.created_at)}</span>
@@ -262,6 +279,26 @@ export default function OperationsCenter() {
       {/* DIAGNOSTICS MODAL */}
       {diagOpen && (
         <Modal title={`BOARD DIAGNOSTICS · ${diagCount}`} onClose={() => setDiagOpen(false)}>
+          {(() => {
+            const staleCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'stale_claim').length || 0), 0);
+            return (
+              <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.06]">
+                <button
+                  disabled={reconciling || staleCount === 0}
+                  onClick={async () => {
+                    setReconciling(true); setReconcileMsg(null);
+                    const n = await reconcileBoard();
+                    setReconcileMsg(n > 0 ? `✓ reclaimed ${n} stale claim${n === 1 ? '' : 's'} → ready` : 'no stale claims to reclaim');
+                    setReconciling(false);
+                  }}
+                  title={staleCount === 0 ? 'No stale running claims to reclaim' : `Reclaim ${staleCount} stale running claim(s) back to ready`}
+                  className={`text-[10px] font-mono border px-2 py-1 ${staleCount > 0 && !reconciling ? 'border-amber-400/50 text-amber-400 hover:bg-amber-400/10' : 'border-white/10 text-[#545454] cursor-default'}`}>
+                  {reconciling ? '… reconciling' : `⟳ RECONCILE STALE${staleCount > 0 ? ` (${staleCount})` : ''}`}
+                </button>
+                {reconcileMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{reconcileMsg}</span>}
+              </div>
+            );
+          })()}
           <div className="flex flex-col gap-1.5 max-h-[360px] overflow-auto">
             {diagnostics.length === 0 && <div className="text-[10px] font-mono text-emerald-400">✓ no active diagnostics — board healthy</div>}
             {diagnostics.map((d) => (

@@ -6,7 +6,7 @@ import axios from 'axios';
 // Mission Control talks to the local Mc bridge (mc-bridge.py), a thin
 // FastAPI wrapper around the `mc` CLI. There is no other backend — every
 // screen renders live data sourced from Mc.
-const BRIDGE_BASE_URL = import.meta.env.VITE_BRIDGE_URL || 'http://localhost:8767';
+export const BRIDGE_BASE_URL = import.meta.env.VITE_BRIDGE_URL || 'http://localhost:8767';
 
 export const bridge = axios.create({
   baseURL: BRIDGE_BASE_URL,
@@ -75,6 +75,11 @@ export interface McTask {
   session_id: string | null;
   workflow_template_id: string | null;
   current_step_key: string | null;
+  // Server-computed (mc_store list projection): true when the task produced a
+  // retrievable deliverable (result / branch / run summary / non-empty workspace
+  // dir). Lets the board flag done cards without a per-card fetch. Optional so
+  // older payloads decode cleanly.
+  has_deliverable?: boolean;
 }
 
 export interface McCronJob {
@@ -282,6 +287,20 @@ export async function getMcTaskWorkspaceFile(taskId: string, file: string): Prom
 
 export async function getKanbanDiagnostics(): Promise<{ diagnostics: BoardDiagnostic[] }> {
   const { data } = await bridge.get('/api/mc/kanban/diagnostics');
+  return data;
+}
+
+// Self-heal: reclaim stale running claims back to `ready` so a dead/abandoned
+// agent can't freeze the board. The companion remediation for the `stale_claim`
+// diagnostic. `thresholdHours` omitted → bridge/store default (2h).
+export interface ReconcileResult {
+  reclaimed: Array<{ id: string; title?: string; assignee?: string | null; stale_hours?: number }>;
+  threshold_hours: number;
+  message: string;
+}
+export async function reconcileKanban(thresholdHours?: number): Promise<ReconcileResult> {
+  const { data } = await bridge.post('/api/mc/kanban/reconcile',
+    thresholdHours != null ? { threshold_hours: thresholdHours } : {});
   return data;
 }
 

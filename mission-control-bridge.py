@@ -729,6 +729,25 @@ def kanban_diagnostics():
     return {"diagnostics": STORE.diagnostics()}
 
 
+class ReconcilePayload(BaseModel):
+    # Hours after which a still-"running" claim is treated as dead and reclaimed.
+    # Omit to use the store default (STALE_CLAIM_SECONDS).
+    threshold_hours: Optional[float] = None
+
+
+@app.post("/api/mc/kanban/reconcile")
+def kanban_reconcile(payload: Optional[ReconcilePayload] = None):
+    """Self-heal the board: reclaim stale running claims back to `ready`.
+
+    The companion remediation for the `stale_claim` diagnostic — turns
+    detection into a one-call fleet recovery instead of a manual per-task
+    reclaim, so one dead agent can't freeze the board.
+    """
+    thr_hours = payload.threshold_hours if payload else None
+    thr_seconds = thr_hours * 3600 if thr_hours is not None else None
+    return STORE.reconcile_board(thr_seconds)
+
+
 @app.post("/api/mc/tasks/{task_id}/specify")
 def specify_task(task_id: str):
     """Flesh out a triage task's spec with Claude, then promote it to ready."""
@@ -1468,10 +1487,18 @@ def get_content_pipeline():
             "title": item.get("title", ""),
             "date": (item.get("date") or "")[:10],
             "status": item.get("status", "draft"),
-            "platform": item.get("platform", "?"),
+            # Normalize through the same detector the kanban-derived entries use,
+            # so the merged calendar doesn't mix code badges (IG/LI/TT) with raw
+            # stored full names (instagram/linkedin) for the same platform.
+            "platform": _detect_platform(item.get("platform") or ""),
             # Explicitly planned posts (vs dates derived from kanban tasks) —
             # the UI surfaces these first in the upcoming list.
             "planned": True,
+            # Pass through the Higgsfield virality verdict (score/hook/risk +
+            # the concrete improvement suggestions) so the analysis the operator
+            # paid 1-3 min for actually reaches the card. Stripping it here left
+            # the whole 🔮 verdict — including suggestions — invisible.
+            "virality": item.get("virality"),
         })
     calendar.sort(key=lambda x: x["date"])
 
@@ -1484,15 +1511,23 @@ def get_content_pipeline():
 
 def _detect_platform(text: str) -> str:
     text_l = text.lower()
-    if "instagram" in text_l or "ig" in text_l:
+    # Full platform names match as substrings, but the short codes (ig/tt/x/li/yt)
+    # must match as WHOLE WORDS. A bare `"ig" in text` fired inside ordinary words
+    # ("agencies", "strategic"), `"tt"` inside "captions"/"twitter", `"li"` inside
+    # "deliverables"/"pillars" — mislabeling the platform badge on >half the
+    # Content Factory cards. Word-boundary the codes; keep operator shorthand
+    # ("post for IG", "the TT cut") working (BUGHUNT iter #16).
+    def code(abbr: str) -> bool:
+        return re.search(rf"\b{abbr}\b", text_l) is not None
+    if "instagram" in text_l or code("ig"):
         return "IG"
-    if "tiktok" in text_l or "tt" in text_l:
+    if "tiktok" in text_l or code("tt"):
         return "TT"
-    if "twitter" in text_l or " x " in text_l or text_l.startswith("x "):
+    if "twitter" in text_l or code("x"):
         return "X"
-    if "linkedin" in text_l or "li" in text_l:
+    if "linkedin" in text_l or code("li"):
         return "LI"
-    if "youtube" in text_l or "yt" in text_l:
+    if "youtube" in text_l or code("yt"):
         return "YT"
     if "blog" in text_l or "website" in text_l:
         return "WEB"
