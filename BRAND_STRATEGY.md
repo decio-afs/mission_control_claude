@@ -50,9 +50,9 @@ Ghost Legion is the bridge. It keeps sensitive work local (Business Projects) wh
 |---------|------|---------|
 | **Onboarding** | Guided but terse | "Initialize your operatives. The grid awaits." |
 | **Success states** | Confirmed, not celebrated | "Directive executed. 3 tasks routed." |
-| **Errors** | Diagnostic, not apologetic | "Bridge degraded. Check HERMES_PATH." |
+| **Errors** | Diagnostic, not apologetic | "Bridge degraded. Check CLAUDE_BIN." |
 | **Marketing** | Provocative, insider | "Your competitors use chatbots. You command a legion." |
-| **Documentation** | Reference manual, not tutorial | "Endpoint: /api/hermes/spawn. Method: POST." |
+| **Documentation** | Reference manual, not tutorial | "Endpoint: /api/mc/spawn. Method: POST." |
 
 ### Forbidden Language
 
@@ -76,7 +76,7 @@ Ghost Legion is the bridge. It keeps sensitive work local (Business Projects) wh
 | Team | Fleet | Scalable, non-human-centric |
 | Project | Mission | Time-bounded, outcome-driven |
 | Deploy to production | Route to the grid | Network metaphor, tactical movement |
-| Loading / Processing | Syncing with bridge | Transparency about the Hermes pipeline |
+| Loading / Processing | Syncing with bridge | Transparency about the Claude pipeline |
 
 ---
 
@@ -119,7 +119,7 @@ Ghost Legion is the bridge. It keeps sensitive work local (Business Projects) wh
 
 4. **Borders are structural, not decorative.** Every panel has a 1px `rgba(255,255,255,0.08)` border. This creates the "glass-in-darkness" effect — surfaces float in void space.
 
-5. **Animation is functional.** The pulse on the HERMES ONLINE dot, the blink on the briefing cursor, the slide on the command palette — these are status indicators, not embellishments.
+5. **Animation is functional.** The pulse on the SYSTEM ONLINE dot, the blink on the briefing cursor, the slide on the command palette — these are status indicators, not embellishments.
 
 ### Visual Identity Expansion (Immediate Actions)
 
@@ -163,9 +163,9 @@ Ghost Legion is the bridge. It keeps sensitive work local (Business Projects) wh
 **Name:** Jordan
 **Age:** 30-42
 **Role:** Senior engineer, platform builder, open-source contributor
-**Stack:** Hermes, custom CLI tools, prefers code over GUIs
+**Stack:** Claude, custom CLI tools, prefers code over GUIs
 **Pain:** GUIs are limiting, but monitoring 10 terminal windows is exhausting
-**Ghost Legion Value:** GUI is a live view of the Hermes CLI. Every action maps to a real command. Bridge is open.
+**Ghost Legion Value:** GUI is a live view of the Claude CLI. Every action maps to a real command. Bridge is open.
 **Trigger Words:** Bridge, topology, mesh, FastAPI, CLI, JSON
 **Objection:** "I can build this myself."
 **Counter:** "You can. Ghost Legion is the reference implementation you extend, not replace."
@@ -206,7 +206,7 @@ Ghost Legion is the bridge. It keeps sensitive work local (Business Projects) wh
 **Core Message:** From directive to execution in seconds. Not chat threads. Not ticket queues. Direct command-to-action.
 
 **Proof Points:**
-- Create task → Hermes kanban → Agent claim → Execution (one pipeline)
+- Create task → Claude kanban → Agent claim → Execution (one pipeline)
 - Cron jobs auto-spawn agents on schedule
 - Command palette (⌘K) for instant navigation
 - Task search (⌘F) for immediate retrieval
@@ -222,7 +222,7 @@ Ghost Legion is the bridge. It keeps sensitive work local (Business Projects) wh
 
 **Proof Points:**
 - 10 modules in one window: Command, Network, War Room, Operations, Comms, Factory, Briefing, etc.
-- Live data across all modules from single Hermes bridge
+- Live data across all modules from single Mission Control bridge
 - Legion roster visible in sidebar at all times
 - Bridge diagnostics one click away
 
@@ -237,7 +237,7 @@ Ghost Legion is the bridge. It keeps sensitive work local (Business Projects) wh
 
 **Proof Points:**
 - Bridge is 87 lines of Python — readable in one sitting
-- Every endpoint maps 1:1 to a Hermes CLI command
+- Every endpoint maps 1:1 to a Claude CLI command
 - React + TypeScript + Zustand — standard stack
 - Demo modules show how to wire new data sources
 
@@ -270,7 +270,7 @@ Ghost Legion is the bridge. It keeps sensitive work local (Business Projects) wh
 | Moat Factor | Strength | Notes |
 |------------|----------|-------|
 | **Local-first architecture** | High | Hard to replicate for cloud-native competitors |
-| **Hermes CLI integration** | Medium-High | Tight coupling to Hermes ecosystem |
+| **Claude CLI integration** | Medium-High | Tight coupling to Claude ecosystem |
 | **Cyberpunk aesthetic** | Medium | Defensible through consistency and depth |
 | **Dual domain model** | Medium | Unique insight into Decio's workflow |
 | **Open bridge / extensibility** | Medium | Community can extend, but core stays controlled |
@@ -305,7 +305,7 @@ Ghost Legion is the bridge. It keeps sensitive work local (Business Projects) wh
 
 | Day | Action | Deliverable | Owner |
 |-----|--------|-------------|-------|
-| 31-35 | Publish technical deep-dive | "Building a Local-First Agent OS with Electron and Hermes" | Engineering |
+| 31-35 | Publish technical deep-dive | "Building a Local-First Agent OS with Electron and Claude" | Engineering |
 | 36-40 | Launch "Operative of the Week" | Showcase one agent profile and its capabilities | Content |
 | 41-45 | Create configuration guides | "How to add your first operative" tutorial | Docs |
 | 46-50 | Engage in relevant communities | Hacker News, Reddit r/LocalLLaMA, X AI threads | Community |
@@ -353,7 +353,7 @@ Ghost Legion is the bridge. It keeps sensitive work local (Business Projects) wh
 DA AGENCY (Parent / Consultancy)
 ├── Ghost Legion (Product / OS)
 │   ├── Mission Control (Desktop Application)
-│   │   ├── Hermes Command (Module 00)
+│   │   ├── Claude Command (Module 00)
 │   │   ├── Ghost Network (Module 01)
 │   │   ├── Agent Hub (Module 02)
 │   │   ├── War Room (Module 03)
@@ -363,7 +363,7 @@ DA AGENCY (Parent / Consultancy)
 │   │   ├── Briefing Terminal (Module 07)
 │   │   ├── Lead Tracker (Module 08)
 │   │   └── Design Lab (Module 09)
-│   ├── Hermes Bridge (Integration Layer)
+│   ├── Mission Control Bridge (Integration Layer)
 │   └── The Grid (Metaphor for operational space)
 └── Operatives (Individual AI Agents)
     ├── Runners (Execution agents)
@@ -377,7 +377,7 @@ DA AGENCY (Parent / Consultancy)
 |--------|---------|---------------|
 | **Business Projects** (local) | Sensitive work, client IP, internal tooling | Mission Control runs here |
 | **Web Projects** (deployed) | Public presence, client deliverables, marketing | Landing page, demos, portfolios |
-| **The Bridge** (localhost:8767) | Integration layer between UI and Hermes | Already operational |
+| **The Bridge** (localhost:8767) | Integration layer between UI and Claude | Already operational |
 
 ### Naming Conventions for Public Release
 

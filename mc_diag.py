@@ -2,10 +2,10 @@
 mc_diag.py
 ----------
 Claude-native diagnostics for Mission Control's Arsenal / Uplink / Systems
-pages. Replaces the Hermes `status / skills / mcp / doctor / model / auth …`
+pages. Surfaces the Claude backend `status / skills / mcp / doctor / model / auth …`
 CLI surface: real data where Claude has an equivalent (MCP servers, skills,
 models, version), and clean "not applicable under Claude" shapes for the
-Hermes-only concepts (gateway, curator, checkpoints, pairing, fallback pools)
+Legacy-only concepts (gateway, curator, checkpoints, pairing, fallback pools)
 so the UI degrades gracefully instead of erroring.
 """
 
@@ -225,7 +225,7 @@ def insights(days: int, session_count: int, message_count: int, model: str) -> d
     }
 
 
-# ---------------------------------------------------- Hermes-only → graceful
+# ---------------------------------------------------- Legacy-only → graceful
 def gateway() -> dict[str, Any]:
     return {
         "service": {"running": False, "api_listening": False, "manager": None, "pids": []},

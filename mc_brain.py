@@ -1,8 +1,8 @@
 """
 mc_brain.py
 -----------
-The Claude brain for Mission Control. Replaces the old `hermes chat -q` /
-`hermes -z` CLI calls: every LLM action in the dashboard now shells out to the
+The Claude brain for Mission Control. Every LLM action in the dashboard
+shells out to the local `claude` CLI; conversations persist in a SQLite store
 local, subscription-authed `claude` CLI in headless print mode.
 
 Two layers:
@@ -12,7 +12,7 @@ Two layers:
                     old `_llm_json()` synthesis helper.
 
 Plus MCSessions: a native SQLite session store the bridge owns directly, so the
-chat transcript / resume history no longer depends on Hermes' sessions.db.
+chat transcript / resume history is owned by the bridge.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 # Claude model aliases we accept from the UI; anything else falls back to the
-# CLI default so a stale Hermes model id can never wedge a chat.
+# CLI default so a stale external model id can never wedge a chat.
 _CLAUDE_MODEL_ALIASES = {"haiku", "sonnet", "opus", "fable"}
 
 
@@ -85,7 +85,7 @@ def run_claude(
 ) -> dict[str, Any]:
     """Run one headless Claude turn and return structured output.
 
-    Returns a dict shaped like the old run_hermes result so call sites read
+    Returns a dict shaped like the legacy CLI result so call sites read
     naturally::
 
         {
@@ -206,14 +206,14 @@ def claude_json(prompt: str, *, model: Optional[str] = None, timeout: int = 240,
 
 
 # ---------------------------------------------------------------------------
-# Native session store — SQLite, owned by the bridge. Replaces `hermes sessions`.
+# Native session store — SQLite, owned by the bridge.
 # ---------------------------------------------------------------------------
 class MCSessions:
     """A tiny SQLite-backed conversation store.
 
     Each session's `id` IS the Claude session id from its first turn, so resume
     is `claude --resume <id>`. We persist the transcript ourselves so the UI's
-    session list / detail view no longer depends on Hermes.
+    session list / detail view is owned by the bridge.
     """
 
     def __init__(self, db_path: str | os.PathLike[str]):

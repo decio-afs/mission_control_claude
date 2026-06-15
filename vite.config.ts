@@ -39,7 +39,7 @@ function bridgeLauncher(): Plugin {
           const py = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
           // Detached bridge has no terminal — capture its output in a log file
           // so "where are the bridge logs?" always has an answer.
-          const logPath = path.join(server.config.root, '.hermes', 'bridge.log')
+          const logPath = path.join(server.config.root, '.mc', 'bridge.log')
           let logFd: number | 'ignore' = 'ignore'
           try { logFd = fs.openSync(logPath, 'a') } catch { /* fall back to ignore */ }
           server.config.logger.info(`[mc] starting Mission Control bridge: ${py} mission-control-bridge.py (port ${BRIDGE_PORT}) — logs → ${logPath}`)

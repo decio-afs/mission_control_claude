@@ -14,9 +14,9 @@
 ```
 Electron window (React, file://) ──HTTP──▶ mission-control-bridge.py (FastAPI :8767) ──subprocess──▶ claude CLI
         │                                          │
-        └─ reuses or spawns the bridge             ├──▶ .hermes/data/*.json  (leads, calendar, creators, digests — gitignored)
+        └─ reuses or spawns the bridge             ├──▶ .mc/data/*.json  (leads, calendar, creators, digests — gitignored)
                                                    └──▶ external APIs (Apify, Buffer GraphQL, Ayrshare, Brave)
-Hermes gateway (separate service) ──▶ Telegram bots + cron ticker + embedded kanban dispatcher
+Background worker service (separate service) ──▶ Telegram bots + cron ticker + embedded kanban dispatcher
 ```
 
 - **`electron/main.cjs`** — desktop main process. On launch it probes
@@ -26,11 +26,11 @@ Hermes gateway (separate service) ──▶ Telegram bots + cron ticker + embedd
 - **`mission-control-bridge.py`** — FastAPI wrapper around the `claude` CLI plus the
   file-backed data stores and external-API pipelines. All subprocesses run
   with `CREATE_NO_WINDOW` (a console-less bridge must not flash terminals).
-  API keys are read from the bridge env **or `~/.hermes/.env`** (AppData on
-  Windows) via `_env_key()` — configure each key once, where Hermes keeps it.
+  API keys are read from the bridge env **or `%LOCALAPPDATA%\mission-control\.env`** (AppData on
+  Windows) via `_env_key()` — configure each key once, where Claude keeps it.
 - **`vite.config.ts`** — the dev server hosts `POST /__bridge/start`, the
   browser-mode twin of the Electron IPC: it spawns a detached bridge (output
-  → `.hermes/bridge.log`) so the diagnostics panel can revive a dead bridge
+  → `.mc/bridge.log`) so the diagnostics panel can revive a dead bridge
   even in `npm run dev`.
 - **React app** — fetches through `src/lib/api.ts` only. Zustand stores poll
   the bridge; every store exposes an `error` state so a downed bridge is
@@ -47,7 +47,7 @@ the bridge — do not regress them:
 - **Gateway down** → auto-`restart`ed once per session via the **Windows
   Scheduled Task** (`schtasks /End` then `/Run` — a wedged task instance makes
   `/Run` a silent no-op). Never trust the CLI's process-scan ("Gateway process
-  running (PID …)") — hung TTY-less zombies and *concurrent `hermes gateway *`
+  running (PID …)") — hung TTY-less zombies and *concurrent `background workers`
   CLI calls* fool it. **The only liveness truth is the gateway api port
   (:8642) answering.** `gateway status`+`list` are intentionally serial in
   the bridge: running them concurrently makes status detect its sibling call.
@@ -59,16 +59,16 @@ the bridge — do not regress them:
 | Group | Endpoints (representative) | Backed by |
 |---|---|---|
 | Core | `/api/ping` (instant liveness) · `status` · `health` | none / CLI |
-| Kanban | `tasks` CRUD + full verb set: claim, complete, block/unblock, promote, schedule, archive, assign/reassign/reclaim, comment, edit, link/unlink, specify, log, context, notify, boards, stats, diagnostics | `hermes kanban …` |
-| Agents | `agents` CRUD + spawn-on-task, `spawn`, `chat` (session-aware), `sessions` CRUD | `hermes …` |
+| Kanban | `tasks` CRUD + full verb set: claim, complete, block/unblock, promote, schedule, archive, assign/reassign/reclaim, comment, edit, link/unlink, specify, log, context, notify, boards, stats, diagnostics | `native kanban store` |
+| Agents | `agents` CRUD + spawn-on-task, `spawn`, `chat` (session-aware), `sessions` CRUD | `claude …` |
 | Capabilities | `overview` · `skills` · `plugins` (+enable/disable) · `mcp` (+test) · `gateway` (+action) · `send/targets` + `send` · `webhooks` · `memory` · `curator` · `insights` · `doctor` · `logs` · `model` · `auth` · `checkpoints` · `pairing` · `security/audit` | CLI (tolerant text parsers, always include `raw`) |
-| Pipelines | `leads` CRUD · `content/calendar` CRUD (+Buffer/Ayrshare) · `creators` watch/scrape · `hermes/ai-digest` · `content/ideas` · `content/pipeline` · sentinel digest/archive | `.hermes/data/` stores + external APIs + `hermes -z` |
+| Pipelines | `leads` CRUD · `content/calendar` CRUD (+Buffer/Ayrshare) · `creators` watch/scrape · `claude/ai-digest` · `content/ideas` · `content/pipeline` · sentinel digest/archive | `.mc/data/` stores + external APIs + `claude` |
 
 ### Content pipelines (the strategy loop)
 
 ```
 Sentinel cron (7:00) ──▶ AI news stories ─┐
-Apify scrape (watchlist) ─▶ viral posts ──┼─▶ hermes -z ──▶ AI digest (Briefing)
+Apify scrape (watchlist) ─▶ viral posts ──┼─▶ claude ──▶ AI digest (Briefing)
 BRAND_STRATEGY.md ────────────────────────┘              └─▶ Idea Engine (Factory):
                                                               strategy note + ranked ideas
                                                               → + PLAN (calendar)
@@ -86,13 +86,13 @@ BRAND_STRATEGY.md ────────────────────�
   surface is the Ideas workflow (`createIdea`); queue scheduling happens
   inside Buffer. Ayrshare (`AYRSHARE_API_KEY`) is the direct-scheduling
   fallback provider.
-- **LLM synthesis** endpoints (`ai-digest`, `content/ideas`) call `hermes -z`
+- **LLM synthesis** endpoints (`ai-digest`, `content/ideas`) call `claude`
   with strict-JSON prompts; they return a friendly 503 on provider quota
   exhaustion (HTTP 429 in CLI output).
 - **Cron**: `content-engine-daily` at **7:30** (after Sentinel's 7:00) runs
   scrape → digest → ideas and delivers a morning report to Telegram.
 
-Keys live in `~/.hermes/.env`: `APIFY_API_TOKEN`, `BUFFER_ACCESS_TOKEN`,
+Keys live in `%LOCALAPPDATA%\mission-control\.env`: `APIFY_API_TOKEN`, `BUFFER_ACCESS_TOKEN`,
 `BUFFER_ORGANIZATION_ID`, `AYRSHARE_API_KEY` (optional), `BRAVE_SEARCH_API_KEY`
 (for the agents' `web-brave-free` plugin — without a web plugin, research
 tasks burn their iteration budget and bounce back to TODO forever).
@@ -119,7 +119,7 @@ electron/
 mission-control-bridge.py             # FastAPI ↔ claude CLI + data stores + external pipelines
 vite.config.ts               # + mc-bridge-launcher dev middleware (/__bridge/start)
 BRAND_STRATEGY.md            # Brand positioning/voice — grounds the Idea Engine
-.hermes/
+.mc/
 ├── data/                    # leads/calendar/creators/digest/ideas stores (gitignored)
 ├── bridge.log               # detached-bridge output (gitignored)
 └── repair_mojibake.py       # PS5.1 encoding-corruption repair (see Conventions)
@@ -149,7 +149,7 @@ src/
 │   ├── ContentFactory.tsx   # 04 Idea Engine (news×viral×brand) + campaigns + calendar
 │   │                        #   (+PLAN/→BUFFER) + Viral Signals (Apify watchlist/scrape)
 │   ├── BriefingTerminal.tsx # 05 daily brief + consolidated AI digest (viral content ideas)
-│   ├── LeadTracker.tsx      # 06 leads CRUD (agents POST /api/hermes/leads)
+│   ├── LeadTracker.tsx      # 06 leads CRUD (agents POST /api/mc/leads)
 │   ├── Arsenal.tsx          # 07 skills/plugins(toggle)/MCP(test)/memory/curator
 │   ├── Uplink.tsx           # 08 gateway control, channel matrix, transmit console, webhooks
 │   ├── Systems.tsx          # 09 insights, log tail, doctor, model/auth, OSV audit
@@ -203,7 +203,7 @@ npm run lint
   Fixed-height stat cards must be `min-h-*`, never `h-*`.
 - **⚠ Never bulk-edit sources with PowerShell 5.1** (`Get/Set-Content` reads
   BOM-less UTF-8 as cp1252 and mojibakes every `—·✓⚠●`). Use python; a repair
-  script exists at `.hermes/repair_mojibake.py`.
+  script exists at `.mc/repair_mojibake.py`.
 - React components: function declarations, `PascalCase`; stores: `useXStore`.
 
 ---

@@ -42,8 +42,9 @@ Thumbs.db
 .playwright-mcp/
 
 # Mission Control runtime data (bridge-managed local stores)
-.hermes/data/
-.hermes/cli-inventory.txt
+.mc/data/
+.mc/cache/
+.mc/cli-inventory.txt
 
 # graphify knowledge graph output
 graphify-out/

@@ -38,7 +38,7 @@ leave it untouched; touch only the files for your fix + this log. Do NOT push or
 5. `src/components/*.tsx` — drawers, modals, feeds (null-crashes, effect deps, key collisions, cleanup)
 6. `hermes-bridge.py` backend — route logic, CLI arg construction, timeouts, error propagation, response shaping
 7. MISCONFIG sweep — `vite.config`, `tsconfig`, `.eslintrc`, `tailwind`, `package.json` scripts, env vars (`VITE_BRIDGE_URL`/ports/timeouts), CORS, axios per-endpoint timeouts vs the bridge's real latency
-8. CROSS-SURFACE deliverable/lifecycle audit — see "Systemic Threads" below (this is a standing, higher-priority track)  ◀ ACTIVE TRACK (iter #4 closed DELIV-1; iter #5 added Patch Notes panel; iter #6 closed DELIV-2 slice a [block/fail reason]; iter #7 closed DELIV-2 slice b [FAILED column] — DELIV-2 FULLY DONE; iter #8 closed DELIV-3 [empty-result done → worker-log tail], LIVE-VERIFIED on 6 real both-empty tasks; iter #9 closed DELIV-4 slice a [copyable ARTIFACTS path/branch]; iter #10 closed DELIV-4 slice b [read-only workspace file browser + inline reader], LIVE-VERIFIED on a real 12KB deliverable — **DELIV-4 FULLY DONE**; iter #11 closed LIFE-1 [drawer action errors surfaced + bridgeDetail reasons], LIVE-VERIFIED via zero-mutation monkeypatch — **only DONE-CARD + LABEL-1 remain in this track**; iter #12 → DONE-CARD [has-deliverable signal on board done cards])
+8. CROSS-SURFACE deliverable/lifecycle audit — see "Systemic Threads" below (this is a standing, higher-priority track)  ◀ ACTIVE TRACK (iter #4 closed DELIV-1; iter #5 added Patch Notes panel; iter #6 closed DELIV-2 slice a [block/fail reason]; iter #7 closed DELIV-2 slice b [FAILED column] — DELIV-2 FULLY DONE; iter #8 closed DELIV-3 [empty-result done → worker-log tail], LIVE-VERIFIED on 6 real both-empty tasks; iter #9 closed DELIV-4 slice a [copyable ARTIFACTS path/branch]; iter #10 closed DELIV-4 slice b [read-only workspace file browser + inline reader], LIVE-VERIFIED on a real 12KB deliverable — **DELIV-4 FULLY DONE**; iter #11 closed LIFE-1 [drawer action errors surfaced + bridgeDetail reasons], LIVE-VERIFIED via zero-mutation monkeypatch; iter #12 closed DONE-CARD [board done cards show a ◆ when result/branch present], LIVE-VERIFIED both cases via zero-mutation client patch; iter #13 closed DONE-CARD-2 [server-computed `has_deliverable` on the `mc_store` list projection — result/branch/run-summary/non-empty-workspace-dir], LIVE-VERIFIED 7-lit/3-dark on the real board + over HTTP via a throwaway :8799 bridge; iter #14 closed LABEL-1 [topbar bridge port derived from `BRIDGE_BASE_URL`, LIVE-VERIFIED rendering `:8799` at an alternate port] — **the ENTIRE deliverable/lifecycle track is now FULLY CLOSED; next run advances to focus area #1/#2: `src/lib/*.ts` pure logic + `src/stores/*.ts` stores**)
 
 ---
 
@@ -104,14 +104,44 @@ rather than building new surfaces.
   store module, made it resolve `false` + set error exactly like a real reject), clicked PROMOTE → the red error line
   rendered "⚠ task '…' is not ready (simulated bridge reject)" with the right styling, ✕ dismissed it, override restored,
   board confirmed unchanged throughout, zero console errors.
-- [ ] **DONE-CARD (MED) — board done cards give no "has deliverable" signal.** `OperationsCenter.tsx:228-250`.
-  Consider a small has-result indicator/snippet or a Deliverables review lane. NB: iter #10 confirmed most workspaces are
-  empty but a few hold real files — a "has files" dot on a done card (one cheap `/workspace` call or a count from the
-  task payload) would point the operator straight at the tasks that actually produced something.
-- [ ] **LABEL-1 (LOW, cosmetic) — topbar bridge label is hardcoded.** `Layout.tsx:203` renders the literal text
-  `● BRIDGE :8767` regardless of the real `VITE_BRIDGE_URL`/`BRIDGE_BASE_URL`. Harmless today (default IS :8767) but it
-  misleads when the bridge runs on another port (it cost a verification detour in iter #10). **Fix:** derive the port
-  from `BRIDGE_BASE_URL` (export it from `api.ts`) instead of a string literal.
+- [x] **DONE-CARD (MED) — board done cards now show a "has deliverable" ◆ — FIXED iter #12 (LIVE-VERIFIED both cases).**
+  `OperationsCenter.tsx`: new pure helper `hasDeliverable(t)` = `Boolean(t.result?.trim() || t.branch_name?.trim())` (both
+  fields are already on the board's `McTask` list payload — **no per-card fetch**), and a small emerald `◆` marker in the
+  done-card footer right-group, gated `col.key === 'done' && hasDeliverable(t)` (title "Deliverable available — open to view
+  the result/branch"). **Key signal-quality call:** `workspace_path` is DELIBERATELY excluded — live probe of all 10 done
+  tasks showed `workspace_path` set on 10/10 (it's set on virtually every task even when empty, per iter #10), so it would
+  light every done card and carry no signal; `result`/`branch_name` were empty on all 10, giving zero false positives. So
+  the dot is the canonical-deliverable cue (`task.result` is THE deliverable field per the deliverable-flow map) with no
+  noise. **Caveat (next-target seed below):** the deliverable summary an agent writes lives in `latest_summary` (a computed
+  `TaskDetail` field, fetched per-task) and the worker log — NEITHER is in the list payload — so a done task whose only
+  output is `latest_summary`/worker-log (the DELIV-3 case) does NOT get the board dot. Catching those at the board level
+  needs a cheap **server-computed `has_deliverable` boolean on the list endpoint** (the bridge can see latest_summary/runs/
+  worker-log existence without shipping content) — recorded as DONE-CARD-2 below.
+- [x] **LABEL-1 (LOW, cosmetic) — topbar bridge label was hardcoded — FIXED iter #14 (LIVE-VERIFIED at an alternate port).**
+  `Layout.tsx:203` rendered the literal text `● BRIDGE :8767` regardless of the real `VITE_BRIDGE_URL`/`BRIDGE_BASE_URL`
+  (it cost a verification detour in iters #10, #12 AND #13). **Fix (2 files):** `api.ts:9` now **exports** `BRIDGE_BASE_URL`
+  (already the axios `baseURL`); `Layout.tsx` imports it and derives a module-level `BRIDGE_PORT = new URL(BRIDGE_BASE_URL).port
+  || '8767'` (try/catch → `'8767'` fallback), and the label is now `● BRIDGE :{BRIDGE_PORT}`. Default output is byte-identical
+  (`:8767`), so no visual change on the normal config. **Live-verified:** a throwaway Vite preview on :5223 with a gitignored
+  `.env.local` `VITE_BRIDGE_URL=http://localhost:8799` rendered the sidebar span as **`● BRIDGE :8799`** (DOM read), proving the
+  label now tracks the configured URL; zero label-code console errors; full teardown. **This closes the entire
+  deliverable/lifecycle track.**
+- [x] **DONE-CARD-2 (MED) — board dot now catches file/summary/branch deliverables — FIXED iter #13 (LIVE-VERIFIED 7/3).**
+  The iter #12 ◆ dot keyed on `result`/`branch_name`, the only deliverable fields on the **list** payload, and lit **0/10**
+  current done cards. **Fix (3 files):** `mc_store.py` `list_tasks()` now computes a server-side `has_deliverable: bool` per
+  task via a new `_has_deliverable(task, runs)` helper — true if `result` OR `branch_name` OR **any run summary** (= a
+  non-empty `latest_summary`, computed once from in-memory meta — no per-card fetch) OR a **non-empty workspace dir** (≥1
+  non-hidden entry; the common case here, where the deliverable is a file the agent wrote). `McTask` (`src/lib/api.ts`) gains
+  optional `has_deliverable?: boolean`; `OperationsCenter.tsx` `hasDeliverable()` ORs the server flag in (keeping the raw
+  `result`/`branch` fallback for older payloads). **Migration-aware call:** the handoff's original spec listed "non-empty
+  worker log" as a signal, but in the native `mc_store` the worker log is **synthesized from the event timeline**
+  (`task_log` :814) — every task has a `created` event, so it's never empty and would light EVERY card; deliberately
+  excluded (documented in the helper). Bare `workspace_path` still excluded (iter #10/#12: set on ~every task even when
+  empty) — we require the dir to actually contain a real entry. **Live-verified on the REAL board (read-only):** the new
+  `list_tasks()` over the live data files lights **exactly the 7 done tasks with a workspace deliverable file** (`competitor_
+  analysis.md`, `daautonomous_instagram_audit.md`, etc.) and leaves the **3 empty-workspace done tasks dark** — and a
+  throwaway bridge on :8799 (new code, operator's :8767 untouched) **served the same 7/3 over HTTP**. Closes the
+  deliverable-integrity track except cosmetic LABEL-1.
 
 ---
 
@@ -149,18 +179,27 @@ append one entry (id `iter-<N>-<slug>`, iteration, date, plain-English title ≤
 summary written for the operator not a dev, category `bug|deliverable|lifecycle|ui|perf|misconfig`, severity,
 files). Pure-audit runs add none. Keep the JSON valid.
 
-**TOP PRIORITY for the NEXT run (iteration #12): DONE-CARD (MED)** — now the highest-value open deliverable-thread item
-(LIFE-1 closed iter #11). Board done cards in `src/pages/OperationsCenter.tsx` (~:228-250) give **no signal** about which
-finished tasks actually produced a retrievable deliverable, so the operator has to open each one to find out. iter #10
-confirmed most live workspaces are empty but a few hold real files (e.g. `t_26d8eb11/competitor_analysis.md`), and the
-board is mostly all-done — a cheap **"has deliverable" dot/badge** on a done card (driven by what's already in the task
-payload: a non-empty `result`/`latest_summary`, or a `workspace_path`/`branch_name`; avoid a per-card `/workspace` fetch
-on the board — too many calls) points the operator straight at the tasks worth opening. Self-contained client change
-(reuse the data already loaded into the board). Verify in :5219 (bridge up — 10 done tasks live) + build + lint.
-After DONE-CARD, the only remaining deliverable/lifecycle item is the tiny cosmetic **LABEL-1** (hardcoded `● BRIDGE :8767`
-topbar label, `Layout.tsx:203` — derive the port from `BRIDGE_BASE_URL`/`VITE_BRIDGE_URL` instead of a string literal).
-Once both are done the deliverable/lifecycle track is fully closed; fall back to the focus-area rotation + the remaining
-isolated leads (#1 lossy `mapMcToOp`/`mapHermesToOp`, #4 OLDEST-READY correct-by-accident math, #5 chat-store catch key).
+**TOP PRIORITY for the NEXT run (iteration #15): the deliverable/lifecycle track is FULLY CLOSED** (DELIV-1..4, LIFE-1,
+DONE-CARD, DONE-CARD-2, LABEL-1 all done — LABEL-1 closed iter #14). **Fall back to the focus-area rotation, advancing to
+area #1/#2: `src/lib/*.ts` pure logic + `src/stores/*.ts` stores.** The strongest concrete, recon-verified leads to pick
+from (confirm each still exists before fixing — the tree churns):
+- **Lead #4 (recommended next — clean self-contained logic fix): `OperationsCenter` OLDEST READY correct-by-accident math**
+  — `src/pages/OperationsCenter.tsx:143,189`. `stats.oldest_ready_age_seconds` is ALREADY an age, but it's rendered as
+  `ago(now - oldestReady)` = `now - (now - age) = age` — right only because two errors cancel; one refactor of `ago()` breaks
+  it. Fix: format the age directly (small `fmtAge(sec)`), drop the `Date.now()` subtraction. Standalone-testable pure logic.
+- **Lead #1: lossy `mapMcToOp`/`mapHermesToOp` status projection** — `src/stores/useTaskStore.ts:108-114`. The ternary maps
+  only `done/completed/running/blocked/failed/ready`; `triage/todo/review/scheduled/pending` all collapse to `'pending'` and
+  the `OpTask['status']` union doesn't even include those states. Latent today (only `tasks.length` is read) but any future
+  consumer of `tasks[].status` gets wrong data. Fix: extend the union + mapping, or document the projection as lossy.
+- **Lead #5: `useChatStore.send` catch re-derives the transcript key** — `src/stores/useChatStore.ts:199` (user msg uses
+  `key`) vs `:235` (catch appends error to `get().activeId || DRAFT_KEY`). After a draft is adopted, the error line can land
+  on a different key than the user line. Fix: reuse the same `key` in the catch.
+
+**Possible DONE-CARD-2 follow-up (LOW, optional):** the iter #13 workspace-dir check is shallow (top-level `os.scandir`,
+counts any non-hidden entry). If a workspace ever holds only scaffolding (a stray non-hidden file with no real deliverable)
+the dot could over-fire; not observed on the current board (the 7 lit all have a single real `.md`), so this is a watch
+item, not a bug. The list endpoint now does one cheap `scandir`-with-early-exit per task whose in-store fields are empty —
+negligible for a local board of dozens of tasks, but if the board grows large, consider caching or gating it.
 
 **Verification note:** iter #8 was the first deliverable-thread fix LIVE-CONFIRMED on a real populated edge case (6
 done tasks on the live board had BOTH `latest_summary` and `result` empty — `t_ac3acb98`, `t_db3e97f0`, `t_34d9de94`,
@@ -181,6 +220,146 @@ blocked.
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-15 — Iteration #14 (focus: LABEL-1 — hardcoded topbar bridge port; FIXED [front, 2 files] — LIVE-VERIFIED at an alternate port)
+
+**Audited.** The top-priority queued item LABEL-1 — the LAST item in the deliverable/lifecycle track (DONE-CARD-2 closed it
+all bar this). Scoped via /graphify (existing graph fast-path; `query "Layout topbar bridge label BRIDGE port hardcoded
+BRIDGE_BASE_URL api.ts axios baseURL VITE_BRIDGE_URL"`, BFS depth 2, 24 nodes — confirmed `bridge`/`api.ts` in community 4 and
+the axios `bridge` client at `api.ts:11`). Read the label site (`Layout.tsx:200-211`) + the axios base URL definition
+(`api.ts:9`).
+
+**Bug/gap.** `Layout.tsx:203` rendered the **literal string** `● BRIDGE :8767` in the sidebar bridge status line, regardless
+of the real bridge URL. `api.ts:9` already derives the true base from `VITE_BRIDGE_URL || 'http://localhost:8767'`, but the
+label never consulted it. Harmless on the default port, but it actively **misled the live verification in iters #10, #12 AND
+#13** (the label read `:8767` while throwaway bridges ran on `:8799`), and it would mislead any operator who repoints the
+dashboard via `VITE_BRIDGE_URL`. Low severity / cosmetic, but a real (thrice-proven) source of confusion.
+
+**Fix (front, 2 files).** (1) `api.ts:9` — `const BRIDGE_BASE_URL` → **`export const BRIDGE_BASE_URL`** (it was already the
+axios `baseURL`). (2) `Layout.tsx` — imported `BRIDGE_BASE_URL` from `../lib/api`; added a module-level `BRIDGE_PORT`
+constant = `new URL(BRIDGE_BASE_URL).port || '8767'` wrapped in try/catch (falls back to `'8767'` on a malformed URL or one
+with no explicit port); changed the label to `● BRIDGE :{BRIDGE_PORT}`. No backend, no new component, no behavior change on
+the default config (still renders `:8767`).
+
+**Verify.** `npm run build` ✓ (tsc + vite, 155 modules, 638ms). `npx eslint src/components/Layout.tsx src/lib/api.ts` ✓ ("No
+issues found"). **Standalone Node check of the exact derivation** `new URL(u).port || '8767'` (6 cases) ✓: default
+`:8767`→`8767`, `:8799`→`8799`, `:3001`→`3001`, no-port URL→`8767`, malformed→`8767`, empty→`8767` — ALL PASS (default output
+byte-identical to the old literal, so zero visual regression; alternate ports now tracked). **LIVE DOM-VERIFIED at a NON-default
+port (the whole point):** the operator's bridge was up at :8767 (health + patch-notes both 200, left untouched). Started a
+throwaway Vite dev server on **:5223** running the real `Mission_Control_Claude` app via a temp `npm --prefix` launch config in
+the parent `Mission_Control/.claude/` (the Claude-Preview MCP roots at the near-empty parent folder, not the app repo — the
+known misdirection), with a gitignored `.env.local` setting `VITE_BRIDGE_URL=http://localhost:8799`. DOM read of the sidebar
+span returned **`● BRIDGE :8799`** (not `:8767`) — conclusive proof the label now tracks the configured URL. Console showed
+only the expected baseline bridge-down `Network Error`s (no bridge on :8799) — **none from `Layout`/`BRIDGE_PORT`**. Full
+teardown: stopped the :5223 preview, deleted `.env.local`, deleted the parent `Mission_Control/.claude/` (did not exist
+before), reverted the `vite-label` config out of the app's `.claude/launch.json` (back to the lone `vite`/:5219). Added patch
+note `iter-14-label-1-bridge-port` (ui, low). Ran `graphify update .`.
+
+**This closes the ENTIRE deliverable/lifecycle track** (DELIV-1..4, LIFE-1, DONE-CARD, DONE-CARD-2, LABEL-1). The next run
+falls back to the **focus-area rotation** (advance to area #1/#2: `src/lib/*.ts` pure logic + `src/stores/*.ts` stores) plus the
+remaining isolated leads #1/#4/#5.
+
+**Files touched:** `src/lib/api.ts`, `src/components/Layout.tsx`, `.hermes/patch-notes.json`, `.hermes/BUGHUNT_LOG.md` (this
+entry). No commit/push (loop rules; working tree carries unrelated `mission-control-evolve` + Hermes→Claude rename churn — left
+intact).
+
+### 2026-06-14 — Iteration #13 (focus: DONE-CARD-2 — server-computed `has_deliverable`; FIXED [front+store+seam] — LIVE-VERIFIED 7/3)
+
+**Audited.** The top-priority queued item DONE-CARD-2, the last functional item in the deliverable/lifecycle track. Scoped
+via /graphify (existing graph fast-path; `query "mc kanban list projection task fields result branch_name latest_summary
+has_deliverable McTask OperationsCenter hasDeliverable board done card"` confirmed `hasDeliverable()` at
+`OperationsCenter.tsx:52`, `OperationsCenter()` :56). Read the full chain: board card render + `hasDeliverable()`
+(`OperationsCenter.tsx:44-54`) → `McTask` list type (`api.ts:57-78`, no deliverable summary field) → `/api/mc/tasks`
+(`mission-control-bridge.py:590` = `STORE.list_tasks()`) → `mc_store.py` `list_tasks()` :119 (returned raw `_tasks()`) +
+`show_task()` :156 (`latest_summary` = result, overridden by last run summary) + `task_log` (worker log).
+
+**Bug/gap.** iter #12's ◆ dot keyed on `result`/`branch_name` — the only deliverable fields on the LIST payload — and a
+live probe showed those are empty on **all 10** current done tasks, so the dot lit **0/10**. The real deliverables on this
+migrated board live as **files the agent wrote into the workspace dir** (probed: 7 of 10 done tasks hold a real `.md`
+deliverable — `competitor_analysis.md`, `daautonomous_instagram_audit.md`, `da_agency_llc_profile.md`, …; 3 have empty
+workspaces) — none of which the board could see without a per-card fetch. So 7 genuinely-finished, deliverable-producing
+tasks gave the operator no board signal.
+
+**Migration-aware design call (the crux).** The original DONE-CARD-2 spec listed "non-empty worker log" as a signal — but
+in the native `mc_store` the worker log is **synthesized from the event timeline** (`task_log` :814), so every task (having
+≥1 `created` event) has a non-empty log; using it would light EVERY card (degenerate). Deliberately **excluded** (documented
+in the helper). Also confirmed the live board has NO done task with a real `latest_summary`/run summary either (the old
+`t_f76cf250` 461-char summary was Hermes-era data, not migrated into the native store) — so the signal that actually fires
+here is the **non-empty workspace dir**, the DELIV-4/iter #10 case. Bare `workspace_path` stays excluded (iter #10/#12: set
+on ~every task even when empty); we require the dir to contain a real (non-hidden) entry.
+
+**Fix (front + store + seam, 3 files).** (1) **Store** `mc_store.py` — new `@staticmethod _has_deliverable(task, runs)`:
+`result` OR `branch_name` OR any non-empty run `summary` (= a non-empty `latest_summary`, from in-memory meta — no fetch)
+OR a workspace dir with ≥1 non-hidden entry (`os.scandir` early-exit, OSError-safe); added `import os`. `list_tasks()` now
+loads `meta["runs"]` once and stamps `has_deliverable` on each task (computed on the freshly-read list, never persisted).
+(2) **Client** `api.ts` — `McTask` gains optional `has_deliverable?: boolean`. (3) **UI** `OperationsCenter.tsx` —
+`hasDeliverable()` ORs `t.has_deliverable` in (raw `result`/`branch` kept as a fallback for pre-flag payloads); comment
+rewritten. No new endpoint, no new component, no per-card fetch.
+
+**Verify.** `npm run build` ✓ (tsc + vite, 155 modules, 712ms). `npx eslint src/pages/OperationsCenter.tsx src/lib/api.ts`
+✓ ("No issues found"). `python -c ast.parse` on `mc_store.py` ✓. **Standalone unit test of `_has_deliverable`** (9 cases) ✓:
+result/branch/run-summary → true; whitespace-only summary, all-empty, missing dir, empty dir, hidden-only dir → false; real
+file → true. **LIVE-VERIFIED on the REAL board (read-only, zero mutation):** instantiated a fresh `MCStore(.)` over the live
+data files — new `list_tasks()` lights **exactly 7/10** done tasks (the 7 with a workspace deliverable file) and leaves the
+**3 empty-workspace** done tasks dark, matching the workspace-file probe 1:1 (iter #12's `result`/branch check would light
+0/10). **End-to-end over HTTP:** started a throwaway bridge on **:8799** (new code, env `BRIDGE_PORT=8799`, reads the same
+data files read-only) — `GET /api/mc/tasks` **served `has_deliverable` on all tasks, 7 done LIT / 3 DARK**, identical to the
+in-process result. The operator's **:8767 left untouched** throughout (re-confirmed 200, 26 tasks, still old code without the
+field); :8799 killed, temp log removed. **Layer relied on reasoning (not pixels):** the actual rendering of the 7 ◆ dots
+through a Vite preview pointed at :8799 — the render gate (`col.key==='done' && hasDeliverable(t)` → emerald ◆) is
+byte-for-byte the same path iter #12 already live-verified; iter #13 only widened the predicate to honor the now-proven
+server boolean, so the 7 served-true done tasks will render the dot. Added patch note `iter-13-done-card-2-server-deliverable`
+(deliverable, medium). Ran `graphify update .` (1436 nodes / 2741 edges / 70 communities). NB: the topbar `● BRIDGE :8767`
+label (LABEL-1) misled again — read `:8767` while the throwaway bridge ran on :8799; promoted to the next run's top target.
+
+**Files touched:** `mc_store.py`, `src/lib/api.ts`, `src/pages/OperationsCenter.tsx`, `.hermes/patch-notes.json`,
+`.hermes/BUGHUNT_LOG.md` (this entry). No commit/push (loop rules; working tree carries unrelated `mission-control-evolve`
++ Hermes→Claude rename churn — left intact).
+
+### 2026-06-14 — Iteration #12 (focus: DONE-CARD — board done cards show a "has deliverable" ◆; FIXED — LIVE-VERIFIED both cases)
+
+**Audited.** The top-priority queued item DONE-CARD, the last functional item in the deliverable/lifecycle track (only the
+cosmetic LABEL-1 remained besides it). Scoped via /graphify (`query "OperationsCenter board done column card render result
+latest_summary workspace_path branch_name has deliverable indicator"`, BFS depth 2, 117 nodes), then read the board card
+render (`OperationsCenter.tsx:228-250`) + the `McTask` list type (`api.ts:57-78`: `result`, `workspace_path`, `branch_name`
+are all on the list payload).
+
+**Bug/gap.** Board done cards gave **no signal** about which finished tasks actually produced a retrievable deliverable —
+the operator had to open each one to find out. The board is mostly all-done (10 done tasks live), so this is real friction.
+
+**Signal-quality investigation (the crux of this run).** Probed all 10 live done tasks via the bridge before coding:
+`workspace_path` is set on **10/10** (confirms iter #10 — it's set on virtually every task even when the workspace is
+empty), while `result` and `branch_name` are empty on **0/10... i.e. set on 0/10**. So: using `workspace_path` would light
+EVERY done card and carry zero signal (rejected); `result`/`branch_name` give zero false positives and are the canonical
+deliverable fields (`task.result` is THE deliverable per the deliverable-flow map). Also confirmed the deeper limitation:
+the agent-written summary lives in `latest_summary` (a computed `TaskDetail`-only field, NOT on the list) and raw output in
+the worker log — neither is reachable on the board without a per-card fetch (which the task forbids). So the board dot is
+the canonical `result`/`branch` cue; the `latest_summary`/worker-log-only case is recorded as the new **DONE-CARD-2** target
+(needs a server-computed `has_deliverable` on the list projection).
+
+**Fix (`src/pages/OperationsCenter.tsx`, one file, 2 edits).** (1) New pure helper `hasDeliverable(t: McTask)` =
+`Boolean(t.result?.trim() || t.branch_name?.trim())` with a comment documenting why `workspace_path` is excluded. (2) A
+small emerald `◆` marker in the done-card footer right-group, gated `col.key === 'done' && hasDeliverable(t)`, title
+"Deliverable available — open to view the result/branch". No per-card fetch (reuses board data), no new component, no
+backend.
+
+**Verify.** `npm run build` ✓ (tsc + vite, 155 modules, 756ms). `npx eslint src/pages/OperationsCenter.tsx` ✓ ("No issues
+found"). Standalone Node logic check of `hasDeliverable` ✓ (6 cases: result→true, branch→true, whitespace→false,
+workspace_path-only→false, empty-strings→false, undefined→false). **LIVE end-to-end, BOTH cases (bridge up at :8767, 26
+tasks / 10 done), via Chrome MCP at the dev server (started on :3001), zero bridge mutation:** (a) **Negative** — board
+rendered, **0** `◆` markers on the 10 deliverable-less done cards (matches the API probe: result/branch empty on all 10) —
+no false positives, no crash, zero console errors. (b) **Positive** — dynamic-imported the same store module
+(`import('/src/stores/useTaskStore.ts')`) and client-only `setState` to put a `result` on one done task (`t_3a3b4d01`, no
+bridge write) → exactly **1** `◆` appeared, **on that card** (`cardHasMarker:true`, `markerText:["◆"]`); restoring the
+state cleared it back to 0; a final real `fetchTasks()` re-confirmed 0 (board untouched throughout). Full-board screenshot
+captured (zoom timed out — the documented WebGL-orb rasterizer stall, iter #4/#10 — DOM proof is conclusive). Bridge :8767
+re-confirmed HTTP 200 at the end; dev server on :3001 killed; temp log removed. Added patch note
+`iter-12-done-card-deliverable-dot` (deliverable, medium). Ran `graphify update .` (1433 nodes / 2735 edges / 79
+communities). NB: the topbar `● BRIDGE :8767` label (LABEL-1) again misled mid-run — read "8767" while the app was on 3001.
+
+**Files touched:** `src/pages/OperationsCenter.tsx`, `.hermes/patch-notes.json`, `.hermes/BUGHUNT_LOG.md` (this entry). No
+commit/push (loop rules; working tree carries unrelated `mission-control-evolve` + Hermes→Claude rename churn — left
+intact).
 
 ### 2026-06-14 — Iteration #11 (focus: LIFE-1 — drawer actions swallow errors; FIXED [front + store] — LIVE-VERIFIED)
 

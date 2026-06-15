@@ -1,23 +1,24 @@
 """
 mc_store.py
 -----------
-Mission Control's native data layer. Replaces the Hermes kanban / profile / cron
+Mission Control's native data layer. The kanban / profile / cron
 CLI: tasks, agents, cron jobs and boards now live in local JSON the bridge owns
-directly. No `hermes` process is involved.
+directly. No external process is involved.
 
 Files (under the project root):
-  * kanban.json            — canonical task array (HermesTask schema, preserved)
-  * .hermes/data/kanban-meta.json — comments, events, links, boards, notifications
-  * .hermes/data/agents.json      — agent roster (name, role, skills, model)
-  * .hermes/data/cron.json        — scheduled jobs
+  * kanban.json            — canonical task array (McTask schema)
+  * .mc/data/kanban-meta.json — comments, events, links, boards, notifications
+  * .mc/data/agents.json      — agent roster (name, role, skills, model)
+  * .mc/data/cron.json        — scheduled jobs
 
 Every method returns the exact dict shape the existing API endpoints emitted, so
-the bridge can swap `run_hermes(...)` for `STORE.method(...)` one-for-one.
+the bridge calls `STORE.method(...)` directly.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -42,7 +43,7 @@ class MCStore:
     def __init__(self, root: str | Path):
         self.root = Path(root)
         self.tasks_file = self.root / "kanban.json"
-        self.data_dir = self.root / ".hermes" / "data"
+        self.data_dir = self.root / ".mc" / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.meta_file = self.data_dir / "kanban-meta.json"
         self.agents_file = self.data_dir / "agents.json"
@@ -116,8 +117,52 @@ class MCStore:
             "current_step_key": None,
         }
 
+    @staticmethod
+    def _has_deliverable(task: dict[str, Any], runs: list[dict[str, Any]]) -> bool:
+        """Whether a task produced a retrievable deliverable.
+
+        Computed server-side so the board can show a "has deliverable" marker on
+        done cards WITHOUT a per-card fetch (BUGHUNT DONE-CARD-2). True when:
+          * the task has a written `result`, or
+          * a git `branch_name`, or
+          * any run wrote a `summary` (this is exactly what feeds the drawer's
+            `latest_summary`, so the marker lights precisely when RESULT/SUMMARY
+            will show real content), or
+          * the workspace dir holds at least one real (non-hidden) file/dir — the
+            common case here, where the deliverable is a file the agent wrote
+            (e.g. competitor_analysis.md) rather than an in-store field.
+
+        Deliberately NOT used: the synthesized worker log (in the native store it
+        is derived from the event timeline, so every task — having at least a
+        'created' event — would falsely qualify), and bare `workspace_path` (set
+        on virtually every task even when the dir is empty, BUGHUNT iter #10/#12).
+        """
+        if (task.get("result") or "").strip():
+            return True
+        if (task.get("branch_name") or "").strip():
+            return True
+        if any(isinstance(r, dict) and (r.get("summary") or "").strip() for r in runs):
+            return True
+        ws = (task.get("workspace_path") or "").strip()
+        if ws:
+            try:
+                with os.scandir(ws) as it:
+                    for e in it:
+                        if not e.name.startswith("."):
+                            return True
+            except OSError:
+                pass
+        return False
+
     def list_tasks(self) -> dict[str, Any]:
-        return {"tasks": self._tasks()}
+        tasks = self._tasks()
+        runs = self._meta().get("runs", {})
+        for t in tasks:
+            if isinstance(t, dict):
+                t["has_deliverable"] = self._has_deliverable(
+                    t, runs.get(str(t.get("id")), []) or []
+                )
+        return {"tasks": tasks}
 
     def _find(self, tasks: list[dict[str, Any]], task_id: str) -> dict[str, Any]:
         for t in tasks:

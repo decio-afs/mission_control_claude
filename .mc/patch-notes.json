@@ -1,6 +1,36 @@
 {
   "notes": [
     {
+      "id": "iter-14-label-1-bridge-port",
+      "iteration": 14,
+      "date": "2026-06-15",
+      "title": "Sidebar bridge status now shows the real port, not a fixed :8767",
+      "summary": "The bridge status line at the bottom of the sidebar always read '● BRIDGE :8767' even when the dashboard was actually pointed at a bridge on a different port — so the label could quietly lie about what it was connected to. It now reads the port straight from the configured bridge address, so what you see matches where the app is really talking. For the normal setup the line is unchanged (still :8767); it only differs when you point the dashboard elsewhere.",
+      "category": "ui",
+      "severity": "low",
+      "files": ["src/components/Layout.tsx", "src/lib/api.ts"]
+    },
+    {
+      "id": "iter-13-done-card-2-server-deliverable",
+      "iteration": 13,
+      "date": "2026-06-14",
+      "title": "Board deliverable marker now catches finished tasks that wrote a file",
+      "summary": "The green ◆ marker added last time only appeared when a finished task had a written result or a git branch — but most of your completed tasks actually deliver a file they saved into their workspace folder (a report, an audit, a schedule), and those got no marker. The board now asks the backend, once per refresh, whether each task truly produced something — a result, a summary, a branch, or a real file on disk — so those file-producing tasks finally show the marker too. On your current board this lights up 7 of the 10 done cards that were blank before, while the 3 that produced nothing stay unmarked.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": ["mc_store.py", "src/lib/api.ts", "src/pages/OperationsCenter.tsx"]
+    },
+    {
+      "id": "iter-12-done-card-deliverable-dot",
+      "iteration": 12,
+      "date": "2026-06-14",
+      "title": "Done tasks that produced a deliverable now show a marker on the board",
+      "summary": "On the Mission Kanban board you had to open each finished task one by one to find out which ones actually produced something you can retrieve. Done cards that have a written result or a git branch now show a small green ◆ marker, so you can spot the tasks worth opening at a glance. Tasks whose only output is a workspace folder aren't marked, because nearly every task has one of those even when it's empty.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": ["src/pages/OperationsCenter.tsx"]
+    },
+    {
       "id": "iter-11-life-1-action-errors",
       "iteration": 11,
       "date": "2026-06-14",

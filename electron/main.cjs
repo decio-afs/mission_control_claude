@@ -74,8 +74,8 @@ ipcMain.handle('bridge:start', async () => {
 });
 
 function waitForBridge(retries = 40) {
-  // Probe /api/ping (instant, no CLI shell-out). The old /api/hermes/status
-  // probe ran the hermes CLI per request (1-4s) — slower than the 1s probe
+  // Probe /api/ping (instant, no CLI shell-out). An older status probe
+  // ran a CLI per request (1-4s) — slower than the 1s probe
   // timeout, so every attempt timed out and the window opened ~60s late.
   return new Promise((resolve) => {
     const attempt = (n) => {

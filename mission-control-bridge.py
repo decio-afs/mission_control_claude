@@ -1,7 +1,7 @@
 """
-hermes-bridge.py
-FastAPI bridge server wrapping the Hermes CLI for Mission Control.
-Port: 8767 (avoids conflict with Hermes gateway on 9119)
+mission-control-bridge.py
+FastAPI bridge server for Mission Control — the Claude Code backend.
+Port: 8767
 """
 
 import base64
@@ -26,7 +26,6 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-HERMES_CMD = os.environ.get("HERMES_CMD", "hermes")
 BRIDGE_PORT = int(os.environ.get("BRIDGE_PORT", "8767"))
 # Wall-clock the process came up — used by /api/mc/health to report uptime.
 BRIDGE_STARTED = time.time()
@@ -36,9 +35,9 @@ BRIDGE_STARTED = time.time()
 ORIGINS = os.environ.get("CORS_ORIGINS", "*").split(",")
 
 # ---------------------------------------------------------------------------
-# The Claude brain. Mission Control no longer drives the Hermes/Kimi CLI for
+# The Claude brain. Mission Control drives the local `claude` CLI for
 # inference — every LLM action (chat, agent spawn, task decompose, content
-# synthesis, virality, digests) shells out to the local `claude` CLI instead.
+# synthesis, virality, digests) shells out to the local `claude` CLI.
 # Conversations persist in a native SQLite store the bridge owns directly.
 # ---------------------------------------------------------------------------
 from mc_brain import (  # noqa: E402
@@ -51,9 +50,9 @@ from mc_brain import (  # noqa: E402
 from mc_store import MCStore  # noqa: E402
 import mc_diag  # noqa: E402
 
-SESSIONS = MCSessions(Path(__file__).parent / ".hermes" / "data" / "sessions.db")
+SESSIONS = MCSessions(Path(__file__).parent / ".mc" / "data" / "sessions.db")
 
-# Native data layer — tasks, agents, cron, boards. Replaces the Hermes kanban /
+# Native data layer — tasks, agents, cron, boards. The bridge owns the kanban /
 # profile / cron CLI entirely; the bridge owns the JSON stores directly.
 STORE = MCStore(Path(__file__).parent)
 
@@ -77,58 +76,8 @@ _SKILLS_ROOTS = [
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
-def run_hermes(*args: str, timeout: int = 60) -> dict[str, Any]:
-    """Run a Hermes CLI command and return structured output."""
-    cmd = [HERMES_CMD, *args]
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            encoding="utf-8",
-            errors="replace",
-            creationflags=CREATE_NO_WINDOW,
-            # Explicitly closed stdin: when the bridge runs headless (no
-            # console), an inherited invalid handle makes hermes hang on
-            # TTY-ish prompts instead of falling back to non-interactive.
-            stdin=subprocess.DEVNULL,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail=f"Hermes command timed out after {timeout}s")
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="Hermes CLI not found in PATH")
-
-    stdout = result.stdout.strip()
-    stderr = result.stderr.strip()
-
-    # Try to parse JSON output
-    data: Any = None
-    if stdout:
-        try:
-            data = json.loads(stdout)
-        except json.JSONDecodeError:
-            data = stdout
-
-    response = {
-        "success": result.returncode == 0,
-        "returncode": result.returncode,
-        "stdout": stdout,
-        "stderr": stderr,
-        "data": data,
-    }
-
-    if result.returncode != 0:
-        raise HTTPException(
-            status_code=500,
-            detail=response,
-        )
-
-    return response
-
-
 def parse_cron_list(text: str) -> list[dict[str, Any]]:
-    """Parse plain-text `hermes cron list` into structured JSON."""
+    """Parse plain-text cron-list output into structured JSON (legacy helper)."""
     jobs: list[dict[str, Any]] = []
     current: dict[str, Any] = {}
     for line in text.splitlines():
@@ -277,8 +226,8 @@ class ChatPayload(BaseModel):
     model: Optional[str] = None
     skills: Optional[list[str]] = None
     attachments: Optional[list[AttachmentPayload]] = None
-    # When set, the message continues an existing Hermes session (real memory)
-    # via `hermes chat --resume <session_id>`. Omitted → starts a new session.
+    # When set, the message continues an existing Claude session (real memory)
+    # via `claude --resume <session_id>`. Omitted → starts a new session.
     session_id: Optional[str] = None
 
 
@@ -336,17 +285,17 @@ class BriefingResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print(f"[hermes-bridge] Starting on port {BRIDGE_PORT}", flush=True)
+    print(f"[mc-bridge] Starting on port {BRIDGE_PORT}", flush=True)
     # Warm-load Whisper in the background so the first voice turn doesn't pay
     # the model load (or the first-ever ~150MB hub download) inline.
     if _whisper_installed():
         import threading
         threading.Thread(target=_get_whisper_model, daemon=True, name="whisper-warmup").start()
     yield
-    print("[hermes-bridge] Shutting down", flush=True)
+    print("[mc-bridge] Shutting down", flush=True)
 
 
-app = FastAPI(title="Hermes Bridge", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Mission Control Bridge", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -366,7 +315,7 @@ app.add_middleware(
 def ping():
     """Instant liveness probe — NO CLI shell-out. Used by the Electron shell
     and the Vite dev-server launcher to detect the bridge: /api/mc/status
-    takes 1-4s (it runs the hermes CLI), which is slower than a launcher's
+    takes 1-4s, which is slower than a launcher's
     per-attempt probe timeout and made startup look hung."""
     return {"ok": True, "uptime_seconds": int(time.time() - BRIDGE_STARTED)}
 
@@ -385,7 +334,7 @@ def get_health():
     """Lightweight bridge self-report for the Diagnostics panel.
 
     Cheap on purpose: it reports bridge process meta (uptime, python, port) and
-    does ONE `hermes --version` probe so the panel can confirm the CLI is wired
+    does ONE `claude --version` probe so the panel can confirm the CLI is wired
     up without serially shelling out to every endpoint. Per-endpoint latency is
     measured client-side by the health store (real round-trips from the app).
     """
@@ -416,7 +365,7 @@ def get_health():
 
 
 def parse_profile_names(text: str) -> list[str]:
-    """Pull profile names out of the `hermes profile list` table.
+    """Pull profile names out of a profile-list table (legacy helper).
     Rows look like ` ◆default   kimi-k2.6   running   —   —` — the name is the
     first token, with ◆ marking the active profile."""
     names = []
@@ -437,7 +386,7 @@ def get_agents():
 
 
 def _profile_name(raw: str) -> str:
-    """Hermes profile names are lowercase alphanumeric — normalize whatever
+    """Profile names are lowercase alphanumeric — normalize whatever
     the operator typed ("My Agent" → "myagent")."""
     return re.sub(r"[^a-z0-9]", "", (raw or "").lower())
 
@@ -631,16 +580,16 @@ def get_activity():
     return {"activities": events[:50]}
 
 
-# Patch notes live next to the bug-hunt handoff (.hermes/BUGHUNT_LOG.md); the
+# Patch notes live next to the bug-hunt handoff (.mc/BUGHUNT_LOG.md); the
 # autonomous routine appends one entry per shipped fix. Read-only here.
-PATCH_NOTES_FILE = Path(__file__).parent / ".hermes" / "patch-notes.json"
+PATCH_NOTES_FILE = Path(__file__).parent / ".mc" / "patch-notes.json"
 
 
 @app.get("/api/mc/patch-notes")
 def get_patch_notes():
     """Changelog the autonomous bug-hunt routine writes after each run.
 
-    Source of truth is .hermes/patch-notes.json — a {"notes": [...]} document
+    Source of truth is .mc/patch-notes.json — a {"notes": [...]} document
     (or a bare list). Returned newest-first by (date, iteration). Never raises:
     a missing or malformed file yields an empty list so the UI degrades cleanly.
     """
@@ -844,7 +793,7 @@ def task_context(task_id: str):
 # in its workspace dir (and, when the work is a git branch, on that branch). The
 # drawer showed only the path string; this surfaces *what's actually there* so a
 # file/branch deliverable is retrievable in-app. SAFETY: the workspace path comes
-# from Hermes (kanban show), never the client; a ?file= read is resolved and
+# from the bridge's kanban store, never the client; a ?file= read is resolved and
 # strictly confined inside that workspace (no path-traversal escape); only
 # read-only git runs; listing count and file size are capped.
 _BRANCH_RE = re.compile(r"^[\w./+-]+$")
@@ -1037,7 +986,7 @@ def spawn_agent(payload: SpawnPayload):
     return {"message": resp["result"]}
 
 
-# Attachments uploaded from the chat UI are written here so the Hermes agent can
+# Attachments uploaded from the chat UI are written here so the Claude agent can
 # read them by absolute path. Lives under the system temp dir; cleaned opportunistically.
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "mission-control-uploads"
 
@@ -1138,10 +1087,10 @@ def chat_message(payload: ChatPayload):
 
 
 # ---------------------------------------------------------------------------
-# Sessions — the persistent Hermes SQLite session store (`hermes sessions`).
+# Sessions — the bridge's native SQLite session store.
 # ---------------------------------------------------------------------------
 def parse_session_id(stderr: str) -> Optional[str]:
-    """Pull `session_id: <id>` out of Hermes' -Q stderr output."""
+    """Pull `session_id: <id>` out of the `claude` -Q stderr output."""
     m = re.search(r"session_id\s*:\s*(\S+)", stderr or "")
     return m.group(1) if m else None
 
@@ -1153,7 +1102,7 @@ def clean_chat_response(stdout: str) -> str:
 
 
 def parse_sessions_table(text: str) -> list[dict[str, Any]]:
-    """Parse the `hermes sessions list` table into records.
+    """Parse a sessions-list table into records (legacy helper).
 
     The column set is adaptive (Title is dropped when no row has one, a Src
     column appears for multi-source windows), so we discover whatever columns
@@ -1564,28 +1513,30 @@ def _extract_date(text: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# New Hermes endpoints (Phase 1)
+# Local data-store endpoints (Phase 1)
 # ---------------------------------------------------------------------------
-# Local data stores (.hermes/data/) — real, file-backed pipelines that both the
-# dashboard and Hermes agents (via these endpoints) read and write. No demo data.
+# Local data stores (.mc/data/) — real, file-backed pipelines that both the
+# dashboard and Claude agents (via these endpoints) read and write. No demo data.
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path(__file__).parent / ".hermes" / "data"
+DATA_DIR = Path(__file__).parent / ".mc" / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# Hermes keeps platform/API keys in its own .env (AppData\Local\hermes\.env on
-# Windows, ~/.hermes/.env elsewhere). Read keys from there too, so the user
-# configures each key exactly once, in the place Hermes already uses.
-HERMES_HOME = Path(os.environ.get("HERMES_HOME", "")) if os.environ.get("HERMES_HOME") else (
-    Path.home() / "AppData" / "Local" / "hermes" if os.name == "nt" else Path.home() / ".hermes"
+# Mission Control's own config home — platform/API keys live in MC_HOME/.env and
+# global settings in MC_HOME/config.yaml. Self-contained: no dependency on any
+# other tool's home directory. Override the location with the MC_HOME env var.
+MC_HOME = Path(os.environ.get("MC_HOME", "")) if os.environ.get("MC_HOME") else (
+    Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "mission-control"
+    if os.name == "nt" else Path.home() / ".mission-control"
 )
+MC_HOME.mkdir(parents=True, exist_ok=True)
 
 
 def _env_key(name: str, *aliases: str) -> str:
     for n in (name, *aliases):
         if os.environ.get(n):
             return os.environ[n]
-    env_file = HERMES_HOME / ".env"
+    env_file = MC_HOME / ".env"
     if env_file.exists():
         try:
             for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -1639,7 +1590,7 @@ def _http_json(method: str, url: str, payload: Optional[dict] = None,
 # ── Voice Link — ElevenLabs text-to-speech (Ghost Network's voice channel) ──
 # STT is the local Whisper endpoint above (free); this is the speak-back half.
 # The key is read like every other bridge secret: env var first, then
-# HERMES_HOME/.env. The UI falls back to the browser's speechSynthesis when
+# MC_HOME/.env. The UI falls back to the browser's speechSynthesis when
 # this reports unavailable, so the feature degrades to free instead of broken.
 
 ELEVEN_DEFAULT_VOICE = os.environ.get("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # "Adam"
@@ -1760,7 +1711,7 @@ def delete_lead(lead_id: str):
 # Metricool is the SOLE posting provider (replaced Buffer's ideas-only push and
 # Ayrshare's scheduling, 2026-06-12). Preferred transport: DIRECT JSON-RPC to
 # Metricool's MCP server with header auth (X-Mc-Auth) — deterministic, no LLM.
-# A `hermes -z` one-shot is the fallback when no API key is configured, but it
+# A `claude` one-shot is the fallback when no API key is configured, but it
 # proved unreliable from a headless bridge (hangs on MCP connect, and the model
 # sometimes fabricates tool output instead of calling the tool).
 
@@ -1775,7 +1726,7 @@ def _metricool_mcp(tool: str, arguments: Optional[dict] = None) -> Any:
     import urllib.error
     if not METRICOOL_API_KEY:
         raise HTTPException(status_code=400,
-                            detail="METRICOOL_API_KEY not set — copy it from Metricool Settings → API and add it to ~/.hermes/.env")
+                            detail="METRICOOL_API_KEY not set — copy it from Metricool Settings → API and add it to MC_HOME/.env")
 
     def post(payload: dict, session: Optional[str] = None) -> tuple[Any, Optional[str]]:
         req = urllib.request.Request(METRICOOL_MCP_URL, data=json.dumps(payload).encode("utf-8"), method="POST")
@@ -1838,7 +1789,7 @@ def _metricool_brand() -> dict:
     brands = (cache or {}).get("brands") or []
     if not brands:
         raise HTTPException(status_code=400,
-                            detail="Metricool brands not synced — POST /api/metricool/brands once (needs the metricool MCP in Hermes)")
+                            detail="Metricool brands not synced — POST /api/metricool/brands once (needs the metricool MCP)")
     return brands[0]
 
 
@@ -1905,7 +1856,7 @@ def _normalize_metricool_brand(b: dict) -> dict:
 @app.post("/api/metricool/brands")
 def sync_metricool_brands():
     """Pull brands + connected profiles from Metricool. Direct MCP call when
-    METRICOOL_API_KEY is set; Hermes one-shot fallback otherwise (slow, LLM)."""
+    METRICOOL_API_KEY is set; `claude` one-shot fallback otherwise (slow, LLM)."""
     if METRICOOL_API_KEY:
         raw = _metricool_mcp("getBrandSettings")
         raw_brands = raw if isinstance(raw, list) else \
@@ -1929,7 +1880,7 @@ def sync_metricool_brands():
             except (TypeError, ValueError):
                 raise HTTPException(status_code=502,
                                     detail=f"non-numeric blogId {b.get('blogId')!r} — the model likely fabricated the data instead of calling the MCP; retry, or set METRICOOL_API_KEY for the deterministic path")
-        cache = {"synced_at": datetime.now().isoformat(), "via": "hermes-llm", "brands": brands}
+        cache = {"synced_at": datetime.now().isoformat(), "via": "claude-llm", "brands": brands}
     if not cache["brands"]:
         raise HTTPException(status_code=502, detail="getBrandSettings returned no brands — is the Metricool account connected?")
     _save_store("metricool-brands", cache)
@@ -2072,7 +2023,7 @@ def delete_calendar_item(item_id: str):
 
 @app.post("/api/content/calendar/{item_id}/predict-virality")
 def predict_calendar_virality(item_id: str):
-    """Advisory virality QA on the item's produced video: a one-shot Hermes
+    """Advisory virality QA on the item's produced video: a one-shot Claude
     session runs it through Higgsfield's virality predictor MCP and the
     verdict is stamped on the item. Never blocks scheduling — the threshold
     stays human until predicted vs. actual engagement has been compared."""
@@ -2284,7 +2235,7 @@ def get_ai_digest():
 @app.post("/api/mc/ai-digest")
 def generate_ai_digest():
     """Synthesize Sentinel's raw story links into ONE consolidated digest with
-    viral-potential content ideas, via `hermes -z`. Slow (LLM): 1-3 min."""
+    viral-potential content ideas, via the `claude` CLI. Slow (LLM): 1-3 min."""
     latest = SENTINEL_CACHE_DIR / "latest.json"
     if not latest.exists():
         raise HTTPException(status_code=404, detail="no Sentinel digest cached yet — run the Sentinel cron first")
@@ -2436,7 +2387,7 @@ def skip_content_idea(payload: ConsumeIdeaPayload):
 
 @app.post("/api/content/ideas")
 def generate_content_ideas():
-    """Fuse the three live inputs into a content strategy via `hermes -z`:
+    """Fuse the three live inputs into a content strategy via the `claude` CLI:
     1. Viral creator posts (Apify feed) — what's working in the niche
     2. Trending AI news (Sentinel) — what's hot right now
     3. BRAND_STRATEGY.md — who we are and how we sound
@@ -2480,11 +2431,11 @@ def generate_content_ideas():
     return {"available": True, **result}
 
 @app.get("/api/mc/sentinel")
-def get_hermes_sentinel():
+def get_mc_sentinel():
     """Alias to existing /api/sentinel/digest logic."""
     latest_path = SENTINEL_CACHE_DIR / "latest.json"
     if not latest_path.exists():
-        script_path = Path.home() / "AppData" / "Local" / "hermes" / "scripts" / "sentinel_news_pipeline.py"
+        script_path = Path(__file__).parent / "scripts" / "sentinel_news_pipeline.py"
         if script_path.exists():
             try:
                 subprocess.run(
@@ -2511,7 +2462,7 @@ def get_hermes_sentinel():
 # Sentinel endpoints
 # ---------------------------------------------------------------------------
 
-SENTINEL_CACHE_DIR = Path.home() / ".hermes" / "cache" / "sentinel"
+SENTINEL_CACHE_DIR = Path(__file__).parent / ".mc" / "cache" / "sentinel"
 
 @app.get("/api/sentinel/digest")
 def get_sentinel_digest():
@@ -2519,7 +2470,7 @@ def get_sentinel_digest():
     latest_path = SENTINEL_CACHE_DIR / "latest.json"
     if not latest_path.exists():
         # Try to run the pipeline to generate today's digest
-        script_path = Path.home() / "AppData" / "Local" / "hermes" / "scripts" / "sentinel_news_pipeline.py"
+        script_path = Path(__file__).parent / "scripts" / "sentinel_news_pipeline.py"
         if script_path.exists():
             try:
                 subprocess.run(
@@ -2574,7 +2525,7 @@ def get_sentinel_digest_by_date(date: str):
 
 
 # ---------------------------------------------------------------------------
-# Capability endpoints — full Hermes CLI surface for Mission Control
+# Capability endpoints — Claude backend surface for Mission Control
 # ---------------------------------------------------------------------------
 # All parsers are tolerant: they extract what they can from the human-readable
 # CLI tables and ALWAYS include the raw text so the UI can fall back to it.
@@ -2596,52 +2547,52 @@ def _cols(line: str) -> list[str]:
 
 
 @app.get("/api/mc/overview")
-def get_hermes_overview():
+def get_mc_overview():
     """Claude backend overview — model, MCP connectors, auth."""
     return mc_diag.overview(DATA_DIR)
 
 
 @app.get("/api/mc/skills")
-def get_hermes_skills():
+def get_mc_skills():
     """Installed Claude Code skills, scanned from the skills directories."""
     return mc_diag.skills(_SKILLS_ROOTS)
 
 
 @app.get("/api/mc/mcp")
-def get_hermes_mcp():
+def get_mc_mcp():
     """Configured MCP servers (`claude mcp list`)."""
     return mc_diag.mcp_servers()
 
 
 @app.post("/api/mc/mcp/{name}/test")
-def test_hermes_mcp(name: str):
+def test_mc_mcp(name: str):
     """Probe an MCP server (`claude mcp get <name>`)."""
     return mc_diag.mcp_test(name)
 
 
 @app.get("/api/mc/plugins")
-def get_hermes_plugins():
+def get_mc_plugins():
     """Plugins are managed by Claude Code — graceful empty surface."""
     return mc_diag.plugins()
 
 
 @app.post("/api/mc/plugins/{name}/enable")
-def enable_hermes_plugin(name: str):
+def enable_mc_plugin(name: str):
     return {"message": "Plugins are managed by Claude Code (/plugin)."}
 
 
 @app.post("/api/mc/plugins/{name}/disable")
-def disable_hermes_plugin(name: str):
+def disable_mc_plugin(name: str):
     return {"message": "Plugins are managed by Claude Code (/plugin)."}
 
 
-GATEWAY_API_PORT = int(os.environ.get("HERMES_GATEWAY_API_PORT", "8642"))
+GATEWAY_API_PORT = int(os.environ.get("MC_GATEWAY_API_PORT", "8642"))
 
 
 def _gateway_api_alive() -> bool:
     """Authoritative gateway liveness: its api_server answering on 8642.
     Process scans lie — a TTY-less direct-spawned gateway can hang forever
-    without ever binding the port, and transient `hermes gateway *` CLI calls
+    without ever binding the port, and transient gateway CLI calls
     match the CLI's own process heuristics."""
     import socket
     try:
@@ -2652,7 +2603,7 @@ def _gateway_api_alive() -> bool:
 
 
 @app.get("/api/mc/gateway")
-def get_hermes_gateway():
+def get_mc_gateway():
     """No gateway under Claude — graceful empty status."""
     return mc_diag.gateway()
 
@@ -2667,50 +2618,21 @@ def gateway_action(payload: GatewayActionPayload):
 
 
 # ---------------------------------------------------------------------------
-# Hermes local patches — the quota-burn fixes live as local edits inside the
-# hermes-agent git checkout, so `hermes update` (git pull) can drop them.
-# scripts/hermes_patches.py is the manifest + idempotent applier; these
-# endpoints surface it in the Diagnostics panel.
+# Local patches — a legacy concept from the old backend. Mission Control runs
+# natively on Claude Code with no local patch layer, so these endpoints report
+# an empty, fully-applied state. Kept because the Diagnostics panel calls them.
 # ---------------------------------------------------------------------------
 
-PATCH_SCRIPT = Path(__file__).parent / "scripts" / "hermes_patches.py"
-
-
-def _run_patch_script(mode: str) -> dict[str, Any]:
-    if not PATCH_SCRIPT.exists():
-        raise HTTPException(status_code=500, detail=f"patch script not found: {PATCH_SCRIPT}")
-    try:
-        result = subprocess.run(
-            [sys.executable, str(PATCH_SCRIPT), mode],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            encoding="utf-8",
-            errors="replace",
-            creationflags=CREATE_NO_WINDOW,
-        )
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="patch script timed out")
-    # Exit 1 just means "not all applied" — the JSON report is still on stdout.
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=500,
-            detail=f"patch script returned no JSON: {(result.stderr or result.stdout)[:300]}",
-        )
-
-
 @app.get("/api/mc/patches")
-def get_hermes_patches():
-    """Hermes local patches no longer apply under Claude — empty report."""
+def get_mc_patches():
+    """No local patch layer under Claude — empty report."""
     return {"mc_dir": "", "mode": "check", "patches": [], "all_applied": True,
             "applicable": 0, "conflicts": 0}
 
 
 @app.post("/api/mc/patches/apply")
-def apply_hermes_patches():
-    """No Hermes patches to apply under Claude."""
+def apply_mc_patches():
+    """No local patches to apply under Claude."""
     return {"mc_dir": "", "mode": "apply", "patches": [], "all_applied": True,
             "applicable": 0, "conflicts": 0, "changed": 0, "gateway_restart_suggested": False}
 
@@ -2728,32 +2650,32 @@ class SendMessagePayload(BaseModel):
 
 
 @app.post("/api/mc/send")
-def send_hermes_message(payload: SendMessagePayload):
+def send_mc_message(payload: SendMessagePayload):
     """Platform delivery now goes through MCP connectors (Twilio, Metricool, …)."""
     return {"result": None,
             "message": "Direct send is handled by MCP connectors — use the relevant integration."}
 
 
 @app.get("/api/mc/webhooks")
-def get_hermes_webhooks():
+def get_mc_webhooks():
     """Webhooks are not used under Claude — graceful empty surface."""
     return mc_diag.webhooks()
 
 
 @app.get("/api/mc/memory")
-def get_hermes_memory():
+def get_mc_memory():
     """Claude memory directory status."""
     return mc_diag.memory(_CLAUDE_HOME / "projects")
 
 
 @app.get("/api/mc/curator")
-def get_hermes_curator():
+def get_mc_curator():
     """Skill curation is managed by Claude Code — graceful empty surface."""
     return mc_diag.curator()
 
 
 @app.get("/api/mc/insights")
-def get_hermes_insights(days: int = 30):
+def get_mc_insights(days: int = 30):
     """Usage analytics derived from the native session store."""
     sessions = SESSIONS.list(limit=1000)
     msg_total = 0
@@ -2765,16 +2687,16 @@ def get_hermes_insights(days: int = 30):
 
 
 @app.get("/api/mc/doctor")
-def get_hermes_doctor():
+def get_mc_doctor():
     """Claude-native health checks (CLI, MCP connectivity, stores)."""
     return mc_diag.doctor(DATA_DIR, Path(__file__).parent)
 
 
 @app.get("/api/mc/logs")
-def get_hermes_logs(name: str = "agent", lines: int = 80, level: Optional[str] = None, since: Optional[str] = None):
+def get_mc_logs(name: str = "agent", lines: int = 80, level: Optional[str] = None, since: Optional[str] = None):
     """Tail the bridge log (Claude has no separate agent/gateway logs)."""
     candidates = [Path(__file__).parent / "bridge.log",
-                  Path(__file__).parent / ".hermes" / "bridge.log"]
+                  Path(__file__).parent / ".mc" / "bridge.log"]
     text = ""
     for c in candidates:
         if c.exists():
@@ -2788,25 +2710,25 @@ def get_hermes_logs(name: str = "agent", lines: int = 80, level: Optional[str] =
 
 
 @app.get("/api/mc/model")
-def get_hermes_model():
+def get_mc_model():
     """Current Claude model + (no) fallback chain."""
     return mc_diag.model_info(DATA_DIR)
 
 
 @app.get("/api/mc/auth")
-def get_hermes_auth():
+def get_mc_auth():
     """Claude subscription auth — single Anthropic provider."""
     return mc_diag.auth()
 
 
 @app.get("/api/mc/checkpoints")
-def get_hermes_checkpoints():
+def get_mc_checkpoints():
     """Checkpoints are managed by Claude Code."""
     return mc_diag.simple_raw("Checkpoints are managed by Claude Code (rewind / /resume).")
 
 
 @app.get("/api/mc/pairing")
-def get_hermes_pairing():
+def get_mc_pairing():
     """No DM pairing under Claude."""
     return mc_diag.simple_raw("DM pairing is not used under Claude.")
 
@@ -2858,9 +2780,9 @@ MODEL_CATALOG = [
 ]
 
 
-def _read_hermes_config() -> dict:
-    """Read the global hermes config.yaml. Returns empty dict on failure."""
-    cfg_path = HERMES_HOME / "config.yaml"
+def _read_mc_config() -> dict:
+    """Read the global Mission Control config.yaml. Returns empty dict on failure."""
+    cfg_path = MC_HOME / "config.yaml"
     if not cfg_path.exists():
         return {}
     try:

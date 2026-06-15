@@ -6,7 +6,7 @@ jobs, and bridge status. Nothing is deployed and nothing leaves your machine.
 
 ```
 ┌──────────────────────────┐   spawns    ┌──────────────────┐  subprocess  ┌──────────┐
-│  Electron desktop window │ ──────────▶ │  mission-control-bridge   │ ───────────▶ │  hermes  │
+│  Electron desktop window │ ──────────▶ │  mission-control-bridge   │ ───────────▶ │  claude  │
 │  (React app, file://)    │   on launch │  (FastAPI :8767) │   CLI calls  │  CLI     │
 └──────────────────────────┘ ◀──HTTP──── └──────────────────┘              └──────────┘
 ```
@@ -16,23 +16,23 @@ one window, no separate servers to babysit.
 
 ## Modules
 
-**Live (real Hermes data):**
+**Live (real Mission Control data):**
 
 | Module             | Source (Claude CLI)                                          |
 |--------------------|-------------------------------------------------------------|
-| **Hermes Command** | `kanban assignees`, `kanban list`, `cron list`, `chat -q` (spawn) |
+| **Claude Command** | `kanban assignees`, `kanban list`, `cron list`, `chat -q` (spawn) |
 | **Ghost Network**  | `kanban assignees` → agent topology visualization           |
 | **War Room**       | `--version`, agents, tasks, cron → live metrics             |
 | **Operations**     | `kanban list/create/claim/complete/block`, `cron list/run`  |
 
-**Design showcase (static demo data — Hermes has no source for these; marked
+**Design showcase (static demo data — Claude has no source for these; marked
 `DEMO DATA` in the UI):** Intel Deck, Content Factory, Briefing, Workflow
 Builder, Archives, Broadcast Uplink. These preserve the full original design.
 Static demo data lives in `src/lib/legionData.ts`.
 
 ## Prerequisites
 
-- [Claude](https://github.com/) installed and on your `PATH` (`hermes --version`)
+- [Claude](https://github.com/) installed and on your `PATH` (`claude --version`)
 - Python 3.11+ with `fastapi` and `uvicorn` (`pip install fastapi uvicorn`)
 - Node 20+
 
@@ -48,7 +48,7 @@ npm install   # first time only
 npm start     # = npm run desktop
 ```
 
-`npm start` builds the UI, opens the desktop window, auto-starts the Hermes
+`npm start` builds the UI, opens the desktop window, auto-starts the Mission Control
 bridge on launch, and stops it on close. That's the whole workflow.
 
 ### Dev mode (hot reload)
@@ -73,7 +73,7 @@ Single env var in `.env.local` (gitignored):
 VITE_BRIDGE_URL=http://localhost:8767
 ```
 
-Optional bridge env vars: `HERMES_CMD` (default `hermes`), `BRIDGE_PORT`
+Optional bridge env vars: `MC_HOME`, `BRIDGE_PORT`
 (default `8767`), `CORS_ORIGINS`. The Electron shell honors `PYTHON` (python
 executable) and `BRIDGE_PORT`.
 
