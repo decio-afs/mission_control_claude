@@ -21,28 +21,40 @@ below. `## DONE` is append-only history; `## TO-DO` is rewritten each run for th
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 ~07:15** (Run #6 — built dependency-aware promotion gate)._
+_Last run: **2026-06-16 ~12:35** (Run #7 — built auto-reassign-on-dead-agent)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~22.5h. **Still holds pre-restart code** — now **SIX** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404), run#6 cascade (`POST /api/mc/kanban/cascade`→404, confirmed this run). |
+| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~24.5h. **Still holds pre-restart code** — now **SEVEN** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404), run#6 cascade (`POST /api/mc/kanban/cascade`→404), run#7 reassign (`POST /api/mc/kanban/reassign`→404, confirmed this run). |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
 | `npm run build` | ✅ PASS | tsc + vite, 156 modules, exit 0 (chunk-size warning only) |
 | `npm run lint` | ✅ PASS | `npx eslint` on the 3 touched TS files (`api.ts`, `useTaskStore.ts`, `OperationsCenter.tsx`) = "No issues found"; only pre-existing `office/tower` churn remains (sibling-owned) |
-| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged from run#4). No `stale_claim`, no `retry_exhausted`, **no `blocked_by_dependency`** (board has **0 dependency links** — `kanban-meta.json["links"]` empty). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task has a live deterministic router (run#4). |
+| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged). No `stale_claim`, no `retry_exhausted`, no `blocked_by_dependency`, **no `dead_agent_task`** (all 8 board assignees are on the live roster; 0 running/stale claims → 0 dead/idle agents). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task has a live deterministic router (run#4). |
 | Cron jobs | 🟡 EMPTY + engine ready | store `jobs: []`; scheduler daemon built (run#2), loads on restart. Seeding the 2 pipeline jobs safe-to-fire post-restart — TO-DO #2. |
 | Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 22 · drafts 6 · calendar 31 (run#1); `.mc/data/` written |
-| Modules in error state | none observed | Vite preview (:5219) renders Operations LIVE; diagnostics modal opens clean; new violet **⇄ CASCADE DEPS** button renders **disabled** with honest tooltip "No dependency-blocked tasks to gate", zero console errors (DOM-read: `{text:"⇄ CASCADE DEPS", disabled:true}`). (Disabled is correct: 0 dependency-blocked tasks on the live board + old bridge has no endpoint; activates on restart.) |
+| Modules in error state | none observed | Vite preview (:5219) renders Operations LIVE; diagnostics modal opens clean; new orange **♻ REASSIGN DEAD** button renders **disabled** with honest tooltip "No dead/idle agents with reassignable work", zero console errors (DOM-read: `{text:"♻ REASSIGN DEAD", disabled:true}`). (Disabled is correct: 0 dead/idle agents on the live board + old bridge has no endpoint; activates on restart.) |
 
 ---
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-1. **Restart the bridge to activate SIX built capabilities at once** (`npm run bridge`, or whatever
+1. **Restart the bridge to activate SEVEN built capabilities at once** (`npm run bridge`, or whatever
    launches the operator's bridge / desktop app). The live bridge still holds pre-restart code
    (confirmed this run: reconcile → 404, `/api/mc/cron` no `scheduler` field, `/api/mc/agents/web-access`
-   → 405, `/api/mc/kanban/route` → 404, `/api/mc/kanban/escalate` → 404, `/api/mc/kanban/cascade` → 404).
-   After restart, confirm **all** of:
+   → 405, `/api/mc/kanban/route` → 404, `/api/mc/kanban/escalate` → 404, `/api/mc/kanban/cascade` → 404,
+   `/api/mc/kanban/reassign` → 404). After restart, confirm **all** of:
+   - **`POST /api/mc/kanban/reassign` (run#7)** → `{reassigned,skipped,dead_agents,dry_run,message}`. On the
+     current board it returns all-empty (`reassigned:[] dead_agents:[]`, "no dead/idle agents") because all 8
+     board assignees are on the live roster and there are **0 running (stale) claims**, so Operations → ⚠
+     diagnostics → the orange **♻ REASSIGN DEAD** button stays **disabled** (correct, honest empty state). To
+     exercise the live path you need a dead/idle agent: either (a) an **off-roster** assignee (a task assigned to
+     a name not in `agents.json`, e.g. after deleting an agent that still owns todo/ready work), or (b) an agent
+     sitting on a **stale running claim** (a `running` task with `started_at` > 2h old). Such an agent's workable
+     tasks (todo/ready, or the stale running claim — which is also reclaimed to ready) get a `dead_agent_task`
+     diagnostic, the button enables `(n)`, and clicking moves each task to the best-fit OTHER live agent by skill
+     match (least-loaded tie-break), recording a `reassigned` event; `blocked` tasks are never touched and an
+     unmatched task is honestly left in place. Verify safely first with `{"dry_run":true}`. Fully proven
+     in-process this run on throwaway stores (see DONE Run#7).
    - **`POST /api/mc/kanban/cascade` (run#6)** → `{held,promoted,waiting,dry_run,message}`. On the current
      board it returns all-empty (`held:[] promoted:[] waiting:[]`, "no dependency changes") because the board
      has **0 dependency links** (`kanban-meta.json["links"]` is empty), so Operations → ⚠ diagnostics → the
@@ -94,18 +106,21 @@ _Last run: **2026-06-16 ~07:15** (Run #6 — built dependency-aware promotion ga
    flesh-out (`POST /api/mc/tasks/{id}/specify`, runs a live turn) remains a separate optional step — fire
    when the operator is present. Did NOT auto-route this run (live bridge predates the endpoint; safe to do
    post-restart).
-5. **Next capability to BUILD:** **auto-reassign-on-dead-agent** (GAPS #7, now ranked next). `reconcile_board`
-   reclaims a stale running claim back to `ready` but **leaves it on the same dead/abandoned assignee** — the
-   next claim re-fails on the same agent. There is no verb that bulk-reassigns a dead/idle agent's open
-   (non-terminal) work to a live best-fit owner. Build the missing orchestration path, reusing the run#4
-   skill-match scorer (`_route_score`): a `POST /api/mc/kanban/reassign` (`{from_agent?, dry_run?}`) →
-   `MCStore.reassign_dead_agent(...)` → store action → an Operations diagnostics button. "Dead/idle" = an agent
-   sitting on stale/blocked work or absent from the live roster; reassign each of its open tasks to the
-   best-fit *other* agent by skill match (least-loaded tie-break, honestly skip if no confident match), record
-   a `reassigned` event, `dry_run` previews. End-to-end, pure + testable like run#1–#6. Runner-up gap:
-   **dependency cycle/self-link guard** (NEW, GAPS #8) — `create_task(parents=...)` and the link API never
-   reject `A→A` or a cycle, which would make cascade's "all parents done" unreachable (a child waits forever);
-   add a cycle check at link-creation time + a `dependency_cycle` diagnostic. One end-to-end per run.
+5. **Next capability to BUILD:** **dependency cycle/self-link guard** (GAPS #8, now ranked next). `create_task(
+   parents=...)` (`mc_store.py:250`) and `link()` (`mc_store.py:370`) accept `A→A` and longer cycles unchecked.
+   A cycle makes run#6's cascade gate's "all parents done" **unreachable** — a child waits forever, silently. Build
+   the missing guard end-to-end: reject self-links and cycles at link-creation time (a `_would_cycle(links, p, c)`
+   DFS helper used by both `link()` and `create_task`'s parent-append loop; `link()` should return a refusal
+   message / raise, surfaced as a 4xx on `POST /api/mc/tasks/link`), **and** a `dependency_cycle` warn diagnostic
+   in `diagnostics()` that detects any pre-existing cycle among `links` (so already-bad data is visible, not just
+   newly-rejected). No new button strictly needed (it's a guard + a read-only diagnostic row); if surfacing a
+   remediation, an "unlink to break cycle" affordance in the task drawer is bughunt-adjacent — keep this loop's
+   increment to the guard + diagnostic. Pure + testable like run#1–#7 (throwaway store: assert A→A rejected,
+   A→B→A rejected, A→B→C valid, a pre-seeded cycle flags `dependency_cycle`). Runner-up gap: **stale-board
+   auto-sweep composition** (NEW, GAPS #9) — a single `POST /api/mc/kanban/sweep` that runs reconcile → reassign
+   → cascade → escalate in the correct order in one call (the "self-manage the board" macro), so the operator has
+   one button instead of four; each sub-verb already exists and is idempotent, so composition is low-risk. One
+   end-to-end per run.
 
 ---
 
@@ -158,12 +173,26 @@ _Last run: **2026-06-16 ~07:15** (Run #6 — built dependency-aware promotion ga
    Conservative (only promotes tasks it held → a task blocked for another reason, e.g. web-access, is never
    touched), idempotent, `dry_run` previews. Honest by construction: 0 links on the live board → nothing changes.
    Loads on next bridge restart (TO-DO #1).
-7. 🟡 **No auto-reassign-on-dead-agent.** Reconcile reclaims a stale claim to `ready` but keeps it on the dead
-   assignee; no verb bulk-reassigns a dead/idle agent's open work to a live best-fit owner. **Next build**
-   (TO-DO #5).
-8. 🟡 **No dependency cycle/self-link guard.** `create_task(parents=...)` + the link API accept `A→A` and
-   cycles; cascade's "all parents done" then never holds (a child could wait forever). Add a cycle check at
-   link-creation + a `dependency_cycle` diagnostic. Runner-up build (TO-DO #5).
+7. ✅ **Auto-reassign-on-dead-agent (BUILT this run — run#7).** `reconcile_board` reclaims a stale running claim
+   to `ready` but **left it on the same dead assignee** (the next claim re-fails on the gone worker), and an
+   off-roster (deleted) agent's backlog had no owner that would ever run it. Built the missing orchestration path:
+   static `_is_stale_running()` + `_dead_agents()` (off-roster OR holding a stale running claim — NOT mere busy/
+   blocked, so the web-blocked research tasks are never mistaken for a dead agent), a new **`dead_agent_task` warn
+   diagnostic** (a dead/idle agent's workable task), and `POST /api/mc/kanban/reassign` → `MCStore.
+   reassign_dead_agent(from_agent?, dry_run?)` → `reassignDead()` store action → an orange **♻ REASSIGN DEAD (n)**
+   button in the Operations diagnostics modal. Moves each dead agent's workable task (todo/ready, or a stale
+   running claim — also reclaimed to ready) to the best-fit OTHER live agent by skill match (reuses run#4
+   `_route_score`; least-loaded tie-break), records a `reassigned` event, leaves an unmatched task honestly in
+   place, never touches `blocked` tasks, and **never reassigns onto another dead agent** (even in single-agent
+   mode). Off-roster truth uses the raw `list_agents()` roster in both the diagnostic and the verb so the button
+   count and the action agree exactly. `dry_run` previews. Honest by construction: 0 dead agents on the live board
+   → nothing changes. Loads on next bridge restart (TO-DO #1).
+8. 🟡 **No dependency cycle/self-link guard.** `create_task(parents=...)` + `link()` accept `A→A` and cycles;
+   run#6's cascade "all parents done" then never holds (a child waits forever, silently). Add a `_would_cycle`
+   DFS guard at link-creation + a `dependency_cycle` diagnostic for pre-existing bad data. **Next build** (TO-DO #5).
+9. 🟡 **No one-call board self-manage macro.** The four self-heal verbs (reconcile/reassign/cascade/escalate) each
+   need a separate button; no `POST /api/mc/kanban/sweep` runs them in the right order in one call. Each sub-verb
+   is idempotent → composition is low-risk. Runner-up build (TO-DO #5).
 5. ✅ **Web-access audit surface (BUILT this run — run#3).** Research agents silently blocked on missing
    web tools with no way to *see* which agents lacked a web plugin. Built `GET /api/mc/agents/web-access`
    → `MCStore.web_access_audit()` → `getWebAccessAudit()` → a **WEB-ACCESS AUDIT** panel in the Operations
@@ -179,6 +208,62 @@ _Last run: **2026-06-16 ~07:15** (Run #6 — built dependency-aware promotion ga
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #7 (BUILT auto-reassign-on-dead-agent) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE green.** Bridge :8767 UP (`/api/ping` ok, uptime ~24.5h). Gateway :8642 N/A by design.
+   `npm run build` ✅ (156 modules, exit 0, chunk-size warning only); `npx eslint` on the 3 touched TS files ✅
+   ("No issues found"). Confirmed the live bridge still runs **pre-restart** code: reconcile/route/escalate/cascade
+   all → 404, and this run's new `POST /api/mc/kanban/reassign` → 404. Did NOT kill the operator's bridge —
+   verified the new capability in-process instead. **SEVEN** capabilities now load together on the next restart
+   (run#1–#7) — see TO-DO #1. Sibling lanes confirmed clear: the only working-tree change in my shared file is
+   bughunt's `get_briefing` fix in `mission-control-bridge.py:~1513` (cron `last_status` read — far from my kanban
+   endpoints); isolated via a path-limited `git stash` so my commit carries only my hunk, then restored.
+
+2. **ORCHESTRATION steady.** Kanban unchanged: todo 8 · ready 1 · done 10 · blocked 6 · triage 1. No `stale_claim`,
+   no `retry_exhausted`, no `blocked_by_dependency`, and **no `dead_agent_task`** — all 8 board assignees are on
+   the live roster (`agents.json`) and there are **0 running/stale claims**, so the new verb is an honest no-op
+   live (like run#5/#6). The 6 blocked (5×narratrix, 1×default) remain the audited web-access root cause (operator
+   config). Nothing silently broken.
+
+3. **BUILT: auto-reassign-on-dead-agent (CAPABILITY GAPS #7, this loop's signature increment), end-to-end &
+   LIVE-backed.** `reconcile_board` reclaimed a stale running claim to `ready` but left it on the same dead
+   assignee (the next claim re-fails on the gone worker); an off-roster agent's backlog had no owner that would
+   run it. New capability across every layer:
+   - `mc_store.py` — static `_is_stale_running(task, now)` (running past `STALE_CLAIM_SECONDS`) + static
+     `_dead_agents(tasks, roster_names, now)` (assignees holding open work that are off the RAW `list_agents()`
+     roster OR sitting on a stale running claim — explicitly NOT mere busy/blocked, so the web-blocked research
+     tasks are never mistaken for dead). New **`dead_agent_task` warn diagnostic** in `diagnostics()` (a dead/idle
+     agent's workable task: todo/ready or a stale running claim; `blocked` deliberately excluded). New
+     `MCStore.reassign_dead_agent(from_agent=None, dry_run=False)` — moves each dead agent's workable task to the
+     best-fit OTHER live agent via the run#4 `_route_score` (skill-token match required for confidence,
+     least-loaded tie-break), reclaiming a stale running claim to `ready` as it moves it, recording a `reassigned`
+     event, leaving an unmatched task honestly in place, **never targeting another dead agent** (separate `act_on`
+     vs `exclude` sets so single-agent mode is safe too), off-roster truth from `list_agents()` so the diagnostic
+     count and the verb agree exactly. Returns `{reassigned,skipped,dead_agents,dry_run,message}`.
+   - `mission-control-bridge.py` — `POST /api/mc/kanban/reassign` (`ReassignPayload{from_agent?,dry_run?}`) →
+     `STORE.reassign_dead_agent(...)`, placed right after `kanban_cascade`.
+   - `src/lib/api.ts` — `DeadAgent`/`ReassignedTask`/`ReassignResult` types + `reassignDeadAgent({fromAgent?,dryRun?})`.
+   - `src/stores/useTaskStore.ts` — `reassignDead()` action (refreshes tasks+stats on a real move, always re-pulls
+     diagnostics so `dead_agent_task` rows clear) + import + iface.
+   - `src/pages/OperationsCenter.tsx` — orange **♻ REASSIGN DEAD (n)** button in the diagnostics modal toolbar
+     (after ⇄ CASCADE DEPS), `n` = count of `dead_agent_task` diagnostics, disabled at 0; result line summarizes
+     `✓ reassigned N → from→to · K left in place`.
+   **Verified:** `python -m py_compile` on bridge + store ✅; **in-process behavior test on throwaway stores** ✅ —
+   seeded an off-roster agent (todo content + stale-running market-research + a blocked task + a gibberish task)
+   and a LIVE agent holding a stale claim: diagnostics flagged exactly the 4 workable dead-agent tasks (NOT the
+   blocked one, NOT a fresh live task); `dry_run` planned without mutating; the real pass moved the content task to
+   the best-fit live agent, reclaimed+reassigned the stale running claim to `ready` (started_at cleared), left the
+   blocked task untouched and the gibberish task in place (skipped, no confident match), and never assigned onto
+   the dead/stale agent; idempotent 2nd pass; a named live agent with no work skipped honestly; **off-roster-only
+   consistency proven** (diag count == verb action == 1); and a separate test proving single-agent mode never
+   reassigns onto another dead agent. **In-process dry-run against the LIVE store** ✅ → "no dead/idle agents"
+   (0 dead, 0 `dead_agent_task` diagnostics). `npm run build` ✅ + `npx eslint` ✅. **Live Vite preview** (:5219,
+   bridge up) ✅ — Operations → ⚠ diagnostics: the **♻ REASSIGN DEAD** button renders **disabled** with the honest
+   tooltip "No dead/idle agents with reassignable work" (DOM-read `{text:"♻ REASSIGN DEAD", disabled:true}`),
+   **zero console errors**. `graphify update .` run after edits (1488 nodes / 2898 edges).
+   **Not verified:** the live enabled click→reassign path — needs both the bridge restart (TO-DO #1) **and** a
+   board with an actual dead/idle agent (none exist live). The full data path is proven by the in-process tests.
 
 ### 2026-06-16 — Run #6 (BUILT dependency-aware promotion gate) · branch `auto/loop-reconcile-20260615`
 

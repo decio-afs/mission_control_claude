@@ -934,6 +934,32 @@ def kanban_cascade(payload: Optional[CascadePayload] = None):
     return STORE.cascade_dependencies(dry_run=dry)
 
 
+class ReassignPayload(BaseModel):
+    # Reassign one named agent's open work; omit to sweep every dead/idle agent.
+    from_agent: Optional[str] = None
+    # Preview the reassignment plan without mutating the board.
+    dry_run: bool = False
+
+
+@app.post("/api/mc/kanban/reassign")
+def kanban_reassign(payload: Optional[ReassignPayload] = None):
+    """Reassign a dead/idle agent's open work to the best-fit live agent.
+
+    `reconcile` reclaims a stale claim to `ready` but leaves it on the same dead
+    assignee (the next claim re-fails); an off-roster agent's backlog has no owner
+    that will ever run it. This is the missing self-management remediation for the
+    `dead_agent_task` diagnostic: it detects dead/idle agents (off-roster, or
+    holding a stale running claim) and moves each of their workable tasks
+    (`todo`/`ready`, or a stale `running` claim — also reclaimed) to the best-fit
+    OTHER agent by skill match (reusing the route scorer; least-loaded tie-break).
+    No confident match → the task is left in place. `blocked` tasks are never
+    touched. `dry_run` previews the plan without mutating.
+    """
+    frm = payload.from_agent if payload else None
+    dry = payload.dry_run if payload else False
+    return STORE.reassign_dead_agent(frm, dry_run=dry)
+
+
 @app.post("/api/mc/tasks/{task_id}/specify")
 def specify_task(task_id: str):
     """Flesh out a triage task's spec with Claude, then promote it to ready."""

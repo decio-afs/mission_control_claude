@@ -56,7 +56,7 @@ function hasDeliverable(t: McTask): boolean {
 }
 
 export default function OperationsCenter() {
-  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, escalateExhaustedTasks, cascadeDeps, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
+  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, escalateExhaustedTasks, cascadeDeps, reassignDead, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
   const nodes = useGhostStore((s) => s.nodes);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -70,6 +70,8 @@ export default function OperationsCenter() {
   const [escalateMsg, setEscalateMsg] = useState<string | null>(null);
   const [cascading, setCascading] = useState(false);
   const [cascadeMsg, setCascadeMsg] = useState<string | null>(null);
+  const [reassigning, setReassigning] = useState(false);
+  const [reassignMsg, setReassignMsg] = useState<string | null>(null);
   const [webAudit, setWebAudit] = useState<WebAccessAudit | null>(null);
   const loadWebAudit = () => getWebAccessAudit().then(setWebAudit).catch(() => {});
   const [boardModal, setBoardModal] = useState(false);
@@ -293,6 +295,7 @@ export default function OperationsCenter() {
             const triageCount = stats?.by_status?.triage || 0;
             const exhaustedCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'retry_exhausted').length || 0), 0);
             const depCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'blocked_by_dependency').length || 0), 0);
+            const deadCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'dead_agent_task').length || 0), 0);
             return (
               <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.06] flex-wrap">
                 <button
@@ -370,6 +373,28 @@ export default function OperationsCenter() {
                   {cascading ? '… cascading' : `⇄ CASCADE DEPS${depCount > 0 ? ` (${depCount})` : ''}`}
                 </button>
                 {cascadeMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{cascadeMsg}</span>}
+                <button
+                  disabled={reassigning || deadCount === 0}
+                  onClick={async () => {
+                    setReassigning(true); setReassignMsg(null);
+                    const res = await reassignDead();
+                    if (!res) setReassignMsg('⚠ reassign failed — see console');
+                    else {
+                      const r = res.reassigned.length, s = res.skipped.length;
+                      const moves = res.reassigned.map((x) => `${x.from}→${x.to}`).join(', ');
+                      setReassignMsg(r > 0
+                        ? `✓ reassigned ${r} → ${moves}${s ? ` · ${s} left in place` : ''}`
+                        : (res.dead_agents.length
+                            ? `${res.dead_agents.length} dead/idle agent(s)${s ? ` · ${s} left in place — no match` : ' · nothing reassignable'}`
+                            : 'no dead/idle agents'));
+                    }
+                    setReassigning(false);
+                  }}
+                  title={deadCount === 0 ? 'No dead/idle agents with reassignable work' : `Reassign ${deadCount} task(s) off dead/idle agent(s) to a live best-fit owner by skill match`}
+                  className={`text-[10px] font-mono border px-2 py-1 ${deadCount > 0 && !reassigning ? 'border-orange-400/50 text-orange-400 hover:bg-orange-400/10' : 'border-white/10 text-[#545454] cursor-default'}`}>
+                  {reassigning ? '… reassigning' : `♻ REASSIGN DEAD${deadCount > 0 ? ` (${deadCount})` : ''}`}
+                </button>
+                {reassignMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{reassignMsg}</span>}
               </div>
             );
           })()}

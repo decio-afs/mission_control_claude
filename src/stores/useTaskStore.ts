@@ -24,6 +24,7 @@ import {
   routeTriage,
   escalateExhausted,
   cascadeDependencies,
+  reassignDeadAgent,
   getMcBoards,
   createMcBoard,
   switchMcBoard,
@@ -37,6 +38,7 @@ import {
   type RouteResult,
   type EscalateResult,
   type CascadeResult,
+  type ReassignResult,
 } from '../lib/api';
 
 export interface OpTask {
@@ -91,6 +93,7 @@ interface TaskStore {
   routeTriageTasks: (opts?: { taskId?: string; dryRun?: boolean }) => Promise<RouteResult | null>;
   escalateExhaustedTasks: (opts?: { taskId?: string; dryRun?: boolean }) => Promise<EscalateResult | null>;
   cascadeDeps: (opts?: { dryRun?: boolean }) => Promise<CascadeResult | null>;
+  reassignDead: (opts?: { fromAgent?: string; dryRun?: boolean }) => Promise<ReassignResult | null>;
   specifyTask: (taskId: string) => Promise<boolean>;
   fetchTaskDetail: (taskId: string) => Promise<TaskDetail | null>;
   addMcTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<McTask | null>;
@@ -311,6 +314,28 @@ export const useTaskStore = create<TaskStore>((set, get) => {
       } catch (err) {
         const msg = errMessage(err);
         console.error('[TaskStore] cascadeDeps failed:', msg);
+        set({ error: msg });
+        return null;
+      }
+    },
+
+    // Reassign a dead/idle agent's open work to a live best-fit owner: detects
+    // off-roster / stale-claim agents and moves their workable tasks to another
+    // agent by skill match, then refreshes so the board + diagnostics reflect the
+    // new owners. Returns the full plan (reassigned + skipped + dead_agents) for
+    // the UI, or null on error. `dryRun` previews without mutating.
+    reassignDead: async (opts) => {
+      try {
+        const res = await reassignDeadAgent(opts);
+        if (!opts?.dryRun && res.reassigned.length > 0) {
+          await get().fetchTasks();
+          await get().fetchStats();
+        }
+        await get().fetchDiagnostics();
+        return res;
+      } catch (err) {
+        const msg = errMessage(err);
+        console.error('[TaskStore] reassignDead failed:', msg);
         set({ error: msg });
         return null;
       }

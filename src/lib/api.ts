@@ -424,6 +424,41 @@ export async function cascadeDependencies(opts?: { dryRun?: boolean }): Promise<
   return data;
 }
 
+// --- Auto-reassign on dead/idle agent: move open work to a live best-fit owner ---
+// `reconcile` reclaims a stale claim to `ready` but leaves it on the same dead
+// assignee; an off-roster agent's backlog has no owner that will run it. This
+// detects dead/idle agents (off-roster, or holding a stale running claim) and
+// reassigns their workable tasks (todo/ready, or a stale running claim — also
+// reclaimed) to the best-fit OTHER agent by skill match (least-loaded tie-break).
+// No confident match → left in place; blocked tasks are never touched. `dryRun`
+// previews without mutating.
+export interface DeadAgent { name: string; off_roster: boolean; stale_running: number; reason: string }
+export interface ReassignedTask {
+  id: string;
+  title?: string;
+  from: string;
+  to: string;
+  score: number;
+  matched: string[];
+  skill_match: string[];
+  reclaimed: boolean;
+  prev_status?: string;
+}
+export interface ReassignResult {
+  reassigned: ReassignedTask[];
+  skipped: Array<{ id: string; title?: string; from: string; reason: string }>;
+  dead_agents: DeadAgent[];
+  dry_run: boolean;
+  message: string;
+}
+export async function reassignDeadAgent(opts?: { fromAgent?: string; dryRun?: boolean }): Promise<ReassignResult> {
+  const body: Record<string, unknown> = {};
+  if (opts?.fromAgent != null) body.from_agent = opts.fromAgent;
+  if (opts?.dryRun) body.dry_run = true;
+  const { data } = await bridge.post('/api/mc/kanban/reassign', body);
+  return data;
+}
+
 export async function getTaskNotifications(taskId: string): Promise<{ subscriptions: NotifySubscription[] }> {
   const { data } = await bridge.get(`/api/mc/tasks/${taskId}/notify`);
   return data;

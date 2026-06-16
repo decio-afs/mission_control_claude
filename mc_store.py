@@ -431,6 +431,10 @@ class MCStore:
         parents_of: dict[str, list[str]] = {}
         for p, c in m["links"]:
             parents_of.setdefault(str(c), []).append(str(p))
+        # Dead/idle assignees (off-roster or sitting on a stale running claim) —
+        # used to flag their reassignable open work for the reassign verb.
+        roster_names = {a.get("name") for a in self.list_agents()}
+        dead = self._dead_agents(tasks, roster_names, now)
         out: list[dict[str, Any]] = []
         for t in tasks:
             diags: list[dict[str, Any]] = []
@@ -470,6 +474,18 @@ class MCStore:
                     diags.append({"kind": "blocked_by_dependency", "severity": "warn",
                                   "message": (f"waiting on {len(open_parents)} open "
                                               f"dependency task(s): {', '.join(open_parents)}")})
+            # Dead/idle assignee: an off-roster or stale-claim agent still holds
+            # workable open work (todo/ready or a stale running claim). Surfaces
+            # the gate the `reassign` verb remediates — move the work to a live
+            # best-fit owner instead of letting it rot on an absent agent. Blocked
+            # tasks are intentionally NOT flagged (they are blocked for a recorded
+            # reason; reassigning would hide it, not help).
+            who = t.get("assignee")
+            if who in dead and (t.get("status") in ("todo", "ready")
+                                or self._is_stale_running(t, now)):
+                diags.append({"kind": "dead_agent_task", "severity": "warn",
+                              "message": (f"assignee '{who}' appears dead/idle "
+                                          f"({dead[who]['reason']}) — reassignable")})
             if diags:
                 out.append({"task_id": tid, "title": t.get("title"), "status": t.get("status"),
                             "assignee": t.get("assignee"), "diagnostics": diags})
@@ -532,6 +548,192 @@ class MCStore:
                      "`web-brave-free` plugin (or set BRAVE_SEARCH_API_KEY) and add it to "
                      "each agent's `mcps`. Operator config — no key is created here."),
         }
+
+    @staticmethod
+    def _is_stale_running(task: dict[str, Any], now: float) -> bool:
+        """Whether a task is a stale running claim (running past the threshold)."""
+        if task.get("status") != "running":
+            return False
+        started = task.get("started_at")
+        return (isinstance(started, (int, float))
+                and now - started > STALE_CLAIM_SECONDS)
+
+    @staticmethod
+    def _dead_agents(tasks: list[dict[str, Any]], roster_names: set,
+                     now: float) -> dict[str, dict[str, Any]]:
+        """Assignees that appear dead/idle while still holding open work.
+
+        An agent is considered dead/idle when, holding at least one non-terminal
+        task, it is EITHER off the live roster (a deleted/legacy assignee whose
+        worker is gone) OR sitting on a stale running claim (its claimed task has
+        been "running" past ``STALE_CLAIM_SECONDS`` with no progress — the worker
+        is unresponsive). An agent that is merely busy, or whose tasks are blocked
+        for a *recorded* reason, is NOT dead — so this never mistakes the
+        web-access-blocked research tasks for a dead agent. Returns
+        ``{name: {off_roster, stale_running, reason}}``.
+        """
+        open_assignees: set = set()
+        stale_by: dict[str, int] = {}
+        for t in tasks:
+            who = t.get("assignee")
+            if not who:
+                continue
+            if t.get("status") not in TERMINAL:
+                open_assignees.add(who)
+            if MCStore._is_stale_running(t, now):
+                stale_by[who] = stale_by.get(who, 0) + 1
+        dead: dict[str, dict[str, Any]] = {}
+        for who in open_assignees:
+            off = who not in roster_names
+            stale = stale_by.get(who, 0)
+            if not (off or stale):
+                continue
+            reasons: list[str] = []
+            if off:
+                reasons.append("off the live roster")
+            if stale:
+                reasons.append(f"{stale} stale running claim(s)")
+            dead[who] = {"off_roster": off, "stale_running": stale,
+                         "reason": " + ".join(reasons)}
+        return dead
+
+    def reassign_dead_agent(self, from_agent: Optional[str] = None,
+                            dry_run: bool = False) -> dict[str, Any]:
+        """Reassign a dead/idle agent's open work to the best-fit live agent.
+
+        ``reconcile_board`` reclaims a stale running claim back to ``ready`` but
+        leaves it on the same dead assignee, so the next claim re-fails on the
+        same gone worker; and an off-roster (deleted) agent's backlog has no owner
+        who will ever run it. This is the missing orchestration path: it detects
+        dead/idle agents (``_dead_agents`` — off-roster, or holding a stale running
+        claim) and moves each of their *workable* tasks (``todo``/``ready``, or a
+        stale ``running`` claim which is also reclaimed to ``ready``) to the
+        best-fit *other* agent by skill match — reusing the run#4 ``_route_score``
+        scorer, requiring a skill-token match for confidence, breaking ties toward
+        the least-loaded agent. A task with no confident match on another agent is
+        honestly **left in place** (never dumped on a random owner). Other dead
+        agents are excluded as targets. ``blocked`` tasks are never touched (they
+        are blocked for a recorded reason — reassigning would hide it). Records a
+        ``reassigned`` event per move; ``dry_run`` returns the same plan without
+        mutating. Honest by construction: no dead agents → nothing reassigned.
+        """
+        with self._lock:
+            tasks = self._tasks()
+            now = _now()
+            roster = self.agents_with_counts()  # scoring data (skills/role/counts)
+            # The RAW roster is the off-roster truth — agents_with_counts folds
+            # legacy task-only assignees back in, which would mask an off-roster
+            # (deleted) agent. Use the same source `diagnostics()` does so the
+            # button count and the verb agree exactly.
+            roster_names = {a.get("name") for a in self.list_agents()}
+            auto_dead = self._dead_agents(tasks, roster_names, now)
+            # `act_on` = agents whose tasks we reassign this call; `auto_dead` is
+            # kept separate so even in single-agent mode we never reassign onto
+            # ANOTHER dead agent.
+            if from_agent is not None:
+                if from_agent in auto_dead:
+                    act_on = {from_agent: auto_dead[from_agent]}
+                else:
+                    # Operator explicitly names an agent: honor it iff it actually
+                    # holds reassignable work, else skip honestly.
+                    has_open = any(
+                        t.get("assignee") == from_agent
+                        and (t.get("status") in ("todo", "ready")
+                             or self._is_stale_running(t, now))
+                        for t in tasks)
+                    if not has_open:
+                        return {"reassigned": [], "skipped": [], "dead_agents": [],
+                                "dry_run": dry_run,
+                                "message": (f"reassign: agent '{from_agent}' has no "
+                                            f"reassignable open work")}
+                    act_on = {from_agent: {
+                        "off_roster": from_agent not in roster_names,
+                        "stale_running": 0, "reason": "operator-specified"}}
+            else:
+                act_on = auto_dead
+
+            # Current open (non-terminal) load per agent — the tie-break weight.
+            load: dict[str, int] = {}
+            for t in tasks:
+                who = t.get("assignee")
+                if who and t.get("status") not in TERMINAL:
+                    load[who] = load.get(who, 0) + 1
+            # Eligible targets: agents on the LIVE roster that are neither a source
+            # nor themselves dead/idle (never reassign onto an off-roster or
+            # stale-claim agent, nor back onto the agent we're draining).
+            exclude = set(auto_dead) | set(act_on)
+            targets = [a for a in roster
+                       if a.get("name") in roster_names and a.get("name") not in exclude]
+
+            m = self._meta()
+            reassigned: list[dict[str, Any]] = []
+            skipped: list[dict[str, Any]] = []
+            changed = False
+            for t in tasks:
+                who = t.get("assignee")
+                if who not in act_on:
+                    continue
+                workable = (t.get("status") in ("todo", "ready")
+                            or self._is_stale_running(t, now))
+                if not workable:
+                    continue
+                task_tokens = set(self._route_tokens(
+                    f"{t.get('title') or ''} {t.get('body') or ''}"))
+                scored = []
+                for a in targets:
+                    sc, matched, skill_matched = self._route_score(task_tokens, a)
+                    if sc > 0:
+                        scored.append((sc, a, matched, skill_matched))
+                scored.sort(key=lambda x: (-x[0], load.get(x[1].get("name"), 0),
+                                           x[1].get("name") or ""))
+                best = next((s for s in scored if s[3]), None)
+                if best is None:
+                    skipped.append({"id": str(t.get("id")), "title": t.get("title"),
+                                    "from": who,
+                                    "reason": ("no confident skill match on another "
+                                               "agent — left in place")})
+                    continue
+                sc, agent, matched, skill_matched = best
+                to = agent.get("name")
+                was_stale = self._is_stale_running(t, now)
+                entry = {"id": str(t.get("id")), "title": t.get("title"),
+                         "from": who, "to": to, "score": sc,
+                         "matched": sorted(matched),
+                         "skill_match": sorted(skill_matched),
+                         "reclaimed": was_stale, "prev_status": t.get("status")}
+                if not dry_run:
+                    t["assignee"] = to
+                    if was_stale:
+                        t["status"] = "ready"
+                        t["started_at"] = None
+                    reason = (f"dead-agent reassign: {who} → {to} "
+                              f"({act_on[who]['reason']}; score {sc}, matched "
+                              f"{', '.join(sorted(skill_matched))})")
+                    self._event(m, str(t.get("id")), "reassigned", {
+                        "from": who, "to": to, "profile": to, "score": sc,
+                        "matched": sorted(matched),
+                        "skill_match": sorted(skill_matched),
+                        "reclaimed": was_stale, "reason": reason})
+                    load[who] = max(0, load.get(who, 1) - 1)
+                    load[to] = load.get(to, 0) + 1
+                    changed = True
+                reassigned.append(entry)
+            if changed and not dry_run:
+                self._save_tasks(tasks)
+                self._save_meta(m)
+            dead_list = [{"name": n, **info} for n, info in act_on.items()]
+            n = len(reassigned)
+            verb = "would reassign" if dry_run else "reassigned"
+            if n > 0:
+                msg = (f"reassign: {verb} {n} task(s) off "
+                       f"{len(act_on)} dead/idle agent(s)")
+            elif act_on:
+                msg = (f"reassign: {len(act_on)} dead/idle agent(s), nothing "
+                       f"reassignable" + (f" ({len(skipped)} skipped)" if skipped else ""))
+            else:
+                msg = "reassign: no dead/idle agents"
+            return {"reassigned": reassigned, "skipped": skipped,
+                    "dead_agents": dead_list, "dry_run": dry_run, "message": msg}
 
     def reconcile_board(self, threshold_seconds: Optional[float] = None) -> dict[str, Any]:
         """Self-heal the board: reclaim running tasks whose claim has gone stale.
