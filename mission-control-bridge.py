@@ -201,6 +201,11 @@ class CreateCronPayload(BaseModel):
     # Optional repeat count (integer as string is fine; passed through verbatim).
     repeat: Optional[str] = None
     skills: Optional[list[str]] = None
+    # Job kind: "claude" (default — fires `prompt` through a Claude turn) or
+    # "maintenance" (fires an internal `action` directly, no Claude turn).
+    kind: Optional[str] = None
+    # Internal verb for a maintenance job, e.g. "sweep" (board self-heal macro).
+    action: Optional[str] = None
 
 
 class SpawnPayload(BaseModel):
@@ -359,13 +364,21 @@ class CronScheduler:
 
     def _fire(self, job: dict):
         job_id = job.get("id")
-        prompt = job.get("prompt")
-        if not job_id or not prompt:
+        if not job_id:
             return
-        print(f"[mc-bridge] cron firing {job_id} ({job.get('name', '')})", flush=True)
+        kind = (job.get("kind") or "claude").lower()
+        print(f"[mc-bridge] cron firing {job_id} ({job.get('name', '')}) kind={kind}", flush=True)
         try:
-            resp = run_claude(prompt, timeout=CRON_JOB_TIMEOUT)
-            STORE.record_cron_result(job_id, True, resp.get("result", ""), trigger="schedule")
+            if kind == "maintenance":
+                # Internal verb — no Claude turn. Stamp the verb's own outcome line.
+                res = STORE.run_maintenance(job.get("action"))
+                STORE.record_cron_result(job_id, bool(res.get("ok")), res.get("detail", ""), trigger="schedule")
+            else:
+                prompt = job.get("prompt")
+                if not prompt:
+                    return
+                resp = run_claude(prompt, timeout=CRON_JOB_TIMEOUT)
+                STORE.record_cron_result(job_id, True, resp.get("result", ""), trigger="schedule")
             self.fired += 1
             self.last_fired_id = job_id
         except Exception as e:
@@ -1214,18 +1227,31 @@ def get_cron():
 
 @app.post("/api/mc/cron")
 def create_cron(payload: CreateCronPayload):
-    """Create a scheduled job in the native store."""
-    out = STORE.create_cron(payload.schedule, payload.prompt, payload.name,
-                            payload.deliver, payload.repeat, payload.skills)
+    """Create a scheduled job in the native store (claude or maintenance kind)."""
+    try:
+        out = STORE.create_cron(payload.schedule, payload.prompt, payload.name,
+                                payload.deliver, payload.repeat, payload.skills,
+                                kind=payload.kind, action=payload.action)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return out
 
 
 @app.post("/api/mc/cron/{job_id}/run")
 def run_cron(job_id: str):
-    """Trigger a cron job now — runs its prompt through Claude."""
+    """Trigger a cron job now — fires its prompt through Claude, or for a
+    maintenance job runs its internal verb (e.g. board sweep) with no Claude turn."""
     job = STORE.get_cron_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"cron job {job_id} not found")
+    if (job.get("kind") or "claude").lower() == "maintenance":
+        try:
+            res = STORE.run_maintenance(job.get("action"))
+        except ValueError as e:
+            STORE.record_cron_result(job_id, False, str(e), trigger="manual")
+            raise HTTPException(status_code=400, detail=str(e))
+        STORE.record_cron_result(job_id, bool(res.get("ok")), res.get("detail", ""), trigger="manual")
+        return {"message": res.get("detail", ""), "result": res.get("result")}
     prompt = job.get("prompt")
     if not prompt:
         raise HTTPException(status_code=400, detail="job has no prompt to run")

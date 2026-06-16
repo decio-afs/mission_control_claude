@@ -21,26 +21,40 @@ below. `## DONE` is append-only history; `## TO-DO` is rewritten each run for th
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 ~16:35** (Run #9 — built one-call board self-manage macro `/api/mc/kanban/sweep`)._
+_Last run: **2026-06-16 ~18:40** (Run #10 — built the maintenance cron job kind: `kind:"maintenance"` + `action:"sweep"` → scheduler fires `STORE.sweep_board()` with no Claude turn → hands-free board self-heal on a timer)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~28.5h. **Still holds pre-restart code** — now **NINE** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404), run#6 cascade (`POST /api/mc/kanban/cascade`→404), run#7 reassign (`POST /api/mc/kanban/reassign`→404), run#8 dep-cycle guard (`POST /api/mc/tasks/link` accepts cycles; no `dependency_cycle` diagnostic), run#9 sweep (`POST /api/mc/kanban/sweep`→404 — confirmed this run). |
+| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~30.5h. **Still holds pre-restart code** — now **TEN** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404), run#6 cascade (`POST /api/mc/kanban/cascade`→404), run#7 reassign (`POST /api/mc/kanban/reassign`→404), run#8 dep-cycle guard (`POST /api/mc/tasks/link` accepts cycles), run#9 sweep (`POST /api/mc/kanban/sweep`→404 — confirmed this run), **run#10 maintenance cron** (old bridge accepts-but-ignores `kind`/`action` on `POST /api/mc/cron` — created jobs have no kind, scheduler can't fire an internal verb). |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
 | `npm run build` | ✅ PASS | tsc + vite, 156 modules, exit 0 (chunk-size warning only) |
-| `npm run lint` | ✅ PASS | Run #9 touched 3 TS files (`api.ts`, `useTaskStore.ts`, `OperationsCenter.tsx`); `npx eslint` on all three = "No issues found". Only pre-existing `office/tower` churn remains (sibling-owned). |
-| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged). No `stale_claim`, no `retry_exhausted`, no `blocked_by_dependency`, no `dead_agent_task`, no `dependency_cycle`. Live `sweep_board(dry_run)` → total 0 (honest no-op: 0 of all four self-heal conditions). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task has a live deterministic router (run#4). |
-| Cron jobs | 🟡 EMPTY + engine ready | store `jobs: []`; scheduler daemon built (run#2), loads on restart. Seeding the 2 pipeline jobs safe-to-fire post-restart — TO-DO #2. |
-| Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 22 · drafts 6 · calendar 31 (run#1); `.mc/data/` written |
-| Modules in error state | none observed | Run #9 adds the emerald **⚙ SWEEP BOARD** button as the lead of the Operations → ⚠ diagnostics toolbar; live preview shows it **disabled** with the honest tooltip "Board healthy — no self-heal actions pending" (sweepCount = stale+dep+dead+exhausted = 0), zero console errors. Prior runs' buttons unchanged. |
+| `npm run lint` | ✅ PASS | Run #10 touched 2 TS files (`api.ts`, `OperationsCenter.tsx`); `npx eslint` on both = "No issues found". Python: `py_compile` on `mc_scheduler.py`/`mc_store.py`/`mission-control-bridge.py` ✅ + `mc_scheduler.py` self-test ALL PASS. Only pre-existing `office/tower` churn remains (sibling-owned). |
+| Kanban / orchestration | 🟡 steady, triage grew | todo 8 · ready 1 · done 10 · blocked 6 · **triage 6** (was 1 — 5 new unassigned triage tasks this run). No `stale_claim`, no `retry_exhausted`, no `blocked_by_dependency`, no `dead_agent_task`, no `dependency_cycle`. Live `sweep_board(dry_run)` → total 0 (honest no-op). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 6 triage tasks need the run#4 auto-route verb — pending restart (TO-DO #4). |
+| Cron jobs | 🟡 EMPTY + engine ready | store `jobs: []`; scheduler daemon built (run#2) loads on restart; **maintenance-job kind built (run#10)** lets a recurring `*/30 * * * *` sweep job self-heal the board with no human/Claude turn. Seeding pipeline + self-heal jobs safe post-restart — TO-DO #2/#5. |
+| Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 27 · drafts 6 · calendar 36 (was 22/6/31 — pipeline alive & writing `.mc/data/`) |
+| Modules in error state | none observed | Run #10 adds a **KIND toggle** (◆ CLAUDE PROMPT / ⚙ MAINTENANCE) + sweep ACTION select to the Operations → ⏱ CRON create form, and a ⚙ maintenance chip on maintenance job rows. Live preview (bridge up, 0 jobs): toggle renders, switching to MAINTENANCE swaps prompt textarea → sweep action select, zero console errors. Prior runs' buttons unchanged. |
 
 ---
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-1. **Restart the bridge to activate NINE built capabilities at once** (`npm run bridge`, or whatever
+1. **Restart the bridge to activate TEN built capabilities at once** (`npm run bridge`, or whatever
    launches the operator's bridge / desktop app). The live bridge still holds pre-restart code
-   (confirmed this run: `/api/mc/kanban/sweep` → 404, `/api/mc/kanban/reassign` → 404). After restart, confirm **all** of:
+   (confirmed this run: `/api/mc/kanban/sweep` → 404). After restart, confirm **all** of:
+   - **maintenance cron job kind (run#10)** → `POST /api/mc/cron` with
+     `{"schedule":"*/30 * * * *","kind":"maintenance","action":"sweep","name":"board self-heal"}` creates a job with
+     `kind:"maintenance"`, `action:"sweep"`, `prompt:null` (the OLD bridge silently drops `kind`/`action`, creating an
+     inert prompt-less claude job — that's the tell it predates this code). A bad action returns **400**
+     ("unknown maintenance action"); a bad kind returns **400**. The in-bridge scheduler then fires it on the local
+     clock **with no Claude turn**: `CronScheduler._fire` dispatches `kind=="maintenance"` to `STORE.run_maintenance(action)`
+     → `STORE.sweep_board(dry_run=False)`, stamping `last_status`/`last_detail` (= the sweep message) via
+     `record_cron_result`. `POST /api/mc/cron/{id}/run` runs the same verb on-demand. In the ⏱ CRON modal: the create
+     form has a **KIND toggle** (◆ CLAUDE PROMPT / ⚙ MAINTENANCE) — selecting MAINTENANCE swaps the PROMPT textarea for
+     a sweep ACTION select — and a maintenance job row shows a **⚙ sweep** chip. On the current board a fired sweep is a
+     no-op (`total 0`) until ≥1 self-heal condition exists. **Do NOT auto-seed the recurring `*/30` self-heal job without
+     operator sign-off** (standing config — TO-DO #5). Fully proven in-process this run (throwaway store: maintenance job
+     created + validated, `is_due` fires it on action not prompt, a seeded 3h-stale claim was reconciled→ready by the
+     fired sweep, `last_status=ok` stamped, 2nd fire no-op, bad action raises, raw shows the kind).
    - **one-call board self-manage macro (run#9)** → `POST /api/mc/kanban/sweep` with `{"dry_run":true}` returns
      `{reconciled,cascade,reassigned,escalated,counts:{reconciled,held,promoted,reassigned,escalated},total,dry_run,message}`.
      On the current board it returns `total:0` ("board already healthy — nothing to do") because all four self-heal
@@ -121,28 +135,30 @@ _Last run: **2026-06-16 ~16:35** (Run #9 — built one-call board self-manage ma
    `blocked_due_to_web=6`. Fix remains **config, not code**: provision `web-brave-free` /
    `BRAVE_SEARCH_API_KEY` and add it to each flagged agent's `mcps`, then unblock+reassign. The audit
    makes the gap visible but does NOT provision — operator action. Surface it, don't fake it.
-4. **Route the 1 triage task — now AUTOMATED (run#4).** `"Produce content: Watch One Operator Run a Whole
-   Agency"` (`t_6f880653`, unassigned). The deterministic **skill-match router** now picks the owner:
-   after the restart, click ⤵ AUTO-ROUTE TRIAGE (or `POST /api/mc/kanban/route`) → assigns `narratrix`
-   (the content copywriter; score 23, runner-up claudelink) and de-triages to `todo`. The Claude `specify`
-   flesh-out (`POST /api/mc/tasks/{id}/specify`, runs a live turn) remains a separate optional step — fire
-   when the operator is present. Did NOT auto-route this run (live bridge predates the endpoint; safe to do
-   post-restart).
-5. **Next capability to BUILD:** **scheduled / hands-free board self-heal** (GAPS #11, now ranked next). The sweep
-   macro (run#9) is manual-only — an operator must open the diagnostics modal and click ⚙ SWEEP BOARD. The cron
-   scheduler (run#2) *exists* but can only fire **Claude prompts** via `run_claude` — there is no job *kind* that runs
-   an internal maintenance verb like `sweep_board` directly, so the board cannot self-heal on a timer without a human
-   or a Claude turn. Build the missing "internal maintenance job" path end-to-end: extend the cron job model with a
-   `kind: "maintenance"` (vs the default `"claude"`) + an `action` (e.g. `"sweep"`); teach `CronScheduler._fire` (in
-   `mission-control-bridge.py`) to dispatch a maintenance job to `STORE.sweep_board()` instead of `run_claude`,
-   stamping the same `record_cron_result(ok, detail)` outcome (detail = the sweep message); surface the job kind in
-   the ⏱ CRON modal (a "⚙ maintenance" chip vs the prompt preview) so the operator can *see* a self-heal job. Then a
-   single recurring `*/30 * * * *` "board self-heal" job keeps the fleet healthy with no human in the loop — the true
-   post-Hermes autonomy goal. Pure + testable: unit-test the scheduler dispatch picks `sweep_board` for a maintenance
-   job and `run_claude` for a claude job; in-process seed a maintenance job + a stale claim → tick → assert the claim
-   was reclaimed and `last_status=ok` stamped. **No auto-seeding of the recurring job without operator sign-off**
-   (standing config), but the *capability* is this loop's to build. Runner-up gap: **per-task `unlink` cycle-break
-   affordance** (GAPS #10) — bughunt-adjacent UI; prefer the maintenance-job path. One end-to-end per run.
+4. **Route the 6 triage tasks — AUTOMATED (run#4), pending restart.** The board now has **6 unassigned triage
+   tasks** (was 1 — 5 new appeared this run). The deterministic **skill-match router** handles them: after the
+   restart, click ⤵ AUTO-ROUTE TRIAGE (or `POST /api/mc/kanban/route` with no `task_id` to sweep all, or per-id)
+   → each gets its best-fit owner by skill-token match and de-triages to `todo`; an unmatched task is honestly
+   left in triage. Verify safely first with `{"dry_run":true}`. The Claude `specify` flesh-out
+   (`POST /api/mc/tasks/{id}/specify`, runs a live turn) stays a separate optional step. Did NOT auto-route this
+   run (live bridge predates the endpoint — `/api/mc/kanban/route` → 404; safe to do post-restart).
+5. **Seed the recurring board self-heal cron job — now UNBLOCKED (run#10), needs operator sign-off.** The maintenance
+   job kind exists, so a single recurring `POST /api/mc/cron`
+   `{"schedule":"*/30 * * * *","kind":"maintenance","action":"sweep","name":"board self-heal"}` would keep the fleet
+   healthy with **no human/Claude turn** every 30 min (reconcile→cascade→reassign→escalate; a no-op when the board is
+   already healthy, so it's cheap and safe to run often). This is the post-Hermes autonomy goal. **Was NOT auto-seeded
+   this run on purpose** — it's standing config and the operator isn't present. Create it via the ⏱ CRON modal's KIND
+   toggle → ⚙ MAINTENANCE → sweep, or the curl above, once the operator confirms. (Pairs with TO-DO #2's pipeline cron
+   jobs — those have an external Buffer side effect and need the same sign-off.)
+6. **Next capability to BUILD:** **per-task `unlink` cycle-break affordance** (GAPS #10). run#8 surfaces a
+   `dependency_cycle` diagnostic read-only, but there's no in-UI way to *break* a cycle — an operator who sees the
+   warning has no button to remove the offending parent→child edge. Build it end-to-end: a store `unlink(parent, child)`
+   verb (remove the edge from `kanban-meta.json["links"]`, record an event) → `POST /api/mc/tasks/unlink` →
+   `unlinkTasks()` api fn → a small "✕ unlink" affordance in the TaskDetailDrawer's dependency list (and/or a
+   cycle-break action on the `dependency_cycle` diagnostic row). Pure + testable: in-process seed an X⇄Y cycle, unlink
+   one edge, assert the cycle is gone and `_cycle_nodes` is empty. Note: `TaskDetailDrawer.tsx` is currently in the
+   sibling working tree (bughunt's reason-banner) — coordinate the region or prefer adding the action to the
+   diagnostics modal row in `OperationsCenter.tsx` (this loop's file) to stay in-lane. One end-to-end per run.
 
 ---
 
@@ -229,10 +245,17 @@ _Last run: **2026-06-16 ~16:35** (Run #9 — built one-call board self-manage ma
    on the live board. Loads on next bridge restart (TO-DO #1).
 10. 🟡 **No per-task cycle-break remediation.** run#8 surfaces `dependency_cycle` read-only; there's no in-UI
     "unlink to break cycle" affordance in the task drawer. Bughunt-adjacent UI — runner-up (TO-DO #5).
-11. 🟡 **No scheduled / hands-free board self-heal.** The sweep macro (run#9) is manual-only; the cron scheduler
-    (run#2) can only fire Claude *prompts* (`run_claude`), not internal maintenance verbs. A `kind:"maintenance"`
-    cron job that dispatches to `STORE.sweep_board()` would let the board self-heal on a timer with no human/Claude
-    turn — the post-Hermes autonomy goal. **Next build** (TO-DO #5).
+11. ✅ **Scheduled / hands-free board self-heal (BUILT this run — run#10).** The sweep macro (run#9) was manual-only
+    and the cron scheduler (run#2) could only fire Claude *prompts* (`run_claude`), so the board could not self-heal on
+    a timer without a human or a Claude turn. Built the **maintenance cron job kind** end-to-end: `mc_scheduler.is_fireable`
+    now lets a `kind:"maintenance"` job fire on its `action` (no prompt needed); `MCStore.create_cron` gains `kind`/`action`
+    params (validates against `MAINTENANCE_ACTIONS={"sweep"}`, stores them, `ValueError`→400) + a new `run_maintenance(action)`
+    dispatcher (`sweep`→`sweep_board(dry_run=False)`); `CronScheduler._fire` dispatches `kind=="maintenance"` to
+    `STORE.run_maintenance` instead of `run_claude`, stamping the sweep message via `record_cron_result`; `POST /api/mc/cron`
+    accepts `kind`/`action` and `POST /api/mc/cron/{id}/run` runs the verb on-demand. UI: a KIND toggle (◆ CLAUDE PROMPT /
+    ⚙ MAINTENANCE) + sweep ACTION select in the ⏱ CRON create form, and a ⚙ sweep chip on maintenance job rows. A recurring
+    `*/30 * * * *` sweep job now makes the fleet self-heal with no human in the loop — the post-Hermes autonomy goal.
+    Seeding that recurring job needs operator sign-off (standing config — TO-DO #5). Loads on next bridge restart (TO-DO #1).
 5. ✅ **Web-access audit surface (BUILT this run — run#3).** Research agents silently blocked on missing
    web tools with no way to *see* which agents lacked a web plugin. Built `GET /api/mc/agents/web-access`
    → `MCStore.web_access_audit()` → `getWebAccessAudit()` → a **WEB-ACCESS AUDIT** panel in the Operations
@@ -248,6 +271,61 @@ _Last run: **2026-06-16 ~16:35** (Run #9 — built one-call board self-manage ma
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #10 (BUILT maintenance cron job kind — hands-free board self-heal) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE green.** Bridge :8767 UP (`/api/ping` ok, uptime ~30.5h). Gateway :8642 N/A by design.
+   `npm run build` ✅ (156 modules, exit 0, chunk-size warning only); `npx eslint` on the 2 touched TS files ✅
+   ("No issues found"); `py_compile` on `mc_scheduler.py`/`mc_store.py`/`mission-control-bridge.py` ✅ + the
+   `mc_scheduler.py` self-test "ALL PASS". Confirmed the live bridge still runs **pre-restart** code:
+   `POST /api/mc/kanban/sweep` → 404. Did NOT kill the operator's bridge — verified in-process instead. **TEN**
+   capabilities now load together on the next restart (run#1–#10) — see TO-DO #1. Sibling lanes confirmed clear and
+   isolated at commit time: bughunt's `fail_task` (`mc_store.py` + `/api/mc/tasks/{id}/fail`) and `get_briefing`
+   failed-jobs fix, and evolve's cron-display polish (`api.ts` `created_at`, `OperationsCenter.tsx` `cronAnchorMs`/
+   `CronNextFire`) all sit in distinct hunks from mine — staged my hunks only via a hand-built `git apply --cached`
+   patch (the mixed `api.ts` McCronJob hunk split so only my `kind`/`action` lines staged, not evolve's `created_at`),
+   sibling hunks left in the working tree.
+
+2. **ORCHESTRATION.** Kanban: todo 8 · ready 1 · done 10 · blocked 6 · **triage 6** (was 1 — 5 new unassigned triage
+   tasks appeared). No `stale_claim`/`retry_exhausted`/`blocked_by_dependency`/`dead_agent_task`/`dependency_cycle`;
+   live `sweep_board(dry_run)` → total 0. The 6 triage tasks are routable by the run#4 auto-route verb but it's still
+   404 on the live (pre-restart) bridge — noted loudly in TO-DO #4, NOT manually routed (would duplicate the verb and
+   churn the board with no operator present). The 6 blocked remain the audited web-access root cause. Content pipeline
+   alive & growing (campaigns 22→27, calendar 31→36).
+
+3. **BUILT: maintenance cron job kind (CAPABILITY GAPS #11, this loop's signature increment), end-to-end & LIVE-backed.**
+   The sweep macro (run#9) was manual-only and the cron scheduler (run#2) could only fire Claude *prompts*, so the board
+   could not self-heal on a timer without a human/Claude turn. New capability across every layer:
+   - `mc_scheduler.py` — new `is_fireable(job)` (a `kind:"maintenance"` job fires on its `action`; a `claude` job still
+     needs a `prompt`); `is_due` now gates on `is_fireable` instead of a bare prompt check, so a promptless maintenance
+     job actually fires. Self-test extended (maintenance job fires on action; actionless never fires).
+   - `mc_store.py` — module const `MAINTENANCE_ACTIONS={"sweep"}`; `create_cron(..., kind=None, action=None)` validates
+     kind∈{claude,maintenance} and (for maintenance) action∈MAINTENANCE_ACTIONS (`ValueError` on bad input), stores
+     `kind`/`action` on the job, names a maintenance job `"<action> (maintenance)"` by default; new
+     `run_maintenance(action)` dispatcher (`sweep`→`sweep_board(dry_run=False)`, returns `{ok,action,detail,result}`,
+     `ValueError` on unknown action); `list_cron` raw shows a `Kind: maintenance (sweep)` line.
+   - `mission-control-bridge.py` — `CreateCronPayload` gains `kind`/`action`; `CronScheduler._fire` dispatches
+     `kind=="maintenance"` to `STORE.run_maintenance(job["action"])` (no Claude turn) vs `run_claude` for a claude job,
+     stamping `record_cron_result(ok, detail=sweep message)`; `POST /api/mc/cron` passes kind/action + maps `ValueError`→400;
+     `POST /api/mc/cron/{id}/run` runs the maintenance verb on-demand for a maintenance job.
+   - `src/lib/api.ts` — `McCronJob` + `CreateCronRequest` gain `kind?`/`action?`.
+   - `src/pages/OperationsCenter.tsx` — `cronKind`/`cronAction` state; a **KIND toggle** (◆ CLAUDE PROMPT / ⚙ MAINTENANCE)
+     in the ⏱ CRON create form that swaps the PROMPT textarea for a sweep ACTION select; `handleCreateCron` sends
+     kind/action for a maintenance job; a **⚙ sweep** chip on maintenance job rows.
+   **Verified:** `py_compile` ✅ + scheduler self-test ✅; **in-process behavior test on a throwaway store** ✅ —
+   created a maintenance job (kind/action/prompt=null correct), rejected a bad action and a bad kind (ValueError),
+   `is_fireable`/`is_due` fire the maintenance job on its action at the scheduled minute, seeded a 3h-stale running
+   claim, mirrored `_fire` (`run_maintenance("sweep")`) → the stale claim was **reconciled → ready** (started_at
+   cleared), `record_cron_result` stamped `last_status=ok` + the sweep detail, a 2nd fire was a no-op (`total 0`),
+   `run_maintenance("nope")` raised, and `list_cron` raw shows the maintenance kind. **In-process dry-run nature**: a
+   fired sweep on the live board would be a no-op (0 self-heal conditions). `npm run build` ✅ + `npx eslint` ✅.
+   **Live Vite preview** (:5219, bridge up) ✅ — Operations → ⏱ CRON: the create form KIND toggle renders both
+   buttons; clicking ⚙ MAINTENANCE makes it active (emerald) and swaps the PROMPT textarea (textareas→0) for the
+   sweep ACTION select ("sweep — reconcile · cascade · reassign · escalate"); **zero console errors**.
+   `graphify update .` run after edits. Did NOT create a real cron job against the live (pre-restart) bridge — it would
+   silently drop kind/action and make an inert prompt-less job, mutating the live store with no benefit.
+   **Not verified:** the live scheduled fire (needs the bridge restart, TO-DO #1) and the recurring `*/30` self-heal job
+   (needs operator sign-off, TO-DO #5). The full dispatch + self-heal path is proven by the in-process behavior test.
 
 ### 2026-06-16 — Run #9 (BUILT one-call board self-manage macro) · branch `auto/loop-reconcile-20260615`
 

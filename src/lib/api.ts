@@ -95,6 +95,10 @@ export interface McCronJob {
   last_status?: 'ok' | 'error';
   last_trigger?: 'schedule' | 'manual';
   last_detail?: string;
+  /** 'claude' (default — fires `prompt`) or 'maintenance' (fires an internal verb). */
+  kind?: 'claude' | 'maintenance';
+  /** Internal verb for a maintenance job, e.g. 'sweep' (board self-heal macro). */
+  action?: string;
 }
 
 /** Liveness of the in-bridge cron daemon that actually fires due jobs. */
@@ -540,6 +544,10 @@ export interface CreateCronRequest {
   deliver?: string;
   repeat?: string;
   skills?: string[];
+  /** 'claude' (default) or 'maintenance' — a maintenance job needs `action`, not `prompt`. */
+  kind?: 'claude' | 'maintenance';
+  /** Internal verb for a maintenance job, e.g. 'sweep'. */
+  action?: string;
 }
 
 export async function createMcCron(payload: CreateCronRequest): Promise<{ message: string; jobs: McCronJob[] }> {

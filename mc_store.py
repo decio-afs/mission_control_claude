@@ -35,6 +35,11 @@ STALE_CLAIM_SECONDS = 2 * 3600
 # exhausted it when its failed-attempt count reaches that number.
 FAILED_OUTCOMES = {"error", "failed", "failure", "timeout", "timed_out", "crashed"}
 
+# Internal maintenance verbs a `kind:"maintenance"` cron job can fire directly
+# (no Claude turn). `sweep` runs the full board self-heal macro. This is the
+# post-Hermes "board self-heals on a timer" path — see run_maintenance().
+MAINTENANCE_ACTIONS = {"sweep"}
+
 # Substrings that identify a web-capable MCP plugin on an agent's `mcps` list.
 # Matched case-insensitively — covers the common web-search/scrape providers.
 WEB_MCP_MARKERS = ("brave", "tavily", "serper", "exa", "perplexity",
@@ -1392,19 +1397,48 @@ class MCStore:
         for j in jobs:
             raw_lines.append(f"  {j['id']} [{j.get('status', 'active')}]")
             raw_lines.append(f"    Name: {j.get('name', '')}")
+            if (j.get("kind") or "claude") == "maintenance":
+                raw_lines.append(f"    Kind: maintenance ({j.get('action', '')})")
             raw_lines.append(f"    Schedule: {j.get('schedule', '')}")
             if j.get("next_run"):
                 raw_lines.append(f"    Next run: {j['next_run']}")
         return {"jobs": jobs, "raw": "\n".join(raw_lines)}
 
     def create_cron(self, schedule, prompt=None, name=None, deliver=None,
-                    repeat=None, skills=None) -> dict[str, Any]:
+                    repeat=None, skills=None, kind=None, action=None) -> dict[str, Any]:
+        """Create a scheduled job.
+
+        ``kind`` defaults to ``"claude"`` (the job fires its ``prompt`` through a
+        Claude turn). ``kind="maintenance"`` fires an internal ``action`` directly
+        (no Claude turn) — e.g. ``action="sweep"`` runs the board self-heal macro
+        on the local clock, the post-Hermes hands-free autonomy path. A maintenance
+        job must name a known ``action``; a claude job needs a ``prompt`` to be
+        fireable (an actionless/promptless job is created but stays inert).
+        """
+        kind = (kind or "claude").strip().lower()
+        if kind not in ("claude", "maintenance"):
+            raise ValueError(f"unknown cron kind: {kind!r} (expected claude|maintenance)")
+        if kind == "maintenance":
+            action = (action or "").strip().lower()
+            if action not in MAINTENANCE_ACTIONS:
+                raise ValueError(
+                    f"unknown maintenance action: {action!r} "
+                    f"(expected one of {sorted(MAINTENANCE_ACTIONS)})"
+                )
+        else:
+            action = None
         with self._lock:
             jobs = self._cron()
+            default_name = (
+                f"{action} (maintenance)" if kind == "maintenance"
+                else (prompt[:40] if prompt else schedule)
+            )
             job = {
                 "id": uuid.uuid4().hex[:12],
                 "status": "active",
-                "name": name or (prompt[:40] if prompt else schedule),
+                "kind": kind,
+                "action": action,
+                "name": name or default_name,
                 "schedule": schedule,
                 "prompt": prompt,
                 "deliver": deliver or "origin",
@@ -1417,6 +1451,19 @@ class MCStore:
             jobs.append(job)
             self._save_cron(jobs)
             return {"message": f"cron job {job['id']} created", "jobs": jobs}
+
+    def run_maintenance(self, action: str) -> dict[str, Any]:
+        """Execute an internal maintenance ``action`` by name (cron kind=maintenance).
+
+        Returns ``{ok, action, detail, result}`` — ``detail`` is the human-readable
+        outcome line the scheduler stamps onto the job via ``record_cron_result``.
+        Raises ``ValueError`` for an unknown action.
+        """
+        action = (action or "").strip().lower()
+        if action == "sweep":
+            res = self.sweep_board(dry_run=False)
+            return {"ok": True, "action": "sweep", "detail": res["message"], "result": res}
+        raise ValueError(f"unknown maintenance action: {action!r}")
 
     def get_cron_job(self, job_id) -> Optional[dict[str, Any]]:
         return next((j for j in self._cron() if j["id"] == job_id), None)

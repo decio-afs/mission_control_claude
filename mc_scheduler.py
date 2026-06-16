@@ -167,6 +167,19 @@ def schedule_kind(schedule: str) -> str:
     return "unknown"
 
 
+def is_fireable(job: dict) -> bool:
+    """Does ``job`` have something to fire?
+
+    A ``claude`` job (the default ``kind``) needs a ``prompt``; a ``maintenance``
+    job runs an internal verb so it needs an ``action`` instead and is exempt from
+    the prompt requirement. Keeping this in the scheduler (vs the bridge) means the
+    UI's next-fire countdown and the actual fire agree on which jobs are inert.
+    """
+    if (job.get("kind") or "claude") == "maintenance":
+        return bool(job.get("action"))
+    return bool(job.get("prompt"))
+
+
 def is_due(job: dict, now_ts: Optional[float] = None) -> bool:
     """True if ``job`` should fire at ``now_ts`` (epoch seconds, local clock).
 
@@ -174,11 +187,12 @@ def is_due(job: dict, now_ts: Optional[float] = None) -> bool:
       fired during this same minute (guards the sub-minute poll from double-firing).
     * interval — at least one period has elapsed since the last fire; an unfired
       job is anchored at ``created_at`` so it doesn't fire the instant it is made.
-    * unparseable / inactive / prompt-less jobs never fire.
+    * unparseable / inactive / un-fireable (claude job with no prompt, maintenance
+      job with no action) jobs never fire.
     """
     if (job.get("status") or "active") != "active":
         return False
-    if not job.get("prompt"):
+    if not is_fireable(job):
         return False
     now_ts = time.time() if now_ts is None else now_ts
     schedule = (job.get("schedule") or job.get("repeat") or "").strip()
@@ -247,6 +261,12 @@ if __name__ == "__main__":  # lightweight self-test (no API cost)
     assert not is_due({"status": "paused", "prompt": "x", "schedule": "0 7 * * *"}, ts(2026, 6, 15, 7, 0))
     assert not is_due({"status": "active", "schedule": "0 7 * * *"}, ts(2026, 6, 15, 7, 0)), "no prompt → no fire"
     assert not is_due({"status": "active", "prompt": "x", "schedule": "garbage"}, ts(2026, 6, 15, 7, 0))
+
+    # maintenance jobs fire on an action (no prompt needed); actionless never fire
+    maint = {"status": "active", "kind": "maintenance", "action": "sweep", "schedule": "0 7 * * *"}
+    assert is_due(maint, ts(2026, 6, 15, 7, 0)), "maintenance job fires on action, no prompt"
+    assert not is_due({"status": "active", "kind": "maintenance", "schedule": "0 7 * * *"}, ts(2026, 6, 15, 7, 0)), \
+        "maintenance job with no action → no fire"
 
     # macros + DOM/DOW OR rule
     assert is_due({"status": "active", "prompt": "x", "schedule": "@hourly"}, ts(2026, 6, 15, 9, 0))

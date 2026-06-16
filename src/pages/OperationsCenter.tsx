@@ -102,6 +102,10 @@ export default function OperationsCenter() {
   const [cronSchedule, setCronSchedule] = useState('');
   const [cronPrompt, setCronPrompt] = useState('');
   const [cronName, setCronName] = useState('');
+  // Job kind: a 'claude' job fires a prompt; a 'maintenance' job fires an internal
+  // verb (board self-heal) with no Claude turn — the hands-free autonomy path.
+  const [cronKind, setCronKind] = useState<'claude' | 'maintenance'>('claude');
+  const [cronAction, setCronAction] = useState('sweep');
   const [cronLoading, setCronLoading] = useState(false);
   const [cronError, setCronError] = useState<string | null>(null);
   // Live clock for the cron next-fire countdowns — ticks only while the modal
@@ -188,7 +192,11 @@ export default function OperationsCenter() {
     if (!cronSchedule.trim()) return;
     setCronLoading(true); setCronError(null);
     try {
-      const data = await createMcCron({ schedule: cronSchedule.trim(), prompt: cronPrompt.trim() || undefined, name: cronName.trim() || undefined });
+      const data = await createMcCron(
+        cronKind === 'maintenance'
+          ? { schedule: cronSchedule.trim(), kind: 'maintenance', action: cronAction, name: cronName.trim() || undefined }
+          : { schedule: cronSchedule.trim(), prompt: cronPrompt.trim() || undefined, name: cronName.trim() || undefined },
+      );
       setCron(data.jobs || []); setCronSchedule(''); setCronPrompt(''); setCronName('');
     } catch (err) { setCronError(errMessage(err)); } finally { setCronLoading(false); }
   };
@@ -518,7 +526,12 @@ export default function OperationsCenter() {
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="w-1.5 h-1.5 shrink-0" style={{ background: j.status === 'active' ? '#10b981' : '#545454' }} />
                   <div className="min-w-0">
-                    <div className="text-[11px] text-white truncate">{j.name || j.id.slice(0, 12)}</div>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {j.kind === 'maintenance' && (
+                        <span title={`internal maintenance verb: ${j.action || ''} (no Claude turn)`} className="shrink-0 text-[8px] font-mono tracking-[0.1em] uppercase text-emerald-300 border border-emerald-400/30 bg-emerald-400/5 px-1 py-px">⚙ {j.action || 'maint'}</span>
+                      )}
+                      <div className="text-[11px] text-white truncate">{j.name || j.id.slice(0, 12)}</div>
+                    </div>
                     <div className="text-[10px] font-mono text-[#545454] truncate">{sched.label}</div>
                   </div>
                 </div>
@@ -539,9 +552,23 @@ export default function OperationsCenter() {
             {cron.length === 0 && <div className="text-[10px] font-mono text-[#545454] p-2">No scheduled jobs.</div>}
           </div>
           <div className="border-t border-white/10 pt-2 flex flex-col gap-1.5">
+            <Field label="KIND">
+              <div className="flex gap-1">
+                <button type="button" onClick={() => setCronKind('claude')} className={`flex-1 text-[10px] font-mono py-1.5 border ${cronKind === 'claude' ? 'border-[#f64e6e] text-[#f64e6e] bg-[#f64e6e]/10' : 'border-white/10 text-[#b8b8b8]'}`}>◆ CLAUDE PROMPT</button>
+                <button type="button" onClick={() => setCronKind('maintenance')} className={`flex-1 text-[10px] font-mono py-1.5 border ${cronKind === 'maintenance' ? 'border-emerald-400 text-emerald-300 bg-emerald-400/10' : 'border-white/10 text-[#b8b8b8]'}`}>⚙ MAINTENANCE</button>
+              </div>
+            </Field>
             <Field label="SCHEDULE"><input value={cronSchedule} onChange={(e) => setCronSchedule(e.target.value)} placeholder="30m · every 2h · 0 9 * * *" className={inputCls} /></Field>
             <Field label="NAME (optional)"><input value={cronName} onChange={(e) => setCronName(e.target.value)} placeholder="morning-brief" className={inputCls} /></Field>
-            <Field label="PROMPT (optional)"><textarea value={cronPrompt} onChange={(e) => setCronPrompt(e.target.value)} rows={2} placeholder="Self-contained instruction…" className={`${inputCls} resize-none`} /></Field>
+            {cronKind === 'maintenance' ? (
+              <Field label="ACTION">
+                <select value={cronAction} onChange={(e) => setCronAction(e.target.value)} className={inputCls}>
+                  <option value="sweep">sweep — reconcile · cascade · reassign · escalate (board self-heal)</option>
+                </select>
+              </Field>
+            ) : (
+              <Field label="PROMPT (optional)"><textarea value={cronPrompt} onChange={(e) => setCronPrompt(e.target.value)} rows={2} placeholder="Self-contained instruction…" className={`${inputCls} resize-none`} /></Field>
+            )}
             {cronError && <div className="text-[10px] font-mono text-red-400">⚠ {cronError}</div>}
             <button onClick={() => void handleCreateCron()} disabled={cronLoading || !cronSchedule.trim()} className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">{cronLoading ? 'SCHEDULING…' : '+ SCHEDULE JOB'}</button>
           </div>
