@@ -525,6 +525,19 @@ class MCStore:
                 diags.append({"kind": "dead_agent_task", "severity": "warn",
                               "message": (f"assignee '{who}' appears dead/idle "
                                           f"({dead[who]['reason']}) — reassignable")})
+            # Promotable: a `todo` task with a live assignee and no open parent
+            # dependency is ready to run, but the dispatcher only fires `ready`
+            # work — so it sits idle until promoted. Surfaces the gate the
+            # `promote_ready` verb (todo→ready) closes: the dispatcher's feeder.
+            if (t.get("status") == "todo" and who and who in roster_names
+                    and who not in dead and tid not in cycle_nodes):
+                open_parents = [p for p in parents_of.get(tid, [])
+                                if p in ids and status_by_id.get(p) not in TERMINAL]
+                if not open_parents:
+                    diags.append({"kind": "promotable", "severity": "info",
+                                  "message": ("assigned & unblocked but still in "
+                                              "todo — promote → ready so the "
+                                              "dispatcher can run it")})
             if diags:
                 out.append({"task_id": tid, "title": t.get("title"), "status": t.get("status"),
                             "assignee": t.get("assignee"), "diagnostics": diags})
@@ -1040,16 +1053,6 @@ class MCStore:
             return {"routed": routed, "skipped": skipped,
                     "dry_run": dry_run, "message": msg}
 
-    # ------------------------------------------------- dependency ordering
-    @staticmethod
-    def _would_cycle(links: list[Any], parent: Any, child: Any) -> bool:
-        """Whether adding the edge ``parent -> child`` would create a cycle.
-
-        Links are ``[parent, child]`` pairs (a parent must finish before its
-        child). Adding ``parent -> child`` closes a cycle iff ``child`` can
-        already reach ``parent`` by following existing edges — or the edge is a
-        self-link (``parent == child``). Pure DFS over the current link set; the
-        proposed edge is NOT added first (we look for an existing child→parent
     # ------------------------------------------------- dispatch (run tasks)
     def dispatchable_tasks(self, limit: Optional[int] = None) -> list[dict[str, Any]]:
         """Tasks the dispatcher could fire right now, best-first (read-only).
@@ -1138,6 +1141,16 @@ class MCStore:
             t["status"] = "ready"; t["started_at"] = None
         return self._mutate(task_id, f, event="requeued", payload={"reason": reason})
 
+    # ------------------------------------------------- dependency ordering
+    @staticmethod
+    def _would_cycle(links: list[Any], parent: Any, child: Any) -> bool:
+        """Whether adding the edge ``parent -> child`` would create a cycle.
+
+        Links are ``[parent, child]`` pairs (a parent must finish before its
+        child). Adding ``parent -> child`` closes a cycle iff ``child`` can
+        already reach ``parent`` by following existing edges — or the edge is a
+        self-link (``parent == child``). Pure DFS over the current link set; the
+        proposed edge is NOT added first (we look for an existing child→parent
         path). Used as the guard at both `link()` and `create_task`'s
         parent-append loop so a cycle can never be persisted in the first place.
         """
@@ -1293,6 +1306,99 @@ class MCStore:
             return {"held": held, "promoted": promoted, "waiting": waiting,
                     "dry_run": dry_run, "message": msg}
 
+    def promote_ready(self, task_id: Optional[str] = None,
+                      dry_run: bool = False) -> dict[str, Any]:
+        """Promote actionable ``todo`` tasks to ``ready`` — the dispatcher's feeder.
+
+        The dispatcher (and ``dispatchable_tasks``) is conservative on purpose: it
+        only fires ``ready`` work, never raw ``todo`` backlog. Post-Hermes nothing
+        moved todo→ready in bulk, so a freshly-routed/assigned task sat in ``todo``
+        forever and the dispatcher stayed starved (0 ready ⇒ nothing to run). This
+        is the missing board-wide promotion gate — distinct from the per-task,
+        ungated ``promote_task`` (the drawer's manual "move this one to ready"):
+        it scans the whole board and promotes every task that is genuinely ready.
+
+        A ``todo`` task is promotable iff it has an ``assignee`` on the live roster
+        (an off-roster owner is the *reassign* verb's job) AND it has NO open
+        (existing, non-terminal) parent dependency (an open parent is the *cascade*
+        verb's job — that gate HOLDS the task, it does not promote it). Promotion
+        moves the task to ``ready`` with a ``promoted`` event recording the reason.
+        Honest by construction: a task that is unassigned, off-roster, or
+        dependency-blocked is **left in todo** with a skip reason (never
+        force-promoted — that is what the manual ``promote_task`` is for).
+        Conservative — only touches ``todo`` (never resurrects a blocked/triage
+        task), idempotent (a second pass finds nothing — promoted tasks are now
+        ``ready``), and ``dry_run`` previews without mutating. Moving to ``ready``
+        fires no worker on its own; the dispatcher (gated off by default) executes.
+        """
+        with self._lock:
+            tasks = self._tasks()
+            m = self._meta()
+            ids = {str(t.get("id")) for t in tasks}
+            status_by_id = {str(t.get("id")): t.get("status") for t in tasks}
+            parents_of: dict[str, list[str]] = {}
+            for p, c in m["links"]:
+                parents_of.setdefault(str(c), []).append(str(p))
+            roster_names = {a.get("name") for a in self.list_agents()}
+
+            if task_id is not None:
+                cand = [t for t in tasks if str(t.get("id")) == str(task_id)]
+                if not cand:
+                    raise KeyError(task_id)
+                cands = cand
+            else:
+                cands = [t for t in tasks if t.get("status") == "todo"]
+
+            promoted: list[dict[str, Any]] = []
+            skipped: list[dict[str, Any]] = []
+            changed = False
+            for t in cands:
+                tid = str(t.get("id"))
+                if t.get("status") != "todo":
+                    skipped.append({"id": tid, "title": t.get("title"),
+                                    "reason": f"not in todo (status={t.get('status')})"})
+                    continue
+                who = t.get("assignee")
+                if not who or who not in roster_names:
+                    skipped.append({"id": tid, "title": t.get("title"),
+                                    "reason": ("unassigned — route/assign first" if not who
+                                               else f"off-roster assignee '{who}' — reassign first")})
+                    continue
+                open_parents = [p for p in parents_of.get(tid, [])
+                                if p in ids and status_by_id.get(p) not in TERMINAL]
+                if open_parents:
+                    skipped.append({"id": tid, "title": t.get("title"),
+                                    "reason": (f"waiting on {len(open_parents)} open "
+                                               f"dependency task(s) — cascade first")})
+                    continue
+                reason = (f"promoted todo→ready (assignee '{who}' live, "
+                          f"no open dependencies)")
+                entry = {"id": tid, "title": t.get("title"),
+                         "assignee": who, "reason": reason}
+                if not dry_run:
+                    t["status"] = "ready"
+                    self._event(m, tid, "promoted",
+                                {"assignee": who, "reason": reason, "gate": "promote_ready"})
+                    changed = True
+                promoted.append(entry)
+            if changed and not dry_run:
+                self._save_tasks(tasks)
+                self._save_meta(m)
+            n = len(promoted)
+            verb = "would promote" if dry_run else "promoted"
+            if n:
+                msg = f"promote: {verb} {n} task(s) todo→ready"
+                if skipped and task_id is None:
+                    msg += f", {len(skipped)} left in todo (blocked/unassigned)"
+            elif skipped and task_id is not None:
+                msg = f"promote: {skipped[0]['reason']}"
+            elif skipped:
+                msg = f"promote: nothing promotable ({len(skipped)} todo blocked/unassigned)"
+            else:
+                msg = "promote: no actionable todo tasks"
+            return {"promoted": promoted, "skipped": skipped,
+                    "dry_run": dry_run, "message": msg}
+
     def sweep_board(self, dry_run: bool = False) -> dict[str, Any]:
         """One-call board self-manage macro — run the four self-heal verbs in order.
 
@@ -1311,6 +1417,11 @@ class MCStore:
           4. ``escalate_exhausted``   — block retry-burned tasks LAST, the final
              safety net once the earlier verbs have had their chance to recover the
              task.
+          5. ``promote_ready``        — promote the now-clean ``todo`` tasks (live
+             assignee, no open deps) → ``ready`` AFTER all holds/blocks settle, so
+             the dispatcher actually has work to run. This is what makes the
+             recurring maintenance sweep flow work end-to-end (promote → dispatch)
+             rather than just self-heal a static board.
 
         Every sub-verb is idempotent and ``dry_run``-able, so the macro is low-risk
         and a second pass is a no-op. ``dry_run`` threads through to every sub-call
@@ -1324,12 +1435,14 @@ class MCStore:
         cascade = self.cascade_dependencies(dry_run=dry_run)
         reassigned = self.reassign_dead_agent(dry_run=dry_run)
         escalated = self.escalate_exhausted(dry_run=dry_run)
+        promoted = self.promote_ready(dry_run=dry_run)
         counts = {
             "reconciled": len(reconciled.get("reclaimed", [])),
             "held": len(cascade.get("held", [])),
             "promoted": len(cascade.get("promoted", [])),
             "reassigned": len(reassigned.get("reassigned", [])),
             "escalated": len(escalated.get("escalated", [])),
+            "promoted_ready": len(promoted.get("promoted", [])),
         }
         total = sum(counts.values())
         verb = "would change" if dry_run else "changed"
@@ -1343,6 +1456,7 @@ class MCStore:
             "cascade": cascade,
             "reassigned": reassigned,
             "escalated": escalated,
+            "promoted": promoted,
             "counts": counts,
             "total": total,
             "dry_run": dry_run,
