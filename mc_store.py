@@ -620,6 +620,24 @@ class MCStore:
                     j["next_run"] = _next_run(j.get("schedule", ""))
             self._save_cron(jobs)
 
+    def record_cron_result(self, job_id, ok: bool, detail: str = "",
+                           trigger: str = "manual") -> None:
+        """Stamp a job's outcome after a fire (scheduled or manual).
+
+        Records ``last_run`` (epoch), ``last_status`` (ok|error), the trigger that
+        fired it, and a short ``last_detail`` excerpt — so the UI can show whether a
+        scheduled job is actually executing instead of silently never firing."""
+        with self._lock:
+            jobs = self._cron()
+            for j in jobs:
+                if j["id"] == job_id:
+                    j["last_run"] = _now()
+                    j["last_status"] = "ok" if ok else "error"
+                    j["last_trigger"] = trigger
+                    j["last_detail"] = (detail or "")[:280]
+                    j["next_run"] = _next_run(j.get("schedule", ""))
+            self._save_cron(jobs)
+
 
 def _next_run(schedule: str) -> Optional[str]:
     """Best-effort next-run display from a simple interval like '30m' / '2h' / '1d'.

@@ -90,6 +90,25 @@ export interface McCronJob {
   repeat?: string;
   deliver?: string;
   script?: string;
+  /** Outcome of the most recent fire (scheduled or manual), stamped by the bridge. */
+  last_run?: number;
+  last_status?: 'ok' | 'error';
+  last_trigger?: 'schedule' | 'manual';
+  last_detail?: string;
+}
+
+/** Liveness of the in-bridge cron daemon that actually fires due jobs. */
+export interface CronSchedulerStatus {
+  enabled: boolean;
+  running: boolean;
+  tick_seconds: number;
+  started_at?: number | null;
+  last_tick?: number | null;
+  ticks: number;
+  fired: number;
+  errors: number;
+  last_fired_id?: string | null;
+  last_error?: string | null;
 }
 
 export interface McStatus {
@@ -334,7 +353,7 @@ export async function switchMcBoard(slug: string) {
   return data;
 }
 
-export async function getMcCron(): Promise<{ jobs: McCronJob[]; raw: string }> {
+export async function getMcCron(): Promise<{ jobs: McCronJob[]; raw: string; scheduler?: CronSchedulerStatus }> {
   const { data } = await bridge.get('/api/mc/cron');
   return data;
 }

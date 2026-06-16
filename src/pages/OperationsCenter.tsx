@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
-import { getMcCron, runMcCron, createMcCron, decomposeTask, errMessage, type McCronJob, type McTask } from '../lib/api';
+import { getMcCron, runMcCron, createMcCron, decomposeTask, errMessage, type McCronJob, type CronSchedulerStatus, type McTask } from '../lib/api';
 import { parseSchedule, formatCountdown, fireLabel, type ParsedSchedule } from '../lib/cronSchedule';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import CronTimeline from '../components/CronTimeline';
@@ -86,6 +86,7 @@ export default function OperationsCenter() {
   // cron modal
   const [cronOpen, setCronOpen] = useState(false);
   const [cron, setCron] = useState<McCronJob[]>([]);
+  const [schedulerStatus, setSchedulerStatus] = useState<CronSchedulerStatus | null>(null);
   const [cronSchedule, setCronSchedule] = useState('');
   const [cronPrompt, setCronPrompt] = useState('');
   const [cronName, setCronName] = useState('');
@@ -95,7 +96,7 @@ export default function OperationsCenter() {
   // is open (seeded once, never read via Date.now() inside render).
   const [cronNow, setCronNow] = useState(0);
 
-  const loadCron = () => getMcCron().then((d) => setCron(d.jobs || [])).catch(() => {});
+  const loadCron = () => getMcCron().then((d) => { setCron(d.jobs || []); setSchedulerStatus(d.scheduler || null); }).catch(() => {});
 
   useEffect(() => { fetchTasks(); fetchStats(); fetchBoards(); fetchDiagnostics(); loadCron(); }, [fetchTasks, fetchStats, fetchBoards, fetchDiagnostics]);
 
@@ -383,6 +384,7 @@ export default function OperationsCenter() {
       {/* CRON MODAL */}
       {cronOpen && (
         <Modal title="SCHEDULED JOBS · mc cron" onClose={() => setCronOpen(false)}>
+          <SchedulerStatusBar sched={schedulerStatus} />
           {cron.length > 0 && <CronTimeline jobs={cron} nowMs={cronNow} />}
           {cron.length > 0 && (
             <div className="flex items-center justify-between px-2 text-[10px] font-mono tracking-[0.2em] uppercase text-[#545454]">
@@ -400,6 +402,14 @@ export default function OperationsCenter() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  {j.last_status && (
+                    <span
+                      title={`last ${j.last_trigger || ''} fire: ${j.last_status}${j.last_detail ? ` — ${j.last_detail}` : ''}`}
+                      className={`text-[9px] font-mono ${j.last_status === 'ok' ? 'text-[#10b981]' : 'text-red-400'}`}
+                    >
+                      {j.last_status === 'ok' ? '✓' : '⚠'}
+                    </span>
+                  )}
                   <CronNextFire sched={sched} nowMs={cronNow} />
                   <button onClick={() => void runMcCron(j.id)} className="text-[10px] font-mono border border-white/10 px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">RUN</button>
                 </div>
@@ -427,6 +437,29 @@ function Chip({ k, v, c }: { k: string; v: number | string; c: string }) {
     <span className="flex items-center gap-1.5 px-2 py-1 border border-white/10 bg-[#080808]">
       <span className="text-[#545454] tracking-[0.1em]">{k}</span><span className={`font-bold tabular-nums ${c}`}>{v}</span>
     </span>
+  );
+}
+
+// Honest liveness banner for the in-bridge cron daemon. Without it, the
+// next-fire countdowns below are aspirational — this says whether anything is
+// actually firing them. Older bridges (pre-scheduler) return no scheduler field.
+function SchedulerStatusBar({ sched }: { sched: CronSchedulerStatus | null }) {
+  if (!sched) {
+    return (
+      <div className="mb-2 px-2 py-1.5 border border-amber-500/30 bg-amber-500/5 text-[10px] font-mono text-amber-400">
+        ⚠ SCHEDULER STATUS UNKNOWN — bridge predates the cron daemon (restart to enable). Countdowns below will not fire on their own.
+      </div>
+    );
+  }
+  const live = sched.enabled && sched.running;
+  return (
+    <div className={`mb-2 px-2 py-1.5 border text-[10px] font-mono flex items-center justify-between gap-2 ${live ? 'border-[#10b981]/30 bg-[#10b981]/5 text-[#10b981]' : 'border-amber-500/30 bg-amber-500/5 text-amber-400'}`}>
+      <span className="flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5" style={{ background: live ? '#10b981' : '#f59e0b' }} />
+        {live ? `DAEMON LIVE · tick ${sched.tick_seconds}s` : sched.enabled ? 'DAEMON STARTING…' : 'DAEMON DISABLED (MC_SCHEDULER_ENABLED=0)'}
+      </span>
+      <span className="text-[#545454]">fired {sched.fired} · err {sched.errors}</span>
+    </div>
   );
 }
 

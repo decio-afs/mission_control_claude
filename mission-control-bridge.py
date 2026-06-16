@@ -49,6 +49,7 @@ from mc_brain import (  # noqa: E402
 )
 from mc_store import MCStore  # noqa: E402
 import mc_diag  # noqa: E402
+import mc_scheduler  # noqa: E402
 
 SESSIONS = MCSessions(Path(__file__).parent / ".mc" / "data" / "sessions.db")
 
@@ -280,6 +281,104 @@ class BriefingResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Cron scheduler — the in-bridge daemon that actually fires due jobs.
+#
+# Post-Hermes there was no process firing the native cron store: the UI showed
+# next-fire countdowns but nothing executed them. This thread is that engine. It
+# wakes every CRON_TICK_SECONDS, asks mc_scheduler which active jobs are due
+# (cron-expression or interval, local clock — identical semantics to the UI's
+# cronSchedule.ts), and runs each due job's prompt through Claude, single-flight,
+# stamping the outcome back onto the job. Enabled by default; set
+# MC_SCHEDULER_ENABLED=0 to run the bridge without it.
+# ---------------------------------------------------------------------------
+import threading  # noqa: E402
+
+MC_SCHEDULER_ENABLED = os.environ.get("MC_SCHEDULER_ENABLED", "1") not in ("0", "false", "False", "")
+CRON_TICK_SECONDS = int(os.environ.get("MC_CRON_TICK_SECONDS", "30"))
+CRON_JOB_TIMEOUT = int(os.environ.get("MC_CRON_JOB_TIMEOUT", "600"))
+
+
+class CronScheduler:
+    """Background thread that fires due cron jobs through Claude."""
+
+    def __init__(self):
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+        self.started_at: Optional[float] = None
+        self.last_tick: Optional[float] = None
+        self.ticks = 0
+        self.fired = 0
+        self.errors = 0
+        self.last_fired_id: Optional[str] = None
+        self.last_error: Optional[str] = None
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self.started_at = time.time()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="cron-scheduler")
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def alive(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def status(self) -> dict:
+        return {
+            "enabled": MC_SCHEDULER_ENABLED,
+            "running": self.alive(),
+            "tick_seconds": CRON_TICK_SECONDS,
+            "started_at": self.started_at,
+            "last_tick": self.last_tick,
+            "ticks": self.ticks,
+            "fired": self.fired,
+            "errors": self.errors,
+            "last_fired_id": self.last_fired_id,
+            "last_error": self.last_error,
+        }
+
+    def _loop(self):
+        print(f"[mc-bridge] cron scheduler up (tick {CRON_TICK_SECONDS}s)", flush=True)
+        while not self._stop.is_set():
+            try:
+                self.last_tick = time.time()
+                self.ticks += 1
+                jobs = STORE.list_cron().get("jobs", [])
+                for job in mc_scheduler.due_jobs(jobs, self.last_tick):
+                    if self._stop.is_set():
+                        break
+                    self._fire(job)
+            except Exception as e:  # never let the daemon die on a bad tick
+                self.errors += 1
+                self.last_error = f"tick: {e}"
+                print(f"[mc-bridge] cron scheduler tick error: {e}", flush=True)
+            self._stop.wait(CRON_TICK_SECONDS)
+
+    def _fire(self, job: dict):
+        job_id = job.get("id")
+        prompt = job.get("prompt")
+        if not job_id or not prompt:
+            return
+        print(f"[mc-bridge] cron firing {job_id} ({job.get('name', '')})", flush=True)
+        try:
+            resp = run_claude(prompt, timeout=CRON_JOB_TIMEOUT)
+            STORE.record_cron_result(job_id, True, resp.get("result", ""), trigger="schedule")
+            self.fired += 1
+            self.last_fired_id = job_id
+        except Exception as e:
+            STORE.record_cron_result(job_id, False, str(e), trigger="schedule")
+            self.errors += 1
+            self.last_error = f"{job_id}: {e}"
+            print(f"[mc-bridge] cron job {job_id} failed: {e}", flush=True)
+
+
+SCHEDULER = CronScheduler()
+
+
+# ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
 
@@ -289,9 +388,14 @@ async def lifespan(app: FastAPI):
     # Warm-load Whisper in the background so the first voice turn doesn't pay
     # the model load (or the first-ever ~150MB hub download) inline.
     if _whisper_installed():
-        import threading
         threading.Thread(target=_get_whisper_model, daemon=True, name="whisper-warmup").start()
+    # Fire due cron jobs on schedule (the missing post-Hermes daemon).
+    if MC_SCHEDULER_ENABLED:
+        SCHEDULER.start()
+    else:
+        print("[mc-bridge] cron scheduler DISABLED (MC_SCHEDULER_ENABLED=0)", flush=True)
     yield
+    SCHEDULER.stop()
     print("[mc-bridge] Shutting down", flush=True)
 
 
@@ -963,8 +1067,11 @@ def switch_board(payload: BoardSwitchPayload):
 
 @app.get("/api/mc/cron")
 def get_cron():
-    """List scheduled jobs from the native store."""
-    return STORE.list_cron()
+    """List scheduled jobs from the native store + the live scheduler status,
+    so the UI's next-fire countdowns can be shown as actually-firing vs inert."""
+    out = STORE.list_cron()
+    out["scheduler"] = SCHEDULER.status()
+    return out
 
 
 @app.post("/api/mc/cron")
@@ -987,8 +1094,9 @@ def run_cron(job_id: str):
     try:
         resp = run_claude(prompt, timeout=300)
     except ClaudeError as e:
+        STORE.record_cron_result(job_id, False, str(e), trigger="manual")
         raise HTTPException(status_code=502, detail=f"Claude: {e}")
-    STORE.mark_cron_run(job_id)
+    STORE.record_cron_result(job_id, True, resp.get("result", ""), trigger="manual")
     return {"message": resp["result"]}
 
 
