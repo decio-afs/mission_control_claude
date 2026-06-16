@@ -23,6 +23,7 @@ import {
   reconcileKanban,
   routeTriage,
   escalateExhausted,
+  cascadeDependencies,
   getMcBoards,
   createMcBoard,
   switchMcBoard,
@@ -35,6 +36,7 @@ import {
   type BoardDiagnostic,
   type RouteResult,
   type EscalateResult,
+  type CascadeResult,
 } from '../lib/api';
 
 export interface OpTask {
@@ -88,6 +90,7 @@ interface TaskStore {
   reconcileBoard: (thresholdHours?: number) => Promise<number>;
   routeTriageTasks: (opts?: { taskId?: string; dryRun?: boolean }) => Promise<RouteResult | null>;
   escalateExhaustedTasks: (opts?: { taskId?: string; dryRun?: boolean }) => Promise<EscalateResult | null>;
+  cascadeDeps: (opts?: { dryRun?: boolean }) => Promise<CascadeResult | null>;
   specifyTask: (taskId: string) => Promise<boolean>;
   fetchTaskDetail: (taskId: string) => Promise<TaskDetail | null>;
   addMcTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<McTask | null>;
@@ -287,6 +290,27 @@ export const useTaskStore = create<TaskStore>((set, get) => {
       } catch (err) {
         const msg = errMessage(err);
         console.error('[TaskStore] escalateExhaustedTasks failed:', msg);
+        set({ error: msg });
+        return null;
+      }
+    },
+
+    // Enforce parent→child dependency ordering: hold workable children with open
+    // parents, promote held children whose parents are all done, then refresh so
+    // the board + diagnostics reflect the new states. Returns the full plan
+    // (held + promoted + waiting) for the UI, or null on error. `dryRun` previews.
+    cascadeDeps: async (opts) => {
+      try {
+        const res = await cascadeDependencies(opts);
+        if (!opts?.dryRun && (res.held.length > 0 || res.promoted.length > 0)) {
+          await get().fetchTasks();
+          await get().fetchStats();
+        }
+        await get().fetchDiagnostics();
+        return res;
+      } catch (err) {
+        const msg = errMessage(err);
+        console.error('[TaskStore] cascadeDeps failed:', msg);
         set({ error: msg });
         return null;
       }

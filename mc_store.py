@@ -426,6 +426,11 @@ class MCStore:
         ids = {str(t.get("id")) for t in tasks}
         m = self._meta()
         now = _now()
+        # Parent-link + status lookup for the dependency-ordering diagnostic.
+        status_by_id = {str(t.get("id")): t.get("status") for t in tasks}
+        parents_of: dict[str, list[str]] = {}
+        for p, c in m["links"]:
+            parents_of.setdefault(str(c), []).append(str(p))
         out: list[dict[str, Any]] = []
         for t in tasks:
             diags: list[dict[str, Any]] = []
@@ -454,6 +459,17 @@ class MCStore:
                                       "message": (f"exhausted retry budget "
                                                   f"({attempts}/{budget} attempts failed) "
                                                   f"— not yet escalated")})
+            # Dependency ordering: a non-terminal task whose parent task(s) are
+            # still open should not be worked yet. Surfaces the gate the cascade
+            # verb enforces. Only counts existing-but-non-terminal parents
+            # (dangling links are the separate `missing_dependency` diagnostic).
+            if t.get("status") not in TERMINAL:
+                open_parents = [p for p in parents_of.get(tid, [])
+                                if p in ids and status_by_id.get(p) not in TERMINAL]
+                if open_parents:
+                    diags.append({"kind": "blocked_by_dependency", "severity": "warn",
+                                  "message": (f"waiting on {len(open_parents)} open "
+                                              f"dependency task(s): {', '.join(open_parents)}")})
             if diags:
                 out.append({"task_id": tid, "title": t.get("title"), "status": t.get("status"),
                             "assignee": t.get("assignee"), "diagnostics": diags})
@@ -775,6 +791,111 @@ class MCStore:
                    + (f", {len(skipped)} left in triage" if skipped else "")) \
                 if (routed or skipped) else "route: no triage tasks"
             return {"routed": routed, "skipped": skipped,
+                    "dry_run": dry_run, "message": msg}
+
+    # ------------------------------------------------- dependency ordering
+    @staticmethod
+    def _dep_held(events: list[dict[str, Any]]) -> bool:
+        """Whether a task is currently held by the dependency gate.
+
+        Tracked purely from its event timeline: a `dependency_hold` sets the
+        held state, a later `dependency_clear` lifts it. This lets the cascade
+        verb promote ONLY tasks it itself held — a task blocked for any other
+        reason (e.g. missing web access) is never disturbed.
+        """
+        held = False
+        for e in events:
+            k = e.get("kind")
+            if k == "dependency_hold":
+                held = True
+            elif k == "dependency_clear":
+                held = False
+        return held
+
+    def cascade_dependencies(self, dry_run: bool = False) -> dict[str, Any]:
+        """Enforce parent→child dependency ordering across the board.
+
+        Parent→child links exist (`kanban-meta.json["links"]`, surfaced as
+        parents/children on a task and via the `missing_dependency` diagnostic)
+        but post-Hermes nothing enforced ordering: a child could be claimed
+        while its parents were still open, and nothing re-promoted a child once
+        its last parent finished. This is the missing orchestration sweep. In
+        one pass it:
+          * HOLDS a workable child (status ``todo``/``ready``) that still has
+            open (existing, non-terminal) parents → moves it to ``blocked`` with
+            a ``dependency_hold`` event + a ``blocked`` reason (so it never shows
+            ``blocked_no_reason``), keeping it from being worked out of order;
+          * PROMOTES a child this gate previously held (status ``blocked``, last
+            dependency event a hold) once ALL its parents are terminal → back to
+            ``ready`` with a ``dependency_clear`` event;
+          * surfaces children still WAITING (held, parents not all done yet).
+        Conservative by construction: it only promotes tasks it held, so a task
+        blocked for another reason is never touched. Idempotent — a second pass
+        finds nothing new. ``dry_run`` returns the same plan without mutating.
+        Moving a child to ``ready`` fires no worker (no in-process dispatcher).
+        """
+        with self._lock:
+            tasks = self._tasks()
+            m = self._meta()
+            ids = {str(t.get("id")) for t in tasks}
+            status_by_id = {str(t.get("id")): t.get("status") for t in tasks}
+            parents_of: dict[str, list[str]] = {}
+            for p, c in m["links"]:
+                parents_of.setdefault(str(c), []).append(str(p))
+
+            held: list[dict[str, Any]] = []
+            promoted: list[dict[str, Any]] = []
+            waiting: list[dict[str, Any]] = []
+            changed = False
+            for t in tasks:
+                tid = str(t.get("id"))
+                parents = parents_of.get(tid)
+                if not parents:
+                    continue
+                open_parents = [p for p in parents
+                                if p in ids and status_by_id.get(p) not in TERMINAL]
+                status = t.get("status")
+                is_held = self._dep_held(m["events"].get(tid, []))
+                if open_parents and status in ("todo", "ready"):
+                    reason = (f"held: waiting on {len(open_parents)} open "
+                              f"dependency task(s) ({', '.join(open_parents)})")
+                    held.append({"id": tid, "title": t.get("title"),
+                                 "open_parents": open_parents,
+                                 "prev_status": status, "reason": reason})
+                    if not dry_run:
+                        t["status"] = "blocked"
+                        self._event(m, tid, "dependency_hold",
+                                    {"open_parents": open_parents,
+                                     "prev_status": status, "reason": reason})
+                        self._event(m, tid, "blocked", {"reason": reason})
+                        changed = True
+                elif is_held and status == "blocked" and not open_parents:
+                    reason = "promoted: all dependency task(s) complete"
+                    promoted.append({"id": tid, "title": t.get("title"),
+                                     "parents": parents, "reason": reason})
+                    if not dry_run:
+                        t["status"] = "ready"
+                        self._event(m, tid, "dependency_clear",
+                                    {"parents": parents, "reason": reason})
+                        changed = True
+                elif is_held and status == "blocked" and open_parents:
+                    waiting.append({"id": tid, "title": t.get("title"),
+                                    "open_parents": open_parents})
+            if changed and not dry_run:
+                self._save_tasks(tasks)
+                self._save_meta(m)
+            verb_h = "would hold" if dry_run else "held"
+            verb_p = "would promote" if dry_run else "promoted"
+            parts: list[str] = []
+            if held:
+                parts.append(f"{verb_h} {len(held)}")
+            if promoted:
+                parts.append(f"{verb_p} {len(promoted)}")
+            if waiting:
+                parts.append(f"{len(waiting)} still waiting")
+            msg = "cascade: " + (", ".join(parts) if parts
+                                 else "no dependency changes")
+            return {"held": held, "promoted": promoted, "waiting": waiting,
                     "dry_run": dry_run, "message": msg}
 
     # --------------------------------------------------------------- boards

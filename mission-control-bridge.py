@@ -914,6 +914,26 @@ def kanban_escalate(payload: Optional[EscalatePayload] = None):
         raise HTTPException(status_code=404, detail=f"task {tid} not found")
 
 
+class CascadePayload(BaseModel):
+    # Preview the dependency hold/promote plan without mutating the board.
+    dry_run: bool = False
+
+
+@app.post("/api/mc/kanban/cascade")
+def kanban_cascade(payload: Optional[CascadePayload] = None):
+    """Enforce parent→child dependency ordering across the board.
+
+    Parent→child links existed but nothing enforced ordering post-Hermes. This
+    sweep HOLDS a workable child whose parents are still open (→ `blocked` with
+    a recorded reason), PROMOTES a child it previously held once all its parents
+    are `done` (→ `ready`), and surfaces children still waiting. Conservative:
+    it only promotes tasks it held, so tasks blocked for other reasons are never
+    touched. Idempotent; `dry_run` previews the plan without mutating.
+    """
+    dry = payload.dry_run if payload else False
+    return STORE.cascade_dependencies(dry_run=dry)
+
+
 @app.post("/api/mc/tasks/{task_id}/specify")
 def specify_task(task_id: str):
     """Flesh out a triage task's spec with Claude, then promote it to ready."""

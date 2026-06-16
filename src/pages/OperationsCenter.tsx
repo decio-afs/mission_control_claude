@@ -56,7 +56,7 @@ function hasDeliverable(t: McTask): boolean {
 }
 
 export default function OperationsCenter() {
-  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, escalateExhaustedTasks, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
+  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, escalateExhaustedTasks, cascadeDeps, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
   const nodes = useGhostStore((s) => s.nodes);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -68,6 +68,8 @@ export default function OperationsCenter() {
   const [routeMsg, setRouteMsg] = useState<string | null>(null);
   const [escalating, setEscalating] = useState(false);
   const [escalateMsg, setEscalateMsg] = useState<string | null>(null);
+  const [cascading, setCascading] = useState(false);
+  const [cascadeMsg, setCascadeMsg] = useState<string | null>(null);
   const [webAudit, setWebAudit] = useState<WebAccessAudit | null>(null);
   const loadWebAudit = () => getWebAccessAudit().then(setWebAudit).catch(() => {});
   const [boardModal, setBoardModal] = useState(false);
@@ -290,6 +292,7 @@ export default function OperationsCenter() {
             const staleCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'stale_claim').length || 0), 0);
             const triageCount = stats?.by_status?.triage || 0;
             const exhaustedCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'retry_exhausted').length || 0), 0);
+            const depCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'blocked_by_dependency').length || 0), 0);
             return (
               <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.06] flex-wrap">
                 <button
@@ -346,6 +349,27 @@ export default function OperationsCenter() {
                   {escalating ? '… escalating' : `⚑ ESCALATE EXHAUSTED${exhaustedCount > 0 ? ` (${exhaustedCount})` : ''}`}
                 </button>
                 {escalateMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{escalateMsg}</span>}
+                <button
+                  disabled={cascading || depCount === 0}
+                  onClick={async () => {
+                    setCascading(true); setCascadeMsg(null);
+                    const res = await cascadeDeps();
+                    if (!res) setCascadeMsg('⚠ cascade failed — see console');
+                    else {
+                      const h = res.held.length, p = res.promoted.length, w = res.waiting.length;
+                      const parts: string[] = [];
+                      if (h) parts.push(`held ${h} → blocked`);
+                      if (p) parts.push(`promoted ${p} → ready`);
+                      if (w) parts.push(`${w} still waiting`);
+                      setCascadeMsg(parts.length ? `✓ ${parts.join(' · ')}` : 'no dependency changes');
+                    }
+                    setCascading(false);
+                  }}
+                  title={depCount === 0 ? 'No dependency-blocked tasks to gate' : `Enforce ordering on ${depCount} task(s) waiting on open parent dependencies`}
+                  className={`text-[10px] font-mono border px-2 py-1 ${depCount > 0 && !cascading ? 'border-violet-400/50 text-violet-400 hover:bg-violet-400/10' : 'border-white/10 text-[#545454] cursor-default'}`}>
+                  {cascading ? '… cascading' : `⇄ CASCADE DEPS${depCount > 0 ? ` (${depCount})` : ''}`}
+                </button>
+                {cascadeMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{cascadeMsg}</span>}
               </div>
             );
           })()}

@@ -401,6 +401,29 @@ export async function escalateExhausted(opts?: { taskId?: string; dryRun?: boole
   return data;
 }
 
+// --- Dependency-aware promotion gate: enforce parent→child ordering ---
+// Parent→child links existed but nothing enforced ordering post-Hermes. This
+// sweep HOLDS a workable child whose parents are still open (→ blocked-with-
+// reason), PROMOTES a child it previously held once all parents are done
+// (→ ready), and surfaces children still waiting. Conservative (only promotes
+// tasks it held) and idempotent; `dryRun` previews without mutating.
+export interface CascadeHeld { id: string; title?: string; open_parents: string[]; prev_status?: string; reason: string }
+export interface CascadePromoted { id: string; title?: string; parents: string[]; reason: string }
+export interface CascadeWaiting { id: string; title?: string; open_parents: string[] }
+export interface CascadeResult {
+  held: CascadeHeld[];
+  promoted: CascadePromoted[];
+  waiting: CascadeWaiting[];
+  dry_run: boolean;
+  message: string;
+}
+export async function cascadeDependencies(opts?: { dryRun?: boolean }): Promise<CascadeResult> {
+  const body: Record<string, unknown> = {};
+  if (opts?.dryRun) body.dry_run = true;
+  const { data } = await bridge.post('/api/mc/kanban/cascade', body);
+  return data;
+}
+
 export async function getTaskNotifications(taskId: string): Promise<{ subscriptions: NotifySubscription[] }> {
   const { data } = await bridge.get(`/api/mc/tasks/${taskId}/notify`);
   return data;

@@ -21,27 +21,37 @@ below. `## DONE` is append-only history; `## TO-DO` is rewritten each run for th
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 ~05:15** (Run #5 — built retry-exhaustion escalation)._
+_Last run: **2026-06-16 ~07:15** (Run #6 — built dependency-aware promotion gate)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~20.5h. **Still holds pre-restart code** — now **FIVE** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404, confirmed this run). |
+| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~22.5h. **Still holds pre-restart code** — now **SIX** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404), run#6 cascade (`POST /api/mc/kanban/cascade`→404, confirmed this run). |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
 | `npm run build` | ✅ PASS | tsc + vite, 156 modules, exit 0 (chunk-size warning only) |
 | `npm run lint` | ✅ PASS | `npx eslint` on the 3 touched TS files (`api.ts`, `useTaskStore.ts`, `OperationsCenter.tsx`) = "No issues found"; only pre-existing `office/tower` churn remains (sibling-owned) |
-| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged from run#4). No `stale_claim`, no `retry_exhausted` (no failed/budget-burned tasks on the board). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task has a live deterministic router (run#4). |
+| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged from run#4). No `stale_claim`, no `retry_exhausted`, **no `blocked_by_dependency`** (board has **0 dependency links** — `kanban-meta.json["links"]` empty). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task has a live deterministic router (run#4). |
 | Cron jobs | 🟡 EMPTY + engine ready | store `jobs: []`; scheduler daemon built (run#2), loads on restart. Seeding the 2 pipeline jobs safe-to-fire post-restart — TO-DO #2. |
 | Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 22 · drafts 6 · calendar 31 (run#1); `.mc/data/` written |
-| Modules in error state | none observed | Vite preview (:5219) renders Operations LIVE; diagnostics modal opens clean; new red **⚑ ESCALATE EXHAUSTED** button renders **disabled** with honest tooltip "No retry-exhausted tasks to escalate", zero console errors. (Disabled is correct: 0 exhausted tasks on the live board + old bridge has no `retry_exhausted` diagnostic; activates on restart.) |
+| Modules in error state | none observed | Vite preview (:5219) renders Operations LIVE; diagnostics modal opens clean; new violet **⇄ CASCADE DEPS** button renders **disabled** with honest tooltip "No dependency-blocked tasks to gate", zero console errors (DOM-read: `{text:"⇄ CASCADE DEPS", disabled:true}`). (Disabled is correct: 0 dependency-blocked tasks on the live board + old bridge has no endpoint; activates on restart.) |
 
 ---
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-1. **Restart the bridge to activate FIVE built capabilities at once** (`npm run bridge`, or whatever
+1. **Restart the bridge to activate SIX built capabilities at once** (`npm run bridge`, or whatever
    launches the operator's bridge / desktop app). The live bridge still holds pre-restart code
    (confirmed this run: reconcile → 404, `/api/mc/cron` no `scheduler` field, `/api/mc/agents/web-access`
-   → 405, `/api/mc/kanban/route` → 404, `/api/mc/kanban/escalate` → 404). After restart, confirm **all** of:
+   → 405, `/api/mc/kanban/route` → 404, `/api/mc/kanban/escalate` → 404, `/api/mc/kanban/cascade` → 404).
+   After restart, confirm **all** of:
+   - **`POST /api/mc/kanban/cascade` (run#6)** → `{held,promoted,waiting,dry_run,message}`. On the current
+     board it returns all-empty (`held:[] promoted:[] waiting:[]`, "no dependency changes") because the board
+     has **0 dependency links** (`kanban-meta.json["links"]` is empty), so Operations → ⚠ diagnostics → the
+     violet **⇄ CASCADE DEPS** button stays **disabled** (correct, honest empty state). To exercise the live
+     path you need ≥1 parent→child link (create a task with `parents:[...]`, or append to `links`): a child in
+     `todo`/`ready` with an open parent gets a `blocked_by_dependency` diagnostic, the button enables `(n)`,
+     and clicking HOLDS it → `blocked` (with reason, never `blocked_no_reason`); once all its parents are
+     `done`, a second cascade PROMOTES it → `ready`. Fully proven in-process this run on a throwaway store
+     (see DONE Run#6).
    - `GET /api/mc/cron` → includes `"scheduler": {enabled:true, running:true, tick_seconds:30, …}`;
      Operations → ⏱ CRON modal banner flips from amber "scheduler unknown" to green **DAEMON LIVE**.
    - `POST /api/mc/kanban/reconcile` (run#1) → `{reclaimed,threshold_hours,message}`; Operations →
@@ -84,16 +94,18 @@ _Last run: **2026-06-16 ~05:15** (Run #5 — built retry-exhaustion escalation).
    flesh-out (`POST /api/mc/tasks/{id}/specify`, runs a live turn) remains a separate optional step — fire
    when the operator is present. Did NOT auto-route this run (live bridge predates the endpoint; safe to do
    post-restart).
-5. **Next capability to BUILD:** **dependency-aware promotion gate** (new GAPS #6, ranked next). Parent→child
-   links exist (`kanban-meta.json["links"]`, exposed via `parents`/`children` in `show_task`, and a
-   `missing_dependency` diagnostic), but **nothing enforces ordering**: a child task can be promoted/claimed
-   while its parents are still open, and nothing auto-promotes a child when its last parent completes. Build the
-   missing orchestration path: (a) a `blocked_by_dependency` diagnostic when a non-terminal task has an open
-   parent; (b) a `promote` guard / `unblock-on-parent-done` sweep verb (`POST /api/mc/kanban/cascade` or similar)
-   that promotes children whose parents are all `done` and surfaces those still waiting — end-to-end, pure +
-   testable like run#1–#5. Runner-up gap: **auto-reassign-on-dead-agent** (GAPS #7) — reconcile reclaims a stale
-   claim to `ready` but leaves it on the same dead assignee; no verb bulk-reassigns a dead agent's open work.
-   One end-to-end per run.
+5. **Next capability to BUILD:** **auto-reassign-on-dead-agent** (GAPS #7, now ranked next). `reconcile_board`
+   reclaims a stale running claim back to `ready` but **leaves it on the same dead/abandoned assignee** — the
+   next claim re-fails on the same agent. There is no verb that bulk-reassigns a dead/idle agent's open
+   (non-terminal) work to a live best-fit owner. Build the missing orchestration path, reusing the run#4
+   skill-match scorer (`_route_score`): a `POST /api/mc/kanban/reassign` (`{from_agent?, dry_run?}`) →
+   `MCStore.reassign_dead_agent(...)` → store action → an Operations diagnostics button. "Dead/idle" = an agent
+   sitting on stale/blocked work or absent from the live roster; reassign each of its open tasks to the
+   best-fit *other* agent by skill match (least-loaded tie-break, honestly skip if no confident match), record
+   a `reassigned` event, `dry_run` previews. End-to-end, pure + testable like run#1–#6. Runner-up gap:
+   **dependency cycle/self-link guard** (NEW, GAPS #8) — `create_task(parents=...)` and the link API never
+   reject `A→A` or a cycle, which would make cascade's "all parents done" unreachable (a child waits forever);
+   add a cycle check at link-creation time + a `dependency_cycle` diagnostic. One end-to-end per run.
 
 ---
 
@@ -133,11 +145,25 @@ _Last run: **2026-06-16 ~05:15** (Run #5 — built retry-exhaustion escalation).
    silent reassign — is the safe default (same agent would re-fail; a human or the route verb picks the next
    owner); fully reversible; idempotent (a 2nd pass re-escalates nothing); `dry_run` previews. Honest by
    construction: no failed runs → nothing escalates. Loads on next bridge restart (TO-DO #1).
-6. 🟡 **No dependency-aware promotion gate.** Parent→child links exist but nothing enforces ordering — a child
-   can run before its parents finish, and no sweep auto-promotes children when parents complete. **Next build**
-   (TO-DO #5).
+6. ✅ **Dependency-aware promotion gate (BUILT this run — run#6).** Parent→child links existed
+   (`kanban-meta.json["links"]`, surfaced as `parents`/`children` in `show_task` + the `missing_dependency`
+   diagnostic) but nothing enforced ordering — a child could be claimed before its parents finished and nothing
+   re-promoted it when they did. Built the missing orchestration sweep: a new **`blocked_by_dependency` warn
+   diagnostic** (non-terminal task with an existing-but-non-terminal parent), `MCStore._dep_held()` (reads a
+   task's `dependency_hold`/`dependency_clear` event timeline) + `MCStore.cascade_dependencies(dry_run?)` →
+   `POST /api/mc/kanban/cascade` → `cascadeDeps()` store action → a violet **⇄ CASCADE DEPS (n)** button in the
+   Operations diagnostics modal. One pass HOLDS a workable child (todo/ready) with open parents → `blocked`
+   (with a recorded reason + `dependency_hold` event, never `blocked_no_reason`), PROMOTES a child *it itself
+   held* once all parents are `done` → `ready` (`dependency_clear` event), and surfaces children still WAITING.
+   Conservative (only promotes tasks it held → a task blocked for another reason, e.g. web-access, is never
+   touched), idempotent, `dry_run` previews. Honest by construction: 0 links on the live board → nothing changes.
+   Loads on next bridge restart (TO-DO #1).
 7. 🟡 **No auto-reassign-on-dead-agent.** Reconcile reclaims a stale claim to `ready` but keeps it on the dead
-   assignee; no verb bulk-reassigns a dead/idle agent's open work to a live best-fit owner. Runner-up build.
+   assignee; no verb bulk-reassigns a dead/idle agent's open work to a live best-fit owner. **Next build**
+   (TO-DO #5).
+8. 🟡 **No dependency cycle/self-link guard.** `create_task(parents=...)` + the link API accept `A→A` and
+   cycles; cascade's "all parents done" then never holds (a child could wait forever). Add a cycle check at
+   link-creation + a `dependency_cycle` diagnostic. Runner-up build (TO-DO #5).
 5. ✅ **Web-access audit surface (BUILT this run — run#3).** Research agents silently blocked on missing
    web tools with no way to *see* which agents lacked a web plugin. Built `GET /api/mc/agents/web-access`
    → `MCStore.web_access_audit()` → `getWebAccessAudit()` → a **WEB-ACCESS AUDIT** panel in the Operations
@@ -153,6 +179,59 @@ _Last run: **2026-06-16 ~05:15** (Run #5 — built retry-exhaustion escalation).
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #6 (BUILT dependency-aware promotion gate) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE green.** Bridge :8767 UP (`/api/ping` ok, uptime ~22.5h). Gateway :8642 N/A by design.
+   `npm run build` ✅ (156 modules, exit 0, chunk-size warning only); `npx eslint` on the 3 touched TS files ✅
+   ("No issues found"). Confirmed the live bridge still runs **pre-restart** code: reconcile → 404, `/api/mc/cron`
+   no `scheduler` field, web-access → 405, route → 404, escalate → 404, and this run's new
+   `POST /api/mc/kanban/cascade` → 404. Did NOT kill the operator's bridge — verified the new capability
+   in-process instead. **SIX** capabilities now load together on the next restart (run#1–#6) — see TO-DO #1.
+   Sibling lanes confirmed clear: the only working-tree change in my files is bughunt's `get_briefing` fix in
+   `mission-control-bridge.py:~1493` (cron-failure detection, far from my kanban endpoints) — isolated via a
+   path-limited `git stash` so my commit carries only my hunk, then restored.
+
+2. **ORCHESTRATION steady.** Kanban unchanged: todo 8 · ready 1 · done 10 · blocked 6 · triage 1. No
+   `stale_claim`, no `retry_exhausted`, and **no `blocked_by_dependency`** — the board has **0 dependency links**
+   (`kanban-meta.json["links"]` empty), so the new gate is a no-op live (honest empty, like run#5's escalate).
+   The 6 blocked (5×narratrix, 1×default) remain the audited web-access root cause (operator config). Nothing
+   silently broken; remaining items need operator config / a live Claude turn / a bridge restart.
+
+3. **BUILT: dependency-aware promotion gate (CAPABILITY GAPS #6, this loop's signature increment), end-to-end &
+   LIVE-backed.** Parent→child links existed but post-Hermes nothing enforced ordering — a child could be claimed
+   before its parents finished, and nothing re-promoted it when they did. New capability across every layer:
+   - `mc_store.py` — `diagnostics()` gains a **`blocked_by_dependency` warn** diagnostic (non-terminal task with
+     an existing, non-terminal parent; dangling links stay the separate `missing_dependency`), built off a
+     `parents_of` link lookup. New static `_dep_held(events)` (reads the `dependency_hold`/`dependency_clear`
+     timeline → is the task currently gate-held?) + `MCStore.cascade_dependencies(dry_run=False)` — one sweep
+     that HOLDS a workable child (status `todo`/`ready`) with open parents → `blocked` (records a
+     `dependency_hold` event **and** a `blocked` reason, so never `blocked_no_reason`), PROMOTES a child *it
+     held* once all parents are terminal → `ready` (`dependency_clear` event), and lists children still WAITING.
+     Conservative (only promotes tasks it held), idempotent, `dry_run` mutates nothing. Returns
+     `{held,promoted,waiting,dry_run,message}`.
+   - `mission-control-bridge.py` — `POST /api/mc/kanban/cascade` (`CascadePayload{dry_run?}`) →
+     `STORE.cascade_dependencies(...)`, placed right after `kanban_escalate`.
+   - `src/lib/api.ts` — `CascadeHeld`/`CascadePromoted`/`CascadeWaiting`/`CascadeResult` types +
+     `cascadeDependencies({dryRun?})` fetcher.
+   - `src/stores/useTaskStore.ts` — `cascadeDeps()` action (refreshes tasks+stats on a real hold/promote, always
+     re-pulls diagnostics so `blocked_by_dependency` rows clear) + import + iface.
+   - `src/pages/OperationsCenter.tsx` — violet **⇄ CASCADE DEPS (n)** button in the diagnostics modal toolbar
+     (after ⚑ ESCALATE EXHAUSTED), `n` = count of `blocked_by_dependency` diagnostics, disabled at 0; result
+     line summarizes `✓ held N → blocked · promoted M → ready · K still waiting`.
+   **Verified:** `python -m py_compile` on bridge + store + scheduler ✅; **in-process behavior test on a
+   throwaway store** ✅ — seeded parents P1(todo)/P2(done) and children C1(open parent)/C2(parent done)/C3(mixed)
+   /C4(no parents) + a WEB task blocked for an unrelated reason: diagnostics flagged exactly C1+C3 (not C2/C4);
+   `dry_run` planned hold C1+C3 without mutating; the real pass held C1+C3 → `blocked` (with reason, no
+   `blocked_no_reason`), left C2/C4/WEB untouched; a 2nd pass was idempotent (held 0, C1+C3 reported "waiting");
+   completing P1 then a 3rd pass PROMOTED C1+C3 → `ready` **while WEB stayed `blocked`** (never gate-held →
+   never promoted, even with a done parent); a 4th pass was a no-op. **In-process dry-run against the LIVE store**
+   ✅ → "no dependency changes" (0 links). `npm run build` ✅ + `npx eslint` ✅. **Live Vite preview** (:5219,
+   bridge up) ✅ — Operations → ⚠ diagnostics: modal opens, the **⇄ CASCADE DEPS** button renders **disabled**
+   with the honest tooltip "No dependency-blocked tasks to gate" (DOM-read `{text:"⇄ CASCADE DEPS",
+   disabled:true}`), **zero console errors**. `graphify update .` run after edits (1474 nodes / 2857 edges).
+   **Not verified:** the live enabled click→hold/promote path — needs both the bridge restart (TO-DO #1) **and**
+   a board with ≥1 parent→child link (none exist live). The full data path is proven by the in-process test.
 
 ### 2026-06-16 — Run #5 (BUILT retry-exhaustion escalation) · branch `auto/loop-reconcile-20260615`
 
