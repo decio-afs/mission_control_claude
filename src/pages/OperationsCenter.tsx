@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
-import { getMcCron, runMcCron, createMcCron, decomposeTask, errMessage, type McCronJob, type CronSchedulerStatus, type McTask } from '../lib/api';
+import { getMcCron, runMcCron, createMcCron, decomposeTask, getWebAccessAudit, errMessage, type McCronJob, type CronSchedulerStatus, type McTask, type WebAccessAudit } from '../lib/api';
 import { parseSchedule, formatCountdown, fireLabel, type ParsedSchedule } from '../lib/cronSchedule';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import CronTimeline from '../components/CronTimeline';
@@ -64,6 +64,8 @@ export default function OperationsCenter() {
   const [diagOpen, setDiagOpen] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   const [reconcileMsg, setReconcileMsg] = useState<string | null>(null);
+  const [webAudit, setWebAudit] = useState<WebAccessAudit | null>(null);
+  const loadWebAudit = () => getWebAccessAudit().then(setWebAudit).catch(() => {});
   const [boardModal, setBoardModal] = useState(false);
   const [newBoardSlug, setNewBoardSlug] = useState('');
   const [newBoardName, setNewBoardName] = useState('');
@@ -214,7 +216,7 @@ export default function OperationsCenter() {
               <option value="__new__">+ new board…</option>
             </select>
           )}
-          <button onClick={() => { void fetchDiagnostics(); setDiagOpen(true); }} title="Board diagnostics"
+          <button onClick={() => { void fetchDiagnostics(); loadWebAudit(); setDiagOpen(true); }} title="Board diagnostics"
             className={`border px-2 py-1 ${diagCount > 0 ? 'border-amber-400/50 text-amber-400' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'}`}>
             ⚠ {diagCount}
           </button>
@@ -300,6 +302,7 @@ export default function OperationsCenter() {
               </div>
             );
           })()}
+          {webAudit && <WebAccessPanel audit={webAudit} />}
           <div className="flex flex-col gap-1.5 max-h-[360px] overflow-auto">
             {diagnostics.length === 0 && <div className="text-[10px] font-mono text-emerald-400">✓ no active diagnostics — board healthy</div>}
             {diagnostics.map((d) => (
@@ -459,6 +462,48 @@ function SchedulerStatusBar({ sched }: { sched: CronSchedulerStatus | null }) {
         {live ? `DAEMON LIVE · tick ${sched.tick_seconds}s` : sched.enabled ? 'DAEMON STARTING…' : 'DAEMON DISABLED (MC_SCHEDULER_ENABLED=0)'}
       </span>
       <span className="text-[#545454]">fired {sched.fired} · err {sched.errors}</span>
+    </div>
+  );
+}
+
+// Web-access audit — surfaces the silent root cause behind blocked research
+// tasks: agents that need the live web (research/intel skills, or sitting on
+// blocked tasks) but have no web-capable MCP. Diagnostic only — provisioning a
+// key is operator config, so the hint is honest amber, never a fake "fix" button.
+function WebAccessPanel({ audit }: { audit: WebAccessAudit }) {
+  const { summary } = audit;
+  const gaps = audit.agents.filter((a) => a.gap);
+  const healthy = summary.missing_web === 0;
+  return (
+    <div className="mb-2 pb-2 border-b border-white/[0.06]">
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-[10px] font-mono tracking-[0.16em] uppercase text-[#b8b8b8]">WEB-ACCESS AUDIT</span>
+        <span className={`text-[10px] font-mono ${healthy ? 'text-emerald-400' : 'text-amber-400'}`}>
+          {healthy
+            ? `✓ all ${summary.needs_web} web-dependent agent(s) provisioned`
+            : `⚠ ${summary.missing_web} agent(s) need web access · ${summary.blocked_due_to_web} blocked task(s)`}
+        </span>
+      </div>
+      {!healthy && (
+        <>
+          <div className="flex flex-col gap-1 mb-1.5">
+            {gaps.map((a) => (
+              <div key={a.name} className="flex items-center justify-between gap-2 px-2 py-1 border border-amber-500/20 bg-amber-500/[0.04]">
+                <span className="text-[11px] text-white truncate">{a.name}</span>
+                <span className="flex items-center gap-2 shrink-0 text-[10px] font-mono">
+                  {a.blocked_tasks > 0 && <span className="text-red-400">{a.blocked_tasks} blocked</span>}
+                  <span className="text-[#545454]" title={`current MCPs: ${a.mcps.length ? a.mcps.join(', ') : 'none'}`}>
+                    no web MCP
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="px-2 py-1.5 border border-amber-500/30 bg-amber-500/5 text-[10px] font-mono text-amber-400 leading-relaxed">
+            ⚠ {audit.hint}
+          </div>
+        </>
+      )}
     </div>
   );
 }

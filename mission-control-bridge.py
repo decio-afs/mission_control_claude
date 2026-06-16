@@ -489,6 +489,17 @@ def get_agents():
     return {"agents": STORE.agents_with_counts()}
 
 
+@app.get("/api/mc/agents/web-access")
+def agents_web_access():
+    """Audit which agents need live web access but lack a web-capable MCP.
+
+    The visibility surface for the silent root cause behind blocked research
+    tasks (CAPABILITY GAPS #5): research agents with no web plugin block with
+    no recorded reason. Diagnostic only — provisioning a key is operator config.
+    """
+    return STORE.web_access_audit()
+
+
 def _profile_name(raw: str) -> str:
     """Profile names are lowercase alphanumeric — normalize whatever
     the operator typed ("My Agent" → "myagent")."""

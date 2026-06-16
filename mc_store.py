@@ -30,6 +30,15 @@ from typing import Any, Optional
 TERMINAL = {"done", "archived"}
 STALE_CLAIM_SECONDS = 2 * 3600
 
+# Substrings that identify a web-capable MCP plugin on an agent's `mcps` list.
+# Matched case-insensitively — covers the common web-search/scrape providers.
+WEB_MCP_MARKERS = ("brave", "tavily", "serper", "exa", "perplexity",
+                   "websearch", "web-search", "web_search", "firecrawl", "fetch")
+# Skill substrings that imply an agent must reach the live web to do its job
+# (competitor/market research, SEO, performance pulls, brand/user discovery).
+WEB_SKILL_MARKERS = ("competitive-brief", "synthesize-research", "discover-brand",
+                     "seo-audit", "performance-report", "brand-review", "user-research")
+
 
 def _now() -> float:
     return time.time()
@@ -397,6 +406,58 @@ class MCStore:
                             "diagnostics": [{"kind": "missing_dependency", "severity": "warn",
                                              "message": f"link {p} -> {c} references a missing task"}]})
         return out
+
+    def web_access_audit(self) -> dict[str, Any]:
+        """Audit which agents need live web access but lack a web-capable MCP.
+
+        Research/intel agents (those with web-dependent skills) silently block
+        when they have no web plugin — the root cause behind the board's
+        `blocked_no_reason` research tasks. This turns that invisible config
+        gap into a visible, per-agent report with the exact provisioning hint.
+        It is a *diagnostic* surface only: it never provisions a key (that is
+        operator config). `gap` rows (need web, lack it) sort first, then by
+        most-blocked, so the operator sees the highest-impact misses on top.
+        """
+        agents = self.agents_with_counts()
+        rows: list[dict[str, Any]] = []
+        blocked_due_to_web = 0
+        for a in agents:
+            mcps = a.get("mcps") or []
+            skills = a.get("skills") or []
+            counts = a.get("counts") or {}
+            blocked = int(counts.get("blocked", 0) or 0)
+            has_web = any(any(mk in str(m).lower() for mk in WEB_MCP_MARKERS) for m in mcps)
+            web_skills = [s for s in skills
+                          if any(mk in str(s).lower() for mk in WEB_SKILL_MARKERS)]
+            # An agent sitting on blocked tasks is empirically stuck — surface it
+            # even if its skill list didn't trip the heuristic.
+            needs_web = bool(web_skills) or blocked > 0
+            gap = needs_web and not has_web
+            if gap:
+                blocked_due_to_web += blocked
+            rows.append({
+                "name": a.get("name"),
+                "needs_web": needs_web,
+                "has_web": has_web,
+                "gap": gap,
+                "blocked_tasks": blocked,
+                "mcps": mcps,
+                "web_skills": web_skills,
+            })
+        rows.sort(key=lambda r: (not r["gap"], -r["blocked_tasks"], r["name"] or ""))
+        missing = [r for r in rows if r["gap"]]
+        return {
+            "agents": rows,
+            "summary": {
+                "total": len(rows),
+                "needs_web": sum(1 for r in rows if r["needs_web"]),
+                "missing_web": len(missing),
+                "blocked_due_to_web": blocked_due_to_web,
+            },
+            "hint": ("Provision a web-search MCP for the flagged agents: install the "
+                     "`web-brave-free` plugin (or set BRAVE_SEARCH_API_KEY) and add it to "
+                     "each agent's `mcps`. Operator config — no key is created here."),
+        }
 
     def reconcile_board(self, threshold_seconds: Optional[float] = None) -> dict[str, Any]:
         """Self-heal the board: reclaim running tasks whose claim has gone stale.

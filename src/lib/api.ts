@@ -147,6 +147,28 @@ export async function getMcAgents(): Promise<{ agents: McAgent[] }> {
   return data;
 }
 
+// --- Web-access audit: which agents need the live web but lack a web MCP ---
+export interface WebAccessRow {
+  name: string;
+  needs_web: boolean;
+  has_web: boolean;
+  gap: boolean;
+  blocked_tasks: number;
+  mcps: string[];
+  web_skills: string[];
+}
+
+export interface WebAccessAudit {
+  agents: WebAccessRow[];
+  summary: { total: number; needs_web: number; missing_web: number; blocked_due_to_web: number };
+  hint: string;
+}
+
+export async function getWebAccessAudit(): Promise<WebAccessAudit> {
+  const { data } = await bridge.get('/api/mc/agents/web-access');
+  return data;
+}
+
 export async function getMcTasks(): Promise<{ tasks: McTask[] }> {
   const { data } = await bridge.get('/api/mc/tasks');
   return data;
