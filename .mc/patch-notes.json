@@ -1,6 +1,132 @@
 {
   "notes": [
     {
+      "id": "loop-1-stale-claim-reconcile",
+      "iteration": 24,
+      "date": "2026-06-15",
+      "title": "Stuck tasks can be unstuck with one click",
+      "summary": "If an agent claimed a task and then went silent, that task could sit frozen as \"running\" forever — one dead agent could quietly jam the whole board (one task had been stuck for over six days). The board could spot these stale claims but gave you no way to fix them without editing each task by hand. Now the Operations board diagnostics panel has a RECONCILE STALE button that frees every stale claim at once, sending those tasks back to \"ready\" so another agent can pick them up. The button stays greyed out when there is nothing stale to clear.",
+      "category": "feature",
+      "severity": "high",
+      "files": [
+        "mc_store.py",
+        "mission-control-bridge.py",
+        "src/lib/api.ts",
+        "src/stores/useTaskStore.ts",
+        "src/pages/OperationsCenter.tsx"
+      ]
+    },
+    {
+      "id": "loop-2-operational-baseline",
+      "iteration": 23,
+      "date": "2026-06-15",
+      "title": "Board unfrozen and the operations loop now runs on a schedule",
+      "summary": "Two operational fixes. First, the long-stuck task that had been hung for over six days was released back into the queue, so the board reflects real, current work again. Second, the autonomous operations loop — the routine that keeps the whole system healthy and building — had never actually been scheduled, so it only ran when started by hand. It is now registered to run automatically every two hours (staggered so it never collides with the bug-hunt and evolve routines).",
+      "category": "ops",
+      "severity": "medium",
+      "files": [
+        ".mc/LOOP_STATE.md"
+      ]
+    },
+    {
+      "id": "iter-22-route-error-boundary",
+      "iteration": 22,
+      "date": "2026-06-15",
+      "title": "One broken panel no longer blanks the whole dashboard",
+      "summary": "Until now, if any single screen hit an unexpected error while drawing itself, the entire dashboard went blank — sidebar, top bar and every other module included — and you had to reload. There was nothing in place to catch a crash and keep the rest running. Now a crash is contained to just that one panel, which shows a clear error with a Retry button, while the sidebar and all your other modules keep working so you can switch away and carry on.",
+      "category": "ui",
+      "severity": "high",
+      "files": [
+        "src/components/ErrorBoundary.tsx",
+        "src/components/Layout.tsx"
+      ]
+    },
+    {
+      "id": "iter-21-briefing-feed-bad-url-crash",
+      "iteration": 21,
+      "date": "2026-06-15",
+      "title": "Briefing's Sentinel feed no longer crashes on a bad news link",
+      "summary": "The Sentinel news feed on the Briefing screen pulls headlines from outside RSS sources, and shows the website each one came from. If any source ever handed over a missing or broken web link, the screen tried to read the site name from it and crashed — blanking the entire Briefing page until reload, since nothing was there to catch the error. Now a bad link just hides that one site label and the rest of the feed keeps working.",
+      "category": "bug",
+      "severity": "high",
+      "files": [
+        "src/pages/BriefingTerminal.tsx"
+      ]
+    },
+    {
+      "id": "iter-20-warroom-feed-local-time",
+      "iteration": 20,
+      "date": "2026-06-15",
+      "title": "War Room activity feeds now show your local time, not UTC",
+      "summary": "The two activity feeds at the bottom of the War Room (Task Activity and Agent Signal) were stamping every line in UTC, so the times were off by your timezone — on this machine a task that completed at 14:33 was being shown as 21:33. The exact same events were already shown in your local time over on the Ghost Network screen, so the two never matched. Both War Room feeds now use your local time, matching the rest of the app, and a bad timestamp can no longer blank out the panel.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "src/pages/WarRoom.tsx"
+      ]
+    },
+    {
+      "id": "iter-19-virality-suggestions-surfaced",
+      "iteration": 19,
+      "date": "2026-06-15",
+      "title": "Virality predictor results now actually show on the calendar",
+      "summary": "When you ran the 🔮 virality prediction on a planned post, the result was being thrown away before it reached the screen — the score, verdict, and the predictor's concrete 'how to make this more viral' suggestions were saved but never displayed, so a 1-3 minute analysis showed you nothing. The full verdict now appears on the calendar card: the virality score, and the list of improvement suggestions underneath it.",
+      "category": "deliverable",
+      "severity": "high",
+      "files": [
+        "mission-control-bridge.py",
+        "src/pages/ContentFactory.tsx"
+      ]
+    },
+    {
+      "id": "iter-18-content-calendar-platform-vocab",
+      "iteration": 18,
+      "date": "2026-06-15",
+      "title": "Content calendar now shows one consistent platform label style",
+      "summary": "The Content Factory calendar mixed two label styles for the same network — your planned posts showed full names like 'instagram' and 'linkedin' while the task-derived entries above them showed short codes like 'IG' and 'LI', which looked like different platforms at a glance. Planned-post labels now use the same short codes as everything else, so the whole calendar reads consistently.",
+      "category": "ui",
+      "severity": "low",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-17-warroom-signal-colors",
+      "iteration": 17,
+      "date": "2026-06-15",
+      "title": "War Room signal feed now colours completed tasks green",
+      "summary": "In the War Room live signal feed, completed-task and new-task signals were showing up grey instead of a meaningful colour — so the 'something just finished' cue was lost at a glance (on the current board about two-thirds of the feed was grey, including every completed task). Completed signals are now green and new-task signals are blue, matching the rest of the dashboard, so you can instantly see what's landing and what's incoming.",
+      "category": "ui",
+      "severity": "low",
+      "files": [
+        "src/pages/WarRoom.tsx"
+      ]
+    },
+    {
+      "id": "iter-16-content-platform-badge",
+      "iteration": 16,
+      "date": "2026-06-15",
+      "title": "Content Factory platform badges now show the right network",
+      "summary": "The little platform tag on Content Factory cards (IG, TT, X, LI, YT) was wrong on more than half of them. It was guessing the network by looking for two-letter codes anywhere in the text, so everyday words triggered false matches — 'agencies' looked like Instagram, 'captions' looked like TikTok, and even 'twitter' got tagged as TikTok. The badge now only matches a real platform name or those codes as standalone words, so a task with no clear platform honestly shows 'MULTI' instead of a made-up one.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-15-chat-error-wrong-conversation",
+      "iteration": 15,
+      "date": "2026-06-15",
+      "title": "Chat send errors now stay in the right conversation",
+      "summary": "When you sent a message and it failed, the 'COMMS FAILURE' error was attached to whatever conversation happened to be open at that moment — so if you switched to a different chat while the message was still sending, the error popped up in the wrong conversation, away from the message you actually sent. The error is now pinned to the conversation you sent from, so it always appears next to your own message even if you've navigated elsewhere in the meantime.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "src/stores/useChatStore.ts"
+      ]
+    },
+    {
       "id": "iter-14-label-1-bridge-port",
       "iteration": 14,
       "date": "2026-06-15",
@@ -8,7 +134,10 @@
       "summary": "The bridge status line at the bottom of the sidebar always read '● BRIDGE :8767' even when the dashboard was actually pointed at a bridge on a different port — so the label could quietly lie about what it was connected to. It now reads the port straight from the configured bridge address, so what you see matches where the app is really talking. For the normal setup the line is unchanged (still :8767); it only differs when you point the dashboard elsewhere.",
       "category": "ui",
       "severity": "low",
-      "files": ["src/components/Layout.tsx", "src/lib/api.ts"]
+      "files": [
+        "src/components/Layout.tsx",
+        "src/lib/api.ts"
+      ]
     },
     {
       "id": "iter-13-done-card-2-server-deliverable",
@@ -18,7 +147,11 @@
       "summary": "The green ◆ marker added last time only appeared when a finished task had a written result or a git branch — but most of your completed tasks actually deliver a file they saved into their workspace folder (a report, an audit, a schedule), and those got no marker. The board now asks the backend, once per refresh, whether each task truly produced something — a result, a summary, a branch, or a real file on disk — so those file-producing tasks finally show the marker too. On your current board this lights up 7 of the 10 done cards that were blank before, while the 3 that produced nothing stay unmarked.",
       "category": "deliverable",
       "severity": "medium",
-      "files": ["mc_store.py", "src/lib/api.ts", "src/pages/OperationsCenter.tsx"]
+      "files": [
+        "mc_store.py",
+        "src/lib/api.ts",
+        "src/pages/OperationsCenter.tsx"
+      ]
     },
     {
       "id": "iter-12-done-card-deliverable-dot",
@@ -28,7 +161,9 @@
       "summary": "On the Mission Kanban board you had to open each finished task one by one to find out which ones actually produced something you can retrieve. Done cards that have a written result or a git branch now show a small green ◆ marker, so you can spot the tasks worth opening at a glance. Tasks whose only output is a workspace folder aren't marked, because nearly every task has one of those even when it's empty.",
       "category": "deliverable",
       "severity": "medium",
-      "files": ["src/pages/OperationsCenter.tsx"]
+      "files": [
+        "src/pages/OperationsCenter.tsx"
+      ]
     },
     {
       "id": "iter-11-life-1-action-errors",
@@ -38,7 +173,10 @@
       "summary": "When an action in the task detail panel failed — claim, complete, block, promote, reassign, comment and the rest — the button just quietly refreshed and the action appeared to do nothing, with no hint of what went wrong. A failed action now shows a clear red message explaining the reason (for example 'task is not running'), pulled straight from the backend, and you can dismiss it with the ✕.",
       "category": "lifecycle",
       "severity": "medium",
-      "files": ["src/components/TaskDetailDrawer.tsx", "src/stores/useTaskStore.ts"]
+      "files": [
+        "src/components/TaskDetailDrawer.tsx",
+        "src/stores/useTaskStore.ts"
+      ]
     },
     {
       "id": "iter-10-deliv-4-workspace-browser",
@@ -48,7 +186,11 @@
       "summary": "Last run added the workspace path to the task detail panel, but you still had to leave the dashboard and open that folder yourself to see what a task produced — so files an agent wrote, like a finished competitor analysis, were sitting on disk invisible. The ARTIFACTS section now has a BROWSE FILES button that lists the files a task created and opens any of them to read right there, and shows the commits and changes when the work was done on a git branch.",
       "category": "deliverable",
       "severity": "medium",
-      "files": ["src/components/TaskDetailDrawer.tsx", "src/lib/api.ts", "hermes-bridge.py"]
+      "files": [
+        "src/components/TaskDetailDrawer.tsx",
+        "src/lib/api.ts",
+        "hermes-bridge.py"
+      ]
     },
     {
       "id": "iter-9-deliv-4-artifacts",
@@ -58,7 +200,9 @@
       "summary": "When a task's deliverable was a set of files or a git branch, the detail panel never told you where to find it — the workspace folder wasn't shown at all, and the branch name was a cramped, cut-off label you couldn't copy. The panel now has an ARTIFACTS section listing the full workspace path and branch, each with a one-click COPY button, so you can jump straight to the files or check out the branch.",
       "category": "deliverable",
       "severity": "medium",
-      "files": ["src/components/TaskDetailDrawer.tsx"]
+      "files": [
+        "src/components/TaskDetailDrawer.tsx"
+      ]
     },
     {
       "id": "iter-8-deliv-3-raw-output",
@@ -68,7 +212,9 @@
       "summary": "Some tasks finished without an agent writing a summary or result, so the task detail panel showed an empty space where the outcome should be — the work looked like it produced nothing, even though its full output was sitting in the worker log. Those tasks now automatically show the tail of the worker log as their result, labeled 'raw output', so a completed task is never a blank slate.",
       "category": "deliverable",
       "severity": "medium",
-      "files": ["src/components/TaskDetailDrawer.tsx"]
+      "files": [
+        "src/components/TaskDetailDrawer.tsx"
+      ]
     },
     {
       "id": "iter-7-failed-column",
@@ -78,7 +224,9 @@
       "summary": "Tasks that failed were quietly piled into the BLOCKED column, so you couldn't tell a genuine failure apart from a task waiting on something — and the BLOCKED header count didn't even include them, so the numbers didn't add up. The Mission Kanban board now has a dedicated FAILED column with its own count, and the header BLOCKED and FAILED tallies each match their column exactly.",
       "category": "lifecycle",
       "severity": "high",
-      "files": ["src/pages/OperationsCenter.tsx"]
+      "files": [
+        "src/pages/OperationsCenter.tsx"
+      ]
     },
     {
       "id": "iter-6-deliv-2-reason",
@@ -88,7 +236,9 @@
       "summary": "When a task was blocked or failed, the reason an agent recorded (for example 'no web-access tools in environment') was saved but never shown anywhere in the dashboard — you couldn't tell why a task stalled. The task detail panel now puts that reason in a clear banner at the top for any blocked or failed task, and every entry in the event timeline shows its reason, message, or error text.",
       "category": "deliverable",
       "severity": "high",
-      "files": ["src/components/TaskDetailDrawer.tsx"]
+      "files": [
+        "src/components/TaskDetailDrawer.tsx"
+      ]
     },
     {
       "id": "iter-5-patch-notes",
@@ -98,7 +248,12 @@
       "summary": "You can now see what the autonomous bug-hunt routine has fixed without reading any logs. Open the topbar gear (⚙ UI) and click PATCH NOTES for a newest-first changelog — each run that ships a fix adds a plain-English entry here automatically.",
       "category": "ui",
       "severity": "low",
-      "files": ["src/components/PatchNotes.tsx", "src/components/Layout.tsx", "src/lib/api.ts", "hermes-bridge.py"]
+      "files": [
+        "src/components/PatchNotes.tsx",
+        "src/components/Layout.tsx",
+        "src/lib/api.ts",
+        "hermes-bridge.py"
+      ]
     },
     {
       "id": "iter-4-deliv-1",
@@ -108,7 +263,9 @@
       "summary": "Finished content tasks were flipping to DONE with no way to read the written post or caption — the deliverable was effectively lost from the Factory. Campaign and draft cards now open the task detail drawer, so the result, summary, runs, and worker log are readable and copyable right from the Content Factory.",
       "category": "deliverable",
       "severity": "high",
-      "files": ["src/pages/ContentFactory.tsx"]
+      "files": [
+        "src/pages/ContentFactory.tsx"
+      ]
     },
     {
       "id": "iter-1-queue",
@@ -118,7 +275,10 @@
       "summary": "READY tasks were being tallied in both the 'pending' and 'ready' buckets, inflating the topbar QUEUE number. The buckets are now disjoint and QUEUE explicitly shows pending + ready, so the figure is trustworthy.",
       "category": "bug",
       "severity": "medium",
-      "files": ["src/stores/useTaskStore.ts", "src/components/Layout.tsx"]
+      "files": [
+        "src/stores/useTaskStore.ts",
+        "src/components/Layout.tsx"
+      ]
     }
   ]
 }
