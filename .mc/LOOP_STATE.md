@@ -272,6 +272,31 @@ _Last run: **2026-06-16 ~18:40** (Run #10 — built the maintenance cron job kin
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
 
+### 2026-06-16 — Operator session (ACTIVATION + re-aim at Hermes parity)
+
+1. **Diagnosed why MC showed no autonomy.** Operator reported the dashboard had no live cron jobs, no
+   agent delegation, nothing running. Root cause: the live bridge (PID 59752) was an **orphaned,
+   detached process from a dead shell running excision-era code (`cd96b0e`)** — never restarted onto
+   any of runs #1–#10. Confirmed every built endpoint 404'd and `scheduler:None`. 10 runs of working,
+   committed code had sat dormant for days behind one un-restarted process.
+2. **RESTARTED the bridge onto current code (operator-authorized).** Killed PID 59752, relaunched
+   `python mission-control-bridge.py` (detached → `.mc/bridge.log`), up in 2s. **Verified LIVE:**
+   `/api/mc/kanban/reconcile`→200, `/sweep`→200, `/route`→200, `/api/mc/agents/web-access`→200, and
+   `/api/mc/cron` → `scheduler:{running:true, tick_seconds:30}`. All 10 prior runs activated at once.
+3. **Re-aimed the routine at the real goal (Hermes parity).** Operator clarified intent: the loop's job
+   is to **finish the Hermes→Claude migration of the autonomous runtime** — make Claude do what Hermes
+   did (cron, briefing, content crawl, sub-agent delegation off the kanban). Rewrote the top of this
+   file: added the **NORTH STAR** + **STANDING ACTIVATION GATE** (architecture note) and replaced TO-DO
+   with the ordered parity backlog — **#1 build the kanban DISPATCHER** (the one piece still missing),
+   #2 seed+verify briefing/crawl cron jobs, #3 provision web access, #4 make activation durable. Told
+   future runs to **stop building peripheral self-heal verbs**.
+4. **Also created the missing `mission-control-loop` scheduled routine** (every 2h, odd hours :30,
+   staggered off bughunt/evolve/hermes-tower) — earlier the operational loop had no routine at all and
+   only ran when invoked by hand. Verified in the scheduler list. Posted two operator-facing patch notes
+   (`loop-1-stale-claim-reconcile`, `loop-2-operational-baseline`) to `.mc/patch-notes.json`.
+   _Not verified:_ no `npm run build`/`lint` this session (only `.mc/` ledger edits + a bridge restart;
+   no app source changed by me). Dispatcher remains UNBUILT — next run's #1 job.
+
 ### 2026-06-16 — Run #10 (BUILT maintenance cron job kind — hands-free board self-heal) · branch `auto/loop-reconcile-20260615`
 
 1. **HEALTH GATE green.** Bridge :8767 UP (`/api/ping` ok, uptime ~30.5h). Gateway :8642 N/A by design.
