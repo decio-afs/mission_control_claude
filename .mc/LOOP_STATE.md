@@ -10,21 +10,20 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **⛔ BLOCKER → bughunt: `HEAD:mc_store.py` is committed in a NON-PARSING state.** Discovered run #12 while trying to
-   isolate-commit: `git cat-file -p HEAD:mc_store.py` is valid UTF-8 but does **not** compile — `python -c "import ast,
-   subprocess; ast.parse(subprocess.run(['git','cat-file','-p','HEAD:mc_store.py'],capture_output=True).stdout.decode())"`
-   raises `SyntaxError: invalid character '—' (U+2014)` at ~line 1058 (the em-dash bytes are valid `e2 80 94`; the real
-   cause is an **unterminated string literal earlier in the file** that makes the parser hit the docstring em-dash as a
-   token). The **WORKING TREE `mc_store.py` compiles fine** (`python -m py_compile mc_store.py` ✅) and the live bridge runs
-   the working tree, so nothing is operationally broken — but a prior loop committed a broken `mc_store.py` to this branch's
-   HEAD. **This poisons clean per-hunk commits for EVERY loop** (you can't build a compiling "HEAD+mine" on a broken HEAD).
-   Fix: run `.mc/repair_mojibake.py` against HEAD's content / find the unterminated string before 1058, then commit the
-   repaired `mc_store.py` so HEAD parses again. Until then, code commits that touch `mc_store.py` must be hand-verified.
-1. **Restart the bridge to load run #12's `promote_ready` (todo→ready gate).** The bridge was restarted earlier today and
-   now runs run #1–#11 LIVE (confirmed run #12: `/api/mc/dispatcher` → 200 `{enabled:false,running:false}`, `/api/mc/kanban/
-   sweep` → 200, scheduler `running:true`). Run #12's NEW endpoint `POST /api/mc/kanban/promote` + the `promotable`
-   diagnostic load on the **next** `python mission-control-bridge.py` restart (they live in the WORKING TREE, verified, but
-   are NOT yet committed — see #0 blocker). After restart, confirm: `POST /api/mc/kanban/promote {"dry_run":true}` →
+0. **✅ RESOLVED this run (#13) — `HEAD:mc_store.py` now parses.** The 3-run blocker is gone. Root cause was NOT mojibake /
+   not an em-dash encoding issue: run #11's commit (`496fad2`) **truncated `MCStore._would_cycle`** — its docstring tail + the
+   entire DFS body were lost and the `# dispatch (run tasks)` section was spliced straight in, so the `"""` opening
+   `_would_cycle`'s docstring (~L1046) was closed early by `dispatchable_tasks`'s `"""` (~L1055), leaving the prose at ~L1058
+   ("…would never run it — that is the…") tokenized as bare code → `SyntaxError: invalid character '—'`. Fixed by committing a
+   **parsing** `mc_store.py` (`cb8f0ae`) = the py_compile-clean working tree **minus** the sibling `fail_task` method (kept
+   in-lane), which restores the intact `_would_cycle` AND lands run #12's `promote_ready` store method in HEAD. Working tree
+   then restored byte-identical (sibling `fail_task` re-added). Verified: `ast.parse(HEAD:mc_store.py)` ✅, `py_compile`
+   working tree ✅, `npm run build` ✅. **Per-hunk commits now have a clean base again.** (See DONE Run #13.)
+1. **Restart the bridge to load the `promote` endpoint + run #12 wiring.** The `promote_ready` STORE method is now in HEAD
+   (#0), but the bridge route `POST /api/mc/kanban/promote` (in `mission-control-bridge.py`), the `promotable` diagnostic, and
+   the api.ts/store/▲ PROMOTE READY UI are **still working-tree-only** (confirmed this run: live `POST /api/mc/kanban/promote`
+   → **404**; bridge uptime ~2.4h but predates run #12, never restarted onto it). They load on the next
+   `python mission-control-bridge.py` restart. After restart, confirm: `POST /api/mc/kanban/promote {"dry_run":true}` →
    `{promoted:[…8 todo…], skipped:[…], message:"promote: would promote 8 task(s) todo→ready"}`; Operations → ⚠ diagnostics
    shows a sky **▲ PROMOTE READY (8)** button (after AUTO-ROUTE) + 8 `promotable` info rows; the ⚙ SWEEP BOARD button now
    also enables on promotable count (sweep runs reconcile→cascade→reassign→escalate→**promote** and reports `promoted_ready`).
@@ -48,6 +47,14 @@ below. `## DONE` is append-only history.
    dispatched agents don't collide in the repo (each gets `cwd`/branch per the task's `workspace_*` fields, on the task shape
    but unused by `dispatch_task`, which runs every turn in `PROJECT_ROOT`). Runner-up: per-task `unlink` cycle-break
    affordance (GAPS #10), added to the diagnostics modal row (this loop's file) to stay in-lane.
+6. **→ bughunt/evolve: `npm run lint` fails project-wide (~500 errors, NEW finding run #13).** Run #13 ran the FULL project
+   lint (prior runs only `npx eslint`'d their 2–3 touched files, masking this). 500 errors / 473 auto-fixable, dominant rules
+   `typescript-eslint/ban-ts-comment`, `typescript-eslint/no-unused-vars`, `react-hooks/set-state-in-effect`,
+   `react-hooks/refs` — spread across `GhostNetwork.tsx`, `Layout.tsx`, etc. **None introduced by this loop** (run #13 touched
+   0 TS). Many are sibling-owned files currently mid-edit (16 TS files dirty). NOT auto-fixed here (would churn sibling WIP and
+   needs a human to confirm the `--fix` is safe per file). The Operational-loop health gate should keep scoping lint to the
+   files IT touches until this baseline is cleared by the lane that owns those files. Candidate: a one-time `eslint --fix`
+   sweep on a quiet tree, reviewed.
 
 ### TO-DO — earlier detail (run #11 and before; kept for reference, superseded by 0–5 above)
 
@@ -55,18 +62,18 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 ~21:00** (Run #12 — built the **board-wide `promote_ready` gate** (todo→ready), the dispatcher's missing FEEDER: the bridge is now restarted so the dispatcher is LIVE but **starved** (`ready 0`), because nothing promoted `todo`→`ready` in bulk. New `POST /api/mc/kanban/promote` + `promotable` diagnostic + ▲ PROMOTE READY button + a 5th `promote` step in `sweep_board`. Verified in-process + build + lint + UI. **Code lives in the WORKING TREE, NOT committed** — clean commit blocked by `HEAD:mc_store.py` being non-parsing (see TO-DO #0))._
+_Last run: **2026-06-16 (Run #13)** — **RESOLVED the 3-run commit blocker (old TO-DO #0): `HEAD:mc_store.py` now parses.** Root cause was NOT mojibake — run #11's commit (`496fad2`) **truncated** `MCStore._would_cycle` (DFS body + docstring-close lost, dispatch section spliced in), so the `"""` closed early and the prose at ~L1058 tokenized as code → `SyntaxError`. Fixed by committing a parsing `mc_store.py` (`cb8f0ae` = py_compile-clean working tree **minus** sibling `fail_task`), which also **lands run #12's `promote_ready` store method in HEAD**. Working tree restored byte-identical (sibling `fail_task` re-added, undisturbed). Verified: `ast.parse(HEAD)` ✅, `py_compile` ✅, `npm run build` ✅. **NEW finding:** project-wide `npm run lint` now fails with a **large pre-existing baseline (~500 errors)** — all in sibling/untouched TS files (this run touched 0 TS); handed to bughunt/evolve (TO-DO #6). Orchestration unchanged: board `todo 8 · ready 0 · blocked 6`, dispatcher LIVE-but-starved, `promote` endpoint still 404 (needs operator bridge restart, not mine to do)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP + run #1–#11 LIVE | `GET /api/ping` ok, uptime ~30min this run (operator restarted it after run #11). **Dispatcher now LIVE**: `/api/mc/dispatcher` → 200 `{enabled:false,running:false,concurrency:1,ticks:0}`, `dispatchable:[]`. `/api/mc/kanban/sweep` → 200. Scheduler **DAEMON LIVE** (`/api/mc/cron` → `running:true`, 45 ticks @ 30s, 0 fired). **Run #12's `/api/mc/kanban/promote` is NOT on the live bridge yet** (working-tree only) — loads on next restart (TO-DO #1). |
+| Bridge (:8767) | ✅ UP + run #1–#11 LIVE | `GET /api/ping` ok, uptime ~2.4h this run (started ~1781640692; predates run #12 — never restarted onto it). **Dispatcher LIVE but starved**: `/api/mc/dispatcher` → 200 `{enabled:false,running:false,concurrency:1,ticks:0}`, `dispatchable:[]`. `/api/mc/kanban/sweep` → 200. Scheduler **DAEMON LIVE** (`/api/mc/cron` → `running:true`, 285 ticks @ 30s, 0 fired). **`POST /api/mc/kanban/promote` → 404** (run #12 wiring is working-tree only) — loads on next restart (TO-DO #1). |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
-| `npm run build` | ✅ PASS | tsc + vite, exit 0 (chunk-size warning only) — run twice this run (before + after the promote UI). |
-| `npm run lint` | ✅ PASS | `npx eslint src/pages/OperationsCenter.tsx src/lib/api.ts src/stores/useTaskStore.ts` = "No issues found". Python WORKING TREE: `py_compile mc_store.py mission-control-bridge.py` ✅. **NB: `HEAD`'s `mc_store.py` does NOT parse (TO-DO #0) — working tree is fine.** |
-| Kanban / orchestration | 🟡 flowing but dispatcher STARVED | **todo 8 · ready 0 · done 18 · blocked 6 · triage 0**. No `stale_claim`/`retry_exhausted`/`dep`/`dead_agent`/`cycle`. 6 blocked still `blocked_no_reason` (web-access root cause). The 8 todo are all live-assignee + no-deps = **promotable** → run #12's PROMOTE READY makes them `ready` to feed the now-live dispatcher (TO-DO #1/#2). (`?status=todo` query param appears ignored by the bridge — returns all tasks; `kanban/stats` is authoritative; minor, possible bughunt item.) |
-| Cron jobs | 🟡 EMPTY + engine LIVE | store `jobs: []`; scheduler daemon running (45 ticks). Maintenance `*/30` sweep (run#10) now ALSO promotes todo→ready (run #12 sweep step). Seeding needs operator sign-off (TO-DO #4). |
-| Content pipeline | ✅ stores live | `/api/content/pipeline` live (campaigns/drafts/calendar; writing `.mc/data/`). |
-| Modules in error state | none observed | Run #12 adds a sky **▲ PROMOTE READY** button to the Operations → ⚠ diagnostics toolbar (after ⤵ AUTO-ROUTE). Live preview (bridge up, pre-restart): button correctly **disabled** (live bridge predates run #12 → no `promotable` diagnostic → count 0, honest fallback), all run#1–#11 buttons render, **zero console errors**. |
+| `npm run build` | ✅ PASS | tsc + vite, exit 0 in 613ms (chunk-size warning only). |
+| `npm run lint` | 🔴 FAIL (pre-existing, NOT this run) | **Full project `npm run lint` = 500 errors / 473 auto-fixable** (`ban-ts-comment`, `no-unused-vars`, `set-state-in-effect`, `react-hooks/refs`) across sibling/untouched TS (`GhostNetwork.tsx`, `Layout.tsx`, …). Run #13 touched **0 TS** so introduced none — handed off (TO-DO #6). Python (my lane): `py_compile mc_store.py` ✅; **`ast.parse(HEAD:mc_store.py)` ✅ now (blocker #0 fixed).** |
+| Kanban / orchestration | 🟡 healthy but dispatcher STARVED | **todo 8 · ready 0 · done 18 · blocked 6 · triage 0**. No `stale_claim`/`retry_exhausted`/`dep`/`dead_agent`/`cycle`. 6 blocked = `blocked_no_reason` (web-access root cause, operator config). The 8 todo are all live-assignee + no-deps = **promotable** but can't be gated-promoted (endpoint 404, needs restart). Did NOT manually `promote_task` (operator absent; the gated `promote_ready` + an operator-watched dispatch is the right path — TO-DO #1/#2). |
+| Cron jobs | 🟡 EMPTY + engine LIVE | store `jobs: []`; scheduler daemon running (285 ticks). Maintenance `*/30` sweep (run#10) now ALSO promotes todo→ready (run #12 sweep step). Seeding needs operator sign-off (TO-DO #4). |
+| Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 27 · drafts 5 · calendar 36 (growing; writing `.mc/data/`). |
+| Modules in error state | none observed | Diagnostics clean apart from the 6 web-access `blocked_no_reason`. Run #12's ▲ PROMOTE READY button renders disabled on the live (pre-restart) bridge — honest count-0 fallback. |
 
 ---
 
@@ -321,14 +328,55 @@ _Last run: **2026-06-16 ~21:00** (Run #12 — built the **board-wide `promote_re
     the recurring maintenance cron flows work end-to-end; `POST /api/mc/kanban/promote` → `promoteReady()` api fn →
     `useTaskStore.promoteReady` → a sky **▲ PROMOTE READY (n)** button after ⤵ AUTO-ROUTE in the diagnostics toolbar (and
     `promoteCount` folded into the ⚙ SWEEP BOARD enable predicate). **Loads on next bridge restart (TO-DO #1).**
-- → bughunt / NOT this loop: **`HEAD:mc_store.py` is committed NON-PARSING** (TO-DO #0 — valid UTF-8 but an unterminated
-  string makes it fail `ast.parse` at ~1058; working tree is fine). This poisons clean per-hunk commits for every loop —
-  hand to bughunt to repair HEAD. Also: block-reason **display** in the task drawer + FAILED-vs-BLOCKED reconciliation are
-  bughunt's — do not redo.
+14. ✅ **Non-parsing HEAD `mc_store.py` REPAIRED (run #13).** Was the standing #0 blocker for 3 runs. NOT mojibake — run #11's
+    commit truncated `_would_cycle` (lost DFS body, spliced-in dispatch section closed the docstring early → bare em-dash
+    tokenized as code → `SyntaxError` ~L1058). Committed a parsing `mc_store.py` (`cb8f0ae` = py_compile-clean working tree
+    minus sibling `fail_task`), restoring `_would_cycle` + landing run #12's `promote_ready` in HEAD. `ast.parse(HEAD)` ✅.
+    Per-hunk commits have a clean base again. (See DONE Run #13.)
+15. 🔴 → bughunt/evolve (NEW, run #13): **`npm run lint` fails project-wide (~500 errors)** — pre-existing baseline in
+    sibling/untouched TS, not this loop's. TO-DO #6 owns the hand-off + the suggested one-time reviewed `eslint --fix` sweep.
+- → bughunt / NOT this loop: block-reason **display** in the task drawer + FAILED-vs-BLOCKED reconciliation (the sibling
+  `fail_task` WIP, still uncommitted in the working tree) are bughunt's — do not redo.
 
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #13 (RESOLVED the 3-run commit blocker: repaired non-parsing HEAD `mc_store.py`) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — bridge green; lint baseline surfaced.** Bridge :8767 UP (`/api/ping` ok, uptime ~2.4h; started
+   ~1781640692, predates run #12 — confirmed `POST /api/mc/kanban/promote` → **404**, so run #12 wiring is still working-tree
+   only, awaiting an operator restart). Dispatcher LIVE-but-OFF/starved (`/api/mc/dispatcher` → `{enabled:false,running:false}`,
+   `dispatchable:[]`), scheduler `running:true` (285 ticks, 0 fired), `/api/mc/kanban/sweep` → 200. `npm run build` ✅ (613ms).
+   `py_compile mc_store.py` + `mission-control-bridge.py` ✅. **NEW:** ran the FULL `npm run lint` (prior runs only scoped
+   `npx eslint` to their touched files) → **500 errors / 473 auto-fixable**, all pre-existing in sibling/untouched TS
+   (`GhostNetwork.tsx`, `Layout.tsx`, …; dominant `ban-ts-comment`/`no-unused-vars`/`set-state-in-effect`). Run #13 touched
+   **0 TS** so introduced none — handed to bughunt/evolve (TO-DO #6, GAPS #15).
+
+2. **DIAGNOSED + REPAIRED the standing #0 blocker (the run's signature increment).** `HEAD:mc_store.py` had not parsed for
+   3 runs. Pinned the true root cause (NOT mojibake / not an em-dash encoding bug as previously assumed): run #11's commit
+   `496fad2` **truncated `MCStore._would_cycle`** — its docstring tail + entire DFS body were lost and the `# dispatch (run
+   tasks)` section was spliced straight in, so the `"""` opening `_would_cycle`'s docstring (~L1046) was closed early by
+   `dispatchable_tasks`'s `"""` (~L1055), leaving the prose at ~L1058 ("…would never run it — that is the…") tokenized as bare
+   code → `SyntaxError: invalid character '—' (U+2014)`. The working-tree `mc_store.py` has the intact function and
+   `py_compile`s clean. **Fix:** committed a parsing `mc_store.py` (`cb8f0ae`) = the working tree **minus** the sibling
+   bughunt `fail_task` method (lines 322–331, excised to stay in-lane), which restores intact `_would_cycle` AND lands run
+   #12's `promote_ready` store method in HEAD. Verified before commit: staged blob `ast.parse` ✅, only `mc_store.py` staged,
+   0 `fail_task` lines leaked. After commit: `ast.parse(HEAD:mc_store.py)` ✅ (**blocker resolved**). Then **restored** the
+   working tree byte-identical from a verified backup (sibling `fail_task` re-added; `git diff HEAD -- mc_store.py` = exactly
+   the 10-line `fail_task` block, sibling WIP undisturbed). `py_compile` working tree ✅. All scratch/backup temp files removed.
+
+3. **ORCHESTRATION — assessed, no safe action available this run.** Board `todo 8 · ready 0 · done 18 · blocked 6 · triage 0`
+   (unchanged). No stale/dead/cycle/exhausted diagnostics; the 6 blocked are the audited web-access `blocked_no_reason`
+   (operator config). The dispatcher is LIVE but starved (`ready 0`), and the gated `promote_ready` endpoint is 404 on the
+   live bridge — so the only lever would be the ungated per-task `promote_task`, which run #12 already (correctly) declined to
+   use with no operator present. Did NOT restart the bridge (operator's running process — not mine to kill). Content pipeline
+   healthy + growing (campaigns 27, drafts 5, calendar 36).
+
+4. **Not done / handed off:** the bridge `promote` endpoint + api.ts/store/UI wiring still need a restart to go live (TO-DO #1)
+   then an operator-watched promote→dispatch (TO-DO #2); cron seeding needs sign-off (#4); the lint baseline is bughunt/evolve
+   (#6). No new feature built this run on purpose — un-breaking the shared commit base (3-run blocker) was the higher-impact
+   increment and unblocks every loop's ability to commit.
 
 ### 2026-06-16 — Run #12 (BUILT the board-wide `promote_ready` gate — the dispatcher's feeder) · branch `auto/loop-reconcile-20260615`
 
