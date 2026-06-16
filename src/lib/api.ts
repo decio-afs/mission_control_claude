@@ -175,6 +175,53 @@ export async function getWebAccessAudit(): Promise<WebAccessAudit> {
 
 export async function getMcTasks(): Promise<{ tasks: McTask[] }> {
   const { data } = await bridge.get('/api/mc/tasks');
+// --- Task dispatcher (post-Hermes kanban dispatcher: runs ready tasks via Claude) ---
+export interface DispatcherStatus {
+  enabled: boolean;
+  running: boolean;
+  concurrency: number;
+  tick_seconds: number;
+  in_flight: string[];
+  started_at: number | null;
+  last_tick: number | null;
+  ticks: number;
+  dispatched: number;
+  errors: number;
+  last_dispatched_id: string | null;
+  last_error: string | null;
+}
+export interface DispatchablePlan {
+  id: string;
+  title: string;
+  assignee: string;
+  priority: number;
+  created_at: number | null;
+  agent_model: string | null;
+  agent_mcps: string[];
+  web_gap: boolean;
+}
+export interface DispatcherInfo {
+  status: DispatcherStatus;
+  dispatchable: DispatchablePlan[];
+}
+export interface DispatchResult {
+  dispatched: boolean;
+  dry_run: boolean;
+  target: DispatchablePlan | null;
+  message: string;
+}
+export async function getDispatcher(): Promise<DispatcherInfo> {
+  const { data } = await bridge.get('/api/mc/dispatcher');
+  return data;
+}
+export async function dispatchTask(opts?: { taskId?: string; dryRun?: boolean }): Promise<DispatchResult> {
+  const body: Record<string, unknown> = {};
+  if (opts?.taskId) body.task_id = opts.taskId;
+  if (opts?.dryRun) body.dry_run = true;
+  const { data } = await bridge.post('/api/mc/dispatcher/dispatch', body);
+  return data;
+}
+
   return data;
 }
 

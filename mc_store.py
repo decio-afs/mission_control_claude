@@ -306,10 +306,13 @@ class MCStore:
             t["status"] = "running"; t["started_at"] = _now()
         return self._mutate(task_id, f, event="claimed")
 
-    def complete_task(self, task_id):
+    def complete_task(self, task_id, result=None):
         def f(t):
             t["status"] = "done"; t["completed_at"] = _now()
-        return self._mutate(task_id, f, event="completed")
+            if result is not None:
+                t["result"] = result
+        payload = {"result_excerpt": str(result)[:200]} if result else None
+        return self._mutate(task_id, f, event="completed", payload=payload)
 
     def block_task(self, task_id, reason):
         def f(t):
@@ -1047,6 +1050,94 @@ class MCStore:
         already reach ``parent`` by following existing edges — or the edge is a
         self-link (``parent == child``). Pure DFS over the current link set; the
         proposed edge is NOT added first (we look for an existing child→parent
+    # ------------------------------------------------- dispatch (run tasks)
+    def dispatchable_tasks(self, limit: Optional[int] = None) -> list[dict[str, Any]]:
+        """Tasks the dispatcher could fire right now, best-first (read-only).
+
+        A task is dispatchable iff status==`ready`, it has an `assignee` on the
+        live roster (an off-roster owner would never run it — that is the
+        reassign verb's job), and it is not already `running`/`done`. Conservative
+        on purpose: only `ready` (explicitly-promoted "go" work), never raw `todo`
+        backlog — an operator / the cascade gate promotes todo→ready when a task
+        is genuinely ready to execute. Sorted priority desc then oldest-first so
+        the most important, longest-waiting work goes first. Returns a light plan
+        row per task and mutates nothing — this is also the dry-run preview the
+        dispatcher daemon and the manual endpoint share.
+        """
+        with self._lock:
+            agents_by_name = {a.get("name"): a for a in self.list_agents()}
+            out: list[dict[str, Any]] = []
+            for t in self._tasks():
+                if not isinstance(t, dict) or t.get("status") != "ready":
+                    continue
+                assignee = t.get("assignee")
+                agent = agents_by_name.get(assignee)
+                if not assignee or agent is None:
+                    continue  # unassigned / off-roster → not dispatchable here
+                mcps = agent.get("mcps") or []
+                askills = agent.get("skills") or []
+                has_web = any(any(mk in str(mm).lower() for mk in WEB_MCP_MARKERS)
+                              for mm in mcps)
+                needs_web = any(any(mk in str(s).lower() for mk in WEB_SKILL_MARKERS)
+                                for s in askills)
+                out.append({
+                    "id": str(t.get("id")),
+                    "title": t.get("title"),
+                    "assignee": assignee,
+                    "priority": t.get("priority", 0) or 0,
+                    "created_at": t.get("created_at"),
+                    "agent_model": agent.get("model"),
+                    "agent_mcps": mcps,
+                    "web_gap": needs_web and not has_web,
+                })
+            out.sort(key=lambda r: (-(r["priority"] or 0), r.get("created_at") or 0))
+            return out[:limit] if limit else out
+
+    def record_task_run(self, task_id: str, *, status: str, summary: Optional[str] = None,
+                        session_id: Optional[str] = None, cost_usd: Optional[float] = None,
+                        error: Optional[str] = None, trigger: str = "dispatch") -> dict[str, Any]:
+        """Append a run record to a task's history (``meta['runs'][task_id]``).
+
+        Runs feed ``has_deliverable``, the drawer's ``latest_summary``, and the
+        retry-exhaustion counter (``_failed_attempts`` counts runs whose
+        ``outcome`` ∈ FAILED_OUTCOMES) — so a recorded failed run flows straight
+        into the escalate verb. No public run-writer existed before the dispatcher
+        needed one. Also stamps the task's resumable ``session_id`` when given.
+        Raises ``KeyError`` for an unknown id.
+        """
+        with self._lock:
+            tasks = self._tasks()
+            task = self._find(tasks, task_id)
+            run = {
+                "id": uuid.uuid4().hex[:12],
+                "outcome": status,
+                "summary": ((summary or "")[:4000] or None),
+                "error": error,
+                "session_id": session_id,
+                "cost_usd": cost_usd,
+                "trigger": trigger,
+                "created_at": _now(),
+            }
+            m = self._meta()
+            m["runs"].setdefault(str(task_id), []).append(run)
+            if session_id:
+                task["session_id"] = session_id
+                self._save_tasks(tasks)
+            self._save_meta(m)
+            return run
+
+    def requeue_task(self, task_id, reason=None):
+        """Return a (failed/aborted) running task to ``ready`` for another attempt.
+
+        The dispatcher uses this on a failed run so the task is retryable rather
+        than left stuck `running` (a stale claim only reconcile would later free);
+        repeated failures still accrue runs, so the escalate verb eventually blocks
+        a task whose assignee keeps failing it.
+        """
+        def f(t):
+            t["status"] = "ready"; t["started_at"] = None
+        return self._mutate(task_id, f, event="requeued", payload={"reason": reason})
+
         path). Used as the guard at both `link()` and `create_task`'s
         parent-append loop so a cycle can never be persisted in the first place.
         """

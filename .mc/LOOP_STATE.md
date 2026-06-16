@@ -6,33 +6,66 @@ which runs **every 2 hours**. It is SEPARATE from `LOOP_LOG.md` (evolve) and `BU
 
 **Every run MUST:** read this file top-to-bottom first → run the `/loop` protocol
 (HEALTH → ORCHESTRATION → PIPELINES → CLOSE GAPS → VERIFY) → then rewrite the sections
-below. `## DONE` is append-only history; `## TO-DO` is rewritten each run for the next run;
-`## OPERATIONAL STATUS` is the at-a-glance current-reality snapshot.
+below. `## DONE` is append-only history; `## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-> **Architecture note (post-Hermes excision, commit `cd96b0e`):** Mission Control is now
-> **Claude-native**. There is **NO gateway on :8642** anymore — `/api/mc/gateway` deliberately
-> returns "No gateway under Claude". The loop.md spec's "Gateway :8642 health gate" is **stale**;
-> :8642 being down is **expected and correct**, NOT a blocker. The bridge (:8767) talks to Claude
-> directly. There is also **no in-process kanban dispatcher and no in-process cron scheduler** —
-> the gateway used to host both. Task execution + scheduling now depend on Claude Code (chat /
-> spawn / this loop) and external Claude routines / Windows Scheduled Tasks, not a daemon.
+1. **Restart the bridge, then activate + verify the TASK DISPATCHER (run #11, the NORTH STAR).** The live
+   bridge predates run #11 (confirmed this run: `GET /api/mc/dispatcher` → 404), so the new endpoints + the
+   `TaskDispatcher` daemon load only on the next `python mission-control-bridge.py` restart. After restart, in order:
+   - `GET /api/mc/dispatcher` → `{status:{enabled:false,running:false,concurrency:1,…}, dispatchable:[…]}`. With
+     the board as-is (1 `ready` task: signalscraper's `t_f76cf250`), `dispatchable` lists that one task (web_gap:true —
+     signalscraper has no web MCP). Operations → ⚠ diagnostics now shows a **TASK DISPATCHER** panel: "○ daemon OFF —
+     manual / operator-gated", the dispatchable preview, and a green **▶ DISPATCH NEXT** button.
+   - **Dry-run a manual dispatch:** `POST /api/mc/dispatcher/dispatch {"dry_run":true}` → `{dispatched:false,target:{…},
+     message:"would dispatch … → …"}` (claims nothing). This is safe to verify anytime.
+   - **One real manual dispatch (operator-watched):** `POST /api/mc/dispatcher/dispatch {}` (or the ▶ button) fires ONE
+     headless `run_claude` turn in the background for the top task → claims it `running`, and on success completes it with
+     the result stored + a recorded run (on failure: records an error run + requeues to `ready`). NOTE: this is an
+     autonomous, tool-using, **bypassPermissions** Claude turn with real side effects — fine as an operator-initiated
+     single dispatch, but watch the task's status/runs for the outcome. (signalscraper's `t_f76cf250` needs web it lacks,
+     so it may fail/requeue — pick a task whose agent is fully provisioned for the first clean end-to-end demo.)
+   - **Autonomous mode (operator sign-off required):** set `MC_DISPATCHER_ENABLED=1` (env) and restart → the daemon
+     auto-runs every `ready`+assigned task on a 30s tick, single-flight, `MC_DISPATCH_CONCURRENCY` at a time (default 1).
+     **Do NOT enable without operator sign-off** — same posture as the Buffer cron + the self-heal cron (it fires
+     side-effecting Claude turns unattended). Knobs: `MC_DISPATCH_CONCURRENCY`, `MC_DISPATCH_TICK_SECONDS`,
+     `MC_DISPATCH_TIMEOUT` (900s). Fully proven in-process this run (see DONE Run #11).
+   - Also re-confirm the run#1–#10 endpoints are still 200 after the restart (they were in `.mc/bridge.log` this run).
+2. **Promote `todo`→`ready` to feed the dispatcher.** The dispatcher only picks `ready` tasks (conservative on purpose).
+   After the 6 triage tasks were routed to `todo` this run, the board has **14 todo · 1 ready**. For the dispatcher to do
+   real work, ready-promote the genuinely-actionable todo tasks (operator judgment, or build a promote-verb gate). The
+   content tasks (narratrix/claudelink carousels) are good first candidates once their agents are web-provisioned.
+3. **Provision web access for the 6 blocked + the web_gap agents (operator config, audited run#3).** All 6 blocked tasks
+   (5×narratrix, 1×default) are research/content tasks with no recorded reason; root cause = no web MCP. Several routed
+   content tasks also flag `web_gap`. Fix is config not code: provision `web-brave-free` / `BRAVE_SEARCH_API_KEY` and add it
+   to each flagged agent's `mcps` (the WEB-ACCESS AUDIT panel names them), then unblock + dispatch. The dispatcher will
+   otherwise burn turns on web-less research tasks.
+4. **Seed cron jobs (operator sign-off).** The scheduler daemon is LIVE (222 ticks). Safe to seed: sentinel (`0 7 * * *`)
+   + content-engine (`30 7 * * *`) pipeline jobs — BUT content-engine auto-posts to Buffer (outward side effect), so
+   confirm with the operator first; AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`,
+   `action:"sweep"`, run#10). Use the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded — standing config + external
+   side effects, operator not present.
+5. **Next capability to BUILD (after the dispatcher proves out):** a **dispatcher worktree/isolation seam** so concurrent
+   dispatched agents don't collide in the repo (each gets `cwd`/branch per the task's `workspace_*` fields, already on the
+   task shape but unused by `dispatch_task`, which runs every turn in `PROJECT_ROOT`). Runner-up: per-task `unlink`
+   cycle-break affordance (GAPS #10) — prefer adding it to the diagnostics modal row (this loop's file) to stay in-lane
+   vs `TaskDetailDrawer.tsx` (bughunt's working tree).
+
 
 ---
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 ~18:40** (Run #10 — built the maintenance cron job kind: `kind:"maintenance"` + `action:"sweep"` → scheduler fires `STORE.sweep_board()` with no Claude turn → hands-free board self-heal on a timer)._
+_Last run: **2026-06-16 ~18:50** (Run #11 — built the **kanban TASK DISPATCHER** = the NORTH STAR / the one piece still missing post-Hermes: a daemon + endpoints that claim a `ready` task and run it through its assigned agent via one headless `run_claude` turn. Gated OFF by default; manual + dry-run surface live. Also exercised the now-live router → routed all 6 triage tasks to owners (triage 6→0))._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~30.5h. **Still holds pre-restart code** — now **TEN** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404), run#6 cascade (`POST /api/mc/kanban/cascade`→404), run#7 reassign (`POST /api/mc/kanban/reassign`→404), run#8 dep-cycle guard (`POST /api/mc/tasks/link` accepts cycles), run#9 sweep (`POST /api/mc/kanban/sweep`→404 — confirmed this run), **run#10 maintenance cron** (old bridge accepts-but-ignores `kind`/`action` on `POST /api/mc/cron` — created jobs have no kind, scheduler can't fire an internal verb). |
+| Bridge (:8767) | ✅ UP + on current code | `GET /api/ping` ok, uptime ~2h (the operator's restart this morning). Scheduler **DAEMON LIVE** (`/api/mc/cron` → `scheduler.running:true`, 222 ticks @ 30s). Runs #1–#10 all confirmed 200 in `.mc/bridge.log` (reconcile/sweep/route/web-access). **This run's NEW dispatcher endpoints (`/api/mc/dispatcher`, `/api/mc/dispatcher/dispatch`) 404 on the live bridge — it predates run #11 — so they + the `TaskDispatcher` daemon load on the NEXT bridge restart (TO-DO #1).** |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
-| `npm run build` | ✅ PASS | tsc + vite, 156 modules, exit 0 (chunk-size warning only) |
-| `npm run lint` | ✅ PASS | Run #10 touched 2 TS files (`api.ts`, `OperationsCenter.tsx`); `npx eslint` on both = "No issues found". Python: `py_compile` on `mc_scheduler.py`/`mc_store.py`/`mission-control-bridge.py` ✅ + `mc_scheduler.py` self-test ALL PASS. Only pre-existing `office/tower` churn remains (sibling-owned). |
-| Kanban / orchestration | 🟡 steady, triage grew | todo 8 · ready 1 · done 10 · blocked 6 · **triage 6** (was 1 — 5 new unassigned triage tasks this run). No `stale_claim`, no `retry_exhausted`, no `blocked_by_dependency`, no `dead_agent_task`, no `dependency_cycle`. Live `sweep_board(dry_run)` → total 0 (honest no-op). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 6 triage tasks need the run#4 auto-route verb — pending restart (TO-DO #4). |
-| Cron jobs | 🟡 EMPTY + engine ready | store `jobs: []`; scheduler daemon built (run#2) loads on restart; **maintenance-job kind built (run#10)** lets a recurring `*/30 * * * *` sweep job self-heal the board with no human/Claude turn. Seeding pipeline + self-heal jobs safe post-restart — TO-DO #2/#5. |
-| Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 27 · drafts 6 · calendar 36 (was 22/6/31 — pipeline alive & writing `.mc/data/`) |
-| Modules in error state | none observed | Run #10 adds a **KIND toggle** (◆ CLAUDE PROMPT / ⚙ MAINTENANCE) + sweep ACTION select to the Operations → ⏱ CRON create form, and a ⚙ maintenance chip on maintenance job rows. Live preview (bridge up, 0 jobs): toggle renders, switching to MAINTENANCE swaps prompt textarea → sweep action select, zero console errors. Prior runs' buttons unchanged. |
+| `npm run build` | ✅ PASS | tsc + vite, 156 modules, exit 0 (chunk-size warning only) — run twice this run (before + after the dispatcher UI). |
+| `npm run lint` | ✅ PASS | `npx eslint src/lib/api.ts src/pages/OperationsCenter.tsx` = "No issues found". Python: `py_compile` on `mc_store.py`/`mission-control-bridge.py`/`mc_brain.py`/`mc_scheduler.py` ✅. Only pre-existing `office/tower` churn in the full lint (sibling-owned). |
+| Kanban / orchestration | ✅ flowing — triage cleared | **todo 14 · ready 1 · done 10 · blocked 6 · triage 0** (was triage 6 — this run routed all 6 to owners: narratrix×2, claudelink×4, via the now-live `POST /api/mc/kanban/route`). No `stale_claim`/`retry_exhausted`/`blocked_by_dependency`/`dead_agent_task`/`dependency_cycle`. 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). **15 assigned tasks now sit dispatchable-but-idle — exactly what the new dispatcher addresses once enabled.** |
+| Cron jobs | 🟡 EMPTY + engine LIVE | store `jobs: []`; scheduler daemon **running now** (222 ticks). Maintenance-job kind (run#10) lets a recurring `*/30` sweep self-heal the board with no Claude turn. Seeding pipeline + self-heal jobs needs operator sign-off (TO-DO #2/#4). |
+| Content pipeline | ✅ stores live | `/api/content/pipeline` live (campaigns/drafts/calendar growing; writing `.mc/data/`). |
+| Modules in error state | none observed | Run #11 adds a **TASK DISPATCHER panel** to the Operations → ⚠ diagnostics modal (daemon state · best-first dispatchable preview · ▶ DISPATCH NEXT button). Live preview (bridge up, pre-restart): panel correctly **absent** (live bridge 404s on `/api/mc/dispatcher` → `.catch` → null), all run#1–#9 buttons + WEB-ACCESS panel still render, **zero console errors**. |
 
 ---
 
@@ -264,6 +297,19 @@ _Last run: **2026-06-16 ~18:40** (Run #10 — built the maintenance cron job kin
    amber provisioning hint. Diagnostic only — it never provisions a key (that stays operator config).
    In-process against the live roster: 9/14 agents flagged, `blocked_due_to_web=6` (exact match to the
    board's 5×narratrix + 1×default blocked tasks). Loads on next bridge restart (TO-DO #1).
+12. ✅ **Kanban TASK DISPATCHER — the NORTH STAR, the one piece still missing post-Hermes (BUILT run #11).**
+    The gateway used to host the dispatcher that turned `ready` kanban tasks into running Claude sub-agents; excising
+    Hermes removed it, so 15 assigned tasks sat idle with nothing to execute them. Built the Claude-native successor
+    end-to-end: `mc_store.dispatchable_tasks()` (best-first selection of `ready`+live-assignee tasks, read-only),
+    `record_task_run()` (the first public run-writer — feeds `has_deliverable`/`latest_summary`/the retry-exhaustion
+    counter), `requeue_task()`, and `complete_task(result=…)`; bridge `dispatch_task()` (claim → one headless
+    `run_claude` turn with the agent's model/role/skills → complete-with-result, or record-error + requeue on failure),
+    a `TaskDispatcher` daemon thread (single-flight, `MC_DISPATCH_CONCURRENCY`-capped, mirrors `CronScheduler`),
+    `GET /api/mc/dispatcher` (status + dry-run preview) + `POST /api/mc/dispatcher/dispatch` (operator-initiated, dry-run
+    or real-in-background); `api.ts` types/fetchers; an Operations → ⚠ **TASK DISPATCHER** panel (state · preview ·
+    ▶ DISPATCH NEXT). **Daemon DISABLED by default** (`MC_DISPATCHER_ENABLED`) — autonomous bypassPermissions turns have
+    side effects, so the operator opts in (same posture as the Buffer/self-heal crons); manual + dry-run usable
+    immediately. Loads on next bridge restart (TO-DO #1).
 - → bughunt / NOT this loop: block-reason **display** in the task drawer already exists (built by
   bughunt, reads event payloads client-side); FAILED-vs-BLOCKED column reconciliation done by bughunt.
   Do not redo these.
@@ -271,6 +317,69 @@ _Last run: **2026-06-16 ~18:40** (Run #10 — built the maintenance cron job kin
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #11 (BUILT the kanban TASK DISPATCHER — the NORTH STAR) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE green (after a harness hiccup).** The Bash/PowerShell auto-safety classifier was *temporarily
+   unavailable* for the first ~8 probes this run (`claude-opus-4-8[1m] … cannot determine the safety`) — no command
+   could run, so I did read-only design work until it recovered, then ran the gate. Bridge :8767 UP (`/api/ping` ok,
+   uptime ~2h = the operator's restart), scheduler **DAEMON LIVE** (`/api/mc/cron` → `running:true`, 222 ticks @ 30s),
+   `.mc/bridge.log` shows runs #1–#10 all 200. `npm run build` ✅ (156 modules, exit 0, twice); `npx eslint` on the 2
+   touched TS files ✅ ("No issues found"); `py_compile` on the 4 Python modules ✅. Sibling lanes isolated at commit
+   (see §4).
+
+2. **ORCHESTRATION — exercised the now-live router, cleared triage.** Board on arrival: todo 8 · ready 1 · done 10 ·
+   blocked 6 · **triage 6**. The run#4 auto-route verb is now live (was 404 pre-restart for 7 runs) — dry-ran it
+   (all 6 resolve to owners, 0 skips), then applied: `POST /api/mc/kanban/route` routed all 6 (narratrix×2 score 23,
+   claudelink×4 score 22–23, 4 flag `web_gap`) → **triage 6→0, todo 8→14**. No `stale_claim`/`retry_exhausted`/
+   `dep`/`dead_agent`/`cycle` diagnostics. The 6 blocked remain the audited web-access root cause (operator config).
+   Result: 15 assigned tasks now dispatchable-but-idle — precisely the gap the new dispatcher fills.
+
+3. **BUILT: the kanban TASK DISPATCHER (CAPABILITY GAPS #12, the NORTH STAR), end-to-end & gated-OFF-by-default.**
+   The post-Hermes successor to the gateway's dispatcher — Claude-native sub-agent delegation off the kanban:
+   - `mc_store.py` — `dispatchable_tasks(limit?)` (read-only best-first selection: status `ready` + assignee on the
+     live roster + not running; priority desc then oldest; per-task plan row with `web_gap`); `record_task_run(...)`
+     (first public writer to `meta['runs']` — feeds `has_deliverable`/`latest_summary`/`_failed_attempts`; stamps
+     `session_id`); `requeue_task(reason)` (running→ready, clears `started_at`); `complete_task(result=…)` now stores
+     the deliverable.
+   - `mission-control-bridge.py` — module consts `MC_DISPATCHER_ENABLED` (default **0/off**), `DISPATCH_CONCURRENCY`
+     (1), `DISPATCH_TICK_SECONDS` (30), `DISPATCH_TIMEOUT` (900); `_build_dispatch_prompt(task,agent)`;
+     `dispatch_task(id)` (claim → `run_claude(prompt, system_prompt, model=agent.model, timeout)` → record ok-run +
+     `complete_task(result)`, or on `ClaudeError` record error-run + `requeue_task` then re-raise); `TaskDispatcher`
+     daemon thread (single-flight via `_in_flight` set + lock, capacity-capped, never dies on a bad tick — mirrors
+     `CronScheduler`), started in `lifespan` only when enabled (+ `DISPATCHER.stop()` on shutdown);
+     `GET /api/mc/dispatcher` (status + dry-run `dispatchable` preview) and `POST /api/mc/dispatcher/dispatch`
+     (`{task_id?,dry_run?}` — dry-run returns the plan; real fires one turn in the background and returns immediately).
+   - `src/lib/api.ts` — `DispatcherStatus`/`DispatchablePlan`/`DispatcherInfo`/`DispatchResult` types + `getDispatcher()`
+     + `dispatchTask({taskId?,dryRun?})`.
+   - `src/pages/OperationsCenter.tsx` — `dispatcher` state + `loadDispatcher()` (fired with the ⚠ diagnostics open,
+     alongside `loadWebAudit`), and a **TASK DISPATCHER** panel (`DispatcherPanel`) in the diagnostics modal: honest
+     daemon state (emerald "● DAEMON LIVE" when enabled+running, else "○ daemon OFF — manual / operator-gated"),
+     best-first dispatchable list (assignee · priority · ⚠ web), and a green **▶ DISPATCH NEXT (n)** button (disabled
+     when nothing ready), with a dispatched/err counter.
+   **Verified:** `py_compile` ✅; **in-process store test on a throwaway store** ✅ — `dispatchable_tasks` returns only
+   ready+live-assignee tasks, priority-sorted, `web_gap` correct, `limit` works; `record_task_run` records + stamps
+   `session_id`; `complete_task(result)` stores the deliverable + lights `has_deliverable`; `requeue_task` resets
+   running→ready/`started_at=None`; **a recorded error-run flows into the `retry_exhausted` escalate diagnostic** (the
+   dispatcher composes with run#5). **In-process bridge test with `run_claude` MOCKED** (no real turn, no side effects)
+   ✅ — daemon OFF by default; `get_dispatcher` returns status + preview; dry-run dispatch plans without claiming; a
+   not-dispatchable id is reported honestly; a real `dispatch_task` builds the prompt from task+agent, threads the
+   agent model to `run_claude`, completes with the deliverable + an ok-run; the failure path records an error-run and
+   requeues to `ready`. `npm run build` ✅ + `npx eslint` ✅. **Live Vite preview** (:5219, bridge up) ✅ — Operations →
+   ⚠ diagnostics: all run#1–#9 buttons + the WEB-ACCESS panel render; the **TASK DISPATCHER** panel is correctly
+   **absent** (live bridge predates run#11 → `/api/mc/dispatcher` 404 → `.catch` → null, the same honest fallback as
+   run#3's webAudit), **zero console errors**. `graphify update .` run after edits (1551 nodes / 3033 edges).
+   **Not verified:** the live daemon/endpoints + a real dispatched Claude turn — needs the bridge restart (TO-DO #1)
+   and (for autonomous mode) operator sign-off. Did NOT fire a real dispatch (no operator present; the only `ready`
+   task lacks the web access it needs). The full dispatch + requeue + escalate-integration path is proven by the
+   in-process tests.
+
+4. **Commit isolation.** My changes touch 4 files that also carry sibling WIP (bughunt's `fail_task` in
+   `mc_store.py`+bridge & `get_briefing` fix; evolve's cron-display `cronAnchorMs`/`created_at`/`CronNextFire` in
+   `api.ts`+`OperationsCenter.tsx`). Staged **only my hunks** via a content-filtered `git apply --cached --unidiff-zero`
+   patch (built at unified=0 so my `complete_task` change separates from bughunt's adjacent `fail_task`; the mixed
+   import line reduced to my `../lib/api` line only). Verified: staged diff = 454 insertions across my 4 files, **0**
+   `fail_task`/`get_briefing`/`cronAnchorMs`/`CronNextFire` lines leaked; sibling WIP left intact in the working tree.
 
 ### 2026-06-16 — Operator session (ACTIVATION + re-aim at Hermes parity)
 

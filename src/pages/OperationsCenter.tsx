@@ -9,7 +9,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
-import { getMcCron, runMcCron, createMcCron, decomposeTask, getWebAccessAudit, errMessage, type McCronJob, type CronSchedulerStatus, type McTask, type WebAccessAudit } from '../lib/api';
+import { getMcCron, runMcCron, createMcCron, decomposeTask, getWebAccessAudit, getDispatcher, dispatchTask, errMessage, type McCronJob, type CronSchedulerStatus, type McTask, type WebAccessAudit, type DispatcherInfo } from '../lib/api';
 import { parseSchedule, formatCountdown, fireLabel, type ParsedSchedule } from '../lib/cronSchedule';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import CronTimeline from '../components/CronTimeline';
@@ -76,6 +76,10 @@ export default function OperationsCenter() {
   const [sweepMsg, setSweepMsg] = useState<string | null>(null);
   const [webAudit, setWebAudit] = useState<WebAccessAudit | null>(null);
   const loadWebAudit = () => getWebAccessAudit().then(setWebAudit).catch(() => {});
+  const [dispatcher, setDispatcher] = useState<DispatcherInfo | null>(null);
+  const loadDispatcher = () => getDispatcher().then(setDispatcher).catch(() => {});
+  const [dispatching, setDispatching] = useState(false);
+  const [dispatchMsg, setDispatchMsg] = useState<string | null>(null);
   const [boardModal, setBoardModal] = useState(false);
   const [newBoardSlug, setNewBoardSlug] = useState('');
   const [newBoardName, setNewBoardName] = useState('');
@@ -234,7 +238,7 @@ export default function OperationsCenter() {
               <option value="__new__">+ new board…</option>
             </select>
           )}
-          <button onClick={() => { void fetchDiagnostics(); loadWebAudit(); setDiagOpen(true); }} title="Board diagnostics"
+          <button onClick={() => { void fetchDiagnostics(); loadWebAudit(); loadDispatcher(); setDiagOpen(true); }} title="Board diagnostics"
             className={`border px-2 py-1 ${diagCount > 0 ? 'border-amber-400/50 text-amber-400' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'}`}>
             ⚠ {diagCount}
           </button>
@@ -429,6 +433,25 @@ export default function OperationsCenter() {
             );
           })()}
           {webAudit && <WebAccessPanel audit={webAudit} />}
+          {dispatcher && (
+            <DispatcherPanel
+              info={dispatcher}
+              busy={dispatching}
+              msg={dispatchMsg}
+              onDispatch={async (taskId) => {
+                setDispatching(true); setDispatchMsg(null);
+                try {
+                  const r = await dispatchTask({ taskId });
+                  setDispatchMsg(r.message);
+                  // a real dispatch claims the task → refresh board + preview
+                  await fetchStats(); await fetchTasks(); loadDispatcher();
+                } catch (e) {
+                  setDispatchMsg(errMessage(e));
+                }
+                setDispatching(false);
+              }}
+            />
+          )}
           <div className="flex flex-col gap-1.5 max-h-[360px] overflow-auto">
             {diagnostics.length === 0 && <div className="text-[10px] font-mono text-emerald-400">✓ no active diagnostics — board healthy</div>}
             {diagnostics.map((d) => (
@@ -646,6 +669,67 @@ function WebAccessPanel({ audit }: { audit: WebAccessAudit }) {
           </div>
           <div className="px-2 py-1.5 border border-amber-500/30 bg-amber-500/5 text-[10px] font-mono text-amber-400 leading-relaxed">
             ⚠ {audit.hint}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Task dispatcher panel: the post-Hermes kanban dispatcher surface. Shows the
+// daemon's honest state (emerald DAEMON LIVE when MC_DISPATCHER_ENABLED, else a
+// muted "daemon OFF — manual/operator-gated"), the best-first dispatchable
+// preview, and a ▶ DISPATCH NEXT button that runs the top ready task through its
+// agent (one Claude turn, in the background). Honest empty when nothing is ready.
+function DispatcherPanel({ info, busy, msg, onDispatch }: {
+  info: DispatcherInfo;
+  busy: boolean;
+  msg: string | null;
+  onDispatch: (taskId?: string) => void | Promise<void>;
+}) {
+  const { status, dispatchable } = info;
+  const n = dispatchable.length;
+  const live = status.enabled && status.running;
+  const top = dispatchable[0];
+  return (
+    <div className="mb-2 pb-2 border-b border-white/[0.06]">
+      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+        <span className="text-[10px] font-mono tracking-[0.16em] uppercase text-[#b8b8b8]">TASK DISPATCHER</span>
+        <span className={`text-[10px] font-mono ${live ? 'text-emerald-400' : 'text-[#808080]'}`}
+          title={status.enabled ? 'MC_DISPATCHER_ENABLED=1' : 'daemon off — set MC_DISPATCHER_ENABLED=1 to auto-run ready tasks; manual dispatch always works'}>
+          {live
+            ? `● DAEMON LIVE · concurrency ${status.concurrency}${status.in_flight.length ? ` · ${status.in_flight.length} in flight` : ''}`
+            : '○ daemon OFF — manual / operator-gated'}
+        </span>
+        {status.dispatched > 0 && <span className="text-[10px] font-mono text-[#545454]">{status.dispatched} dispatched</span>}
+        {status.errors > 0 && <span className="text-[10px] font-mono text-red-400" title={status.last_error || ''}>{status.errors} err</span>}
+      </div>
+      {n === 0 ? (
+        <div className="text-[10px] font-mono text-[#808080]">no ready, assigned task to dispatch (promote a task to <span className="text-[#b8b8b8]">ready</span> to enable)</div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-1 mb-1.5">
+            {dispatchable.slice(0, 6).map((d) => (
+              <div key={d.id} className="flex items-center justify-between gap-2 px-2 py-1 border border-white/[0.06] bg-[#080808]">
+                <span className="text-[11px] text-white truncate" title={d.title}>{d.title}</span>
+                <span className="flex items-center gap-2 shrink-0 text-[10px] font-mono">
+                  <span className="text-[#808080]">{d.assignee}</span>
+                  {d.priority > 0 && <span className="text-[#545454]">P{d.priority}</span>}
+                  {d.web_gap && <span className="text-amber-400" title="agent needs web access but has no web MCP">⚠ web</span>}
+                </span>
+              </div>
+            ))}
+            {n > 6 && <div className="text-[10px] font-mono text-[#545454]">+{n - 6} more ready</div>}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={busy || !top}
+              onClick={() => onDispatch(undefined)}
+              title={top ? `Dispatch "${top.title}" → ${top.assignee} (one Claude turn, runs in background)` : 'nothing to dispatch'}
+              className={`text-[10px] font-mono border px-2 py-1 ${!busy && top ? 'border-emerald-400/50 text-emerald-400 hover:bg-emerald-400/10' : 'border-white/10 text-[#545454] cursor-default'}`}>
+              {busy ? '… dispatching' : `▶ DISPATCH NEXT${n > 0 ? ` (${n})` : ''}`}
+            </button>
+            {msg && <span className="text-[10px] font-mono text-[#b8b8b8]">{msg}</span>}
           </div>
         </>
       )}

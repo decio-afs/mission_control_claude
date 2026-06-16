@@ -302,6 +302,17 @@ MC_SCHEDULER_ENABLED = os.environ.get("MC_SCHEDULER_ENABLED", "1") not in ("0", 
 CRON_TICK_SECONDS = int(os.environ.get("MC_CRON_TICK_SECONDS", "30"))
 CRON_JOB_TIMEOUT = int(os.environ.get("MC_CRON_JOB_TIMEOUT", "600"))
 
+# Task dispatcher — the post-Hermes successor to the gateway's kanban dispatcher.
+# DISABLED by default: firing autonomous, tool-using Claude turns has real,
+# hard-to-reverse side effects, so the operator opts in explicitly (same posture
+# as the Buffer content cron + the self-heal cron). Until enabled, the capability
+# is fully usable via the operator-initiated POST /api/mc/dispatcher/dispatch and
+# previewable via GET /api/mc/dispatcher.
+MC_DISPATCHER_ENABLED = os.environ.get("MC_DISPATCHER_ENABLED", "0") not in ("0", "false", "False", "")
+DISPATCH_CONCURRENCY = max(1, int(os.environ.get("MC_DISPATCH_CONCURRENCY", "1")))
+DISPATCH_TICK_SECONDS = int(os.environ.get("MC_DISPATCH_TICK_SECONDS", "30"))
+DISPATCH_TIMEOUT = int(os.environ.get("MC_DISPATCH_TIMEOUT", "900"))
+
 
 class CronScheduler:
     """Background thread that fires due cron jobs through Claude."""
@@ -391,6 +402,156 @@ class CronScheduler:
 SCHEDULER = CronScheduler()
 
 
+def _build_dispatch_prompt(task: dict, agent: dict) -> tuple[str, str]:
+    """Compose the (prompt, system_prompt) for one task's Claude turn."""
+    title = task.get("title") or "(untitled task)"
+    body = (task.get("body") or "").strip()
+    skills = ", ".join(agent.get("skills") or []) or "general operations"
+    role = agent.get("role") or "autonomous Mission Control operator"
+    system_prompt = (
+        f"You are {agent.get('name')}, a Mission Control agent. Role: {role}. "
+        f"Skills: {skills}. You are executing one assigned kanban task end-to-end, "
+        f"unattended. Do the work, then return a concise summary of what you "
+        f"produced and where any deliverable lives."
+    )
+    prompt = f"# Task: {title}" + (f"\n\n{body}" if body else "")
+    return prompt, system_prompt
+
+
+def dispatch_task(task_id: str) -> dict:
+    """Execute one ready kanban task through its assigned agent (one Claude turn).
+
+    Claims the task → fires a headless ``run_claude`` turn (the agent's model) →
+    records the run → completes the task with the result, or requeues it to
+    ``ready`` on failure (so a repeatedly-failing task accrues runs and the
+    escalate verb eventually blocks it). Shared by the autonomous dispatcher
+    daemon and the manual dispatch endpoint. Raises on a non-dispatchable task.
+    """
+    show = STORE.show_task(task_id)            # KeyError → 404 at the endpoint
+    task = show["task"]
+    if task.get("status") == "running":
+        raise ClaudeError(f"task {task_id} is already running")
+    assignee = task.get("assignee")
+    agent = STORE.get_agent(assignee) if assignee else None
+    if agent is None:
+        raise ClaudeError(f"task {task_id} has no live agent ({assignee!r}) to dispatch to")
+    prompt, system_prompt = _build_dispatch_prompt(task, agent)
+    STORE.claim_task(task_id)                  # → running, started_at stamped
+    try:
+        resp = run_claude(prompt, system_prompt=system_prompt,
+                          model=agent.get("model"), timeout=DISPATCH_TIMEOUT)
+    except Exception as e:
+        STORE.record_task_run(task_id, status="error", error=str(e), trigger="dispatch")
+        STORE.requeue_task(task_id, reason=f"dispatch failed: {e}")
+        raise
+    summary = resp.get("result") or ""
+    STORE.record_task_run(task_id, status="ok", summary=summary,
+                          session_id=resp.get("session_id"),
+                          cost_usd=resp.get("cost_usd"), trigger="dispatch")
+    STORE.complete_task(task_id, result=summary)
+    return {"task_id": task_id, "assignee": assignee, "ok": True,
+            "summary": summary[:500], "session_id": resp.get("session_id"),
+            "cost_usd": resp.get("cost_usd")}
+
+
+class TaskDispatcher:
+    """Background thread that runs `ready` kanban tasks through Claude.
+
+    The post-Hermes successor to the gateway's kanban dispatcher: single-flight
+    per task, capacity-capped (DISPATCH_CONCURRENCY). DISABLED by default — see
+    MC_DISPATCHER_ENABLED. Never dies on a bad tick.
+    """
+
+    def __init__(self):
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._in_flight: set[str] = set()
+        self.started_at: Optional[float] = None
+        self.last_tick: Optional[float] = None
+        self.ticks = 0
+        self.dispatched = 0
+        self.errors = 0
+        self.last_dispatched_id: Optional[str] = None
+        self.last_error: Optional[str] = None
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self.started_at = time.time()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="task-dispatcher")
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def alive(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def status(self) -> dict:
+        with self._lock:
+            in_flight = sorted(self._in_flight)
+        return {
+            "enabled": MC_DISPATCHER_ENABLED,
+            "running": self.alive(),
+            "concurrency": DISPATCH_CONCURRENCY,
+            "tick_seconds": DISPATCH_TICK_SECONDS,
+            "in_flight": in_flight,
+            "started_at": self.started_at,
+            "last_tick": self.last_tick,
+            "ticks": self.ticks,
+            "dispatched": self.dispatched,
+            "errors": self.errors,
+            "last_dispatched_id": self.last_dispatched_id,
+            "last_error": self.last_error,
+        }
+
+    def _loop(self):
+        print(f"[mc-bridge] task dispatcher up (tick {DISPATCH_TICK_SECONDS}s, "
+              f"concurrency {DISPATCH_CONCURRENCY})", flush=True)
+        while not self._stop.is_set():
+            try:
+                self.last_tick = time.time()
+                self.ticks += 1
+                with self._lock:
+                    free = DISPATCH_CONCURRENCY - len(self._in_flight)
+                if free > 0:
+                    for task in STORE.dispatchable_tasks(limit=free * 3):
+                        if self._stop.is_set():
+                            break
+                        with self._lock:
+                            if len(self._in_flight) >= DISPATCH_CONCURRENCY:
+                                break
+                            if task["id"] in self._in_flight:
+                                continue
+                            self._in_flight.add(task["id"])
+                        threading.Thread(target=self._run_one, args=(task["id"],),
+                                         daemon=True, name=f"dispatch-{task['id']}").start()
+            except Exception as e:  # never let the daemon die on a bad tick
+                self.errors += 1
+                self.last_error = f"tick: {e}"
+                print(f"[mc-bridge] dispatcher tick error: {e}", flush=True)
+            self._stop.wait(DISPATCH_TICK_SECONDS)
+
+    def _run_one(self, task_id: str):
+        print(f"[mc-bridge] dispatching {task_id}", flush=True)
+        try:
+            dispatch_task(task_id)
+            self.dispatched += 1
+            self.last_dispatched_id = task_id
+        except Exception as e:
+            self.errors += 1
+            self.last_error = f"{task_id}: {e}"
+            print(f"[mc-bridge] dispatch {task_id} failed: {e}", flush=True)
+        finally:
+            with self._lock:
+                self._in_flight.discard(task_id)
+
+
+DISPATCHER = TaskDispatcher()
+
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
@@ -407,8 +568,16 @@ async def lifespan(app: FastAPI):
         SCHEDULER.start()
     else:
         print("[mc-bridge] cron scheduler DISABLED (MC_SCHEDULER_ENABLED=0)", flush=True)
+    # Autonomously run ready kanban tasks (the missing post-Hermes dispatcher).
+    # OFF unless the operator opts in (autonomous tool-using turns have side effects).
+    if MC_DISPATCHER_ENABLED:
+        DISPATCHER.start()
+    else:
+        print("[mc-bridge] task dispatcher DISABLED (set MC_DISPATCHER_ENABLED=1 to "
+              "auto-run ready tasks; manual dispatch endpoint still works)", flush=True)
     yield
     SCHEDULER.stop()
+    DISPATCHER.stop()
     print("[mc-bridge] Shutting down", flush=True)
 
 
@@ -1015,6 +1184,65 @@ def specify_task(task_id: str):
         "You are a delivery lead refining a task spec. Rewrite the task below into a clear, "
         "actionable spec with: a one-line goal, a short approach, and 3-6 acceptance criteria as "
         "a markdown checklist. Return ONLY the markdown body.\n\n"
+class DispatchPayload(BaseModel):
+    # Dispatch a specific ready task; omit to target the best-first dispatchable.
+    task_id: Optional[str] = None
+    # Preview the plan without firing a Claude turn.
+    dry_run: bool = False
+
+
+@app.get("/api/mc/dispatcher")
+def get_dispatcher():
+    """Dispatcher daemon status + dry-run preview of what it would run next.
+
+    The post-Hermes kanban dispatcher: it claims a `ready` task assigned to a live
+    agent and executes it through one headless Claude turn. The daemon is OFF by
+    default (MC_DISPATCHER_ENABLED) — `status.enabled/running` reports honestly —
+    but a ready task can always be run by hand via POST /api/mc/dispatcher/dispatch.
+    `dispatchable` is the same best-first plan the daemon consumes.
+    """
+    return {"status": DISPATCHER.status(),
+            "dispatchable": STORE.dispatchable_tasks(limit=20)}
+
+
+@app.post("/api/mc/dispatcher/dispatch")
+def dispatcher_dispatch(payload: Optional[DispatchPayload] = None):
+    """Manually dispatch a ready task (operator-initiated).
+
+    `dry_run` returns the plan without firing. A real dispatch fires one headless
+    Claude turn in the background and returns immediately (a turn can take
+    minutes) — watch the task's status/runs for the outcome. With no `task_id`,
+    targets the single best-first dispatchable task. A task that is not `ready` +
+    assigned to a live agent is honestly reported as not dispatchable.
+    """
+    task_id = payload.task_id if payload else None
+    dry = payload.dry_run if payload else False
+    plan = STORE.dispatchable_tasks(limit=50)
+    if task_id:
+        target = next((p for p in plan if p["id"] == task_id), None)
+        not_found_msg = (f"task {task_id} is not dispatchable "
+                         f"(must be `ready` and assigned to a live agent)")
+    else:
+        target = plan[0] if plan else None
+        not_found_msg = "no ready, assigned task to dispatch"
+    if target is None:
+        return {"dispatched": False, "dry_run": dry, "target": None, "message": not_found_msg}
+    if dry:
+        return {"dispatched": False, "dry_run": True, "target": target,
+                "message": f"would dispatch {target['id']} → {target['assignee']}"}
+    threading.Thread(target=_safe_dispatch, args=(target["id"],),
+                     daemon=True, name=f"manual-dispatch-{target['id']}").start()
+    return {"dispatched": True, "dry_run": False, "target": target,
+            "message": f"dispatching {target['id']} → {target['assignee']} (running in background)"}
+
+
+def _safe_dispatch(task_id: str):
+    try:
+        dispatch_task(task_id)
+    except Exception as e:
+        print(f"[mc-bridge] manual dispatch {task_id} failed: {e}", flush=True)
+
+
         f"Title: {task.get('title')}\n\nCurrent body:\n{task.get('body') or '(empty)'}"
     )
     try:
