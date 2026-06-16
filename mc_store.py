@@ -39,6 +39,17 @@ WEB_MCP_MARKERS = ("brave", "tavily", "serper", "exa", "perplexity",
 WEB_SKILL_MARKERS = ("competitive-brief", "synthesize-research", "discover-brand",
                      "seo-audit", "performance-report", "brand-review", "user-research")
 
+# Generic English / ultra-common task verbs that carry no routing signal — they
+# would otherwise spuriously match many agents' role text. Domain nouns
+# (content, competitor, calendar, brand, growth, instagram, …) are kept.
+ROUTE_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "all", "you", "your", "our", "into", "from",
+    "that", "this", "are", "was", "will", "can", "get", "use", "via", "per",
+    "new", "one", "two", "any", "each", "its", "has", "have", "not", "but",
+    "out", "who", "how", "what", "when", "then", "than", "they", "them", "their",
+    "across", "about", "over", "under", "more", "most", "some", "few",
+})
+
 
 def _now() -> float:
     return time.time()
@@ -503,6 +514,137 @@ class MCStore:
                 "message": (f"reconcile: {len(reclaimed)} stale claim(s) reclaimed"
                             if reclaimed else "reconcile: no stale claims found"),
             }
+
+    # ------------------------------------------------------- triage routing
+    @staticmethod
+    def _route_tokens(text: str) -> list[str]:
+        """Lowercase word tokens (len>=3) with routing stopwords removed."""
+        return [tok for tok in re.findall(r"[a-z0-9]+", str(text).lower())
+                if len(tok) >= 3 and tok not in ROUTE_STOPWORDS]
+
+    @classmethod
+    def _route_score(cls, task_tokens: set[str], agent: dict[str, Any]):
+        """Skill-match score of one agent against a task's token set.
+
+        Skill slugs are split on non-alphanumerics and weighted x3 (the strong
+        capability signal); role-text tokens weight x1. Multiplicity counts — an
+        agent that lists a matching token across several skills scores higher,
+        a fair proxy for depth in that area. Returns (score, matched_tokens,
+        skill_matched_tokens) where ``skill_matched`` (task tokens that hit a
+        *skill* token) gates routing confidence.
+        """
+        score = 0
+        matched: set[str] = set()
+        skill_matched: set[str] = set()
+        for skill in agent.get("skills") or []:
+            for tok in re.split(r"[^a-z0-9]+", str(skill).lower()):
+                if len(tok) >= 3 and tok not in ROUTE_STOPWORDS and tok in task_tokens:
+                    score += 3
+                    matched.add(tok)
+                    skill_matched.add(tok)
+        for tok in cls._route_tokens(agent.get("role") or ""):
+            if tok in task_tokens:
+                score += 1
+                matched.add(tok)
+        return score, matched, skill_matched
+
+    def route_triage(self, task_id: Optional[str] = None,
+                     dry_run: bool = False) -> dict[str, Any]:
+        """Auto-route triage tasks to the best-fit agent by skill match.
+
+        The post-Hermes board has no dispatcher, so a triage task sits unassigned
+        until a human picks an owner. This is the deterministic *assign-by-skill*
+        half of the "triage → specify → assign" flow (the Claude ``specify``
+        flesh-out stays a separate, opt-in step). For each triage task it scores
+        every rostered agent (``_route_score``), requires at least one *skill*
+        token match for confidence, breaks ties toward the *least-loaded* agent
+        (so work spreads), assigns the winner and de-triages the task to ``todo``
+        with a ``routed`` event recording the match. No skill match → the task is
+        honestly **left in triage** (never force-assigned). ``dry_run`` returns the
+        same plan without mutating — safe to preview. Moving to ``todo`` does not
+        fire any worker (there is no in-process dispatcher), so this never starts
+        a Claude run on its own.
+        """
+        with self._lock:
+            tasks = self._tasks()
+            roster = self.agents_with_counts()
+            # Current open (non-terminal) load per agent — the tie-break weight.
+            load: dict[str, int] = {}
+            for t in tasks:
+                who = t.get("assignee")
+                if who and t.get("status") not in TERMINAL:
+                    load[who] = load.get(who, 0) + 1
+            if task_id is not None:
+                cand = [t for t in tasks if str(t.get("id")) == str(task_id)]
+                if not cand:
+                    raise KeyError(task_id)
+                if cand[0].get("status") != "triage":
+                    return {"routed": [], "skipped": [{
+                        "id": str(task_id), "title": cand[0].get("title"),
+                        "reason": f"not in triage (status={cand[0].get('status')})"}],
+                        "dry_run": dry_run, "message": "route: task not in triage"}
+                cands = cand
+            else:
+                cands = [t for t in tasks if t.get("status") == "triage"]
+
+            m = self._meta()
+            routed: list[dict[str, Any]] = []
+            skipped: list[dict[str, Any]] = []
+            changed = False
+            for t in cands:
+                task_tokens = set(self._route_tokens(
+                    f"{t.get('title') or ''} {t.get('body') or ''}"))
+                scored = []
+                for a in roster:
+                    sc, matched, skill_matched = self._route_score(task_tokens, a)
+                    if sc > 0:
+                        scored.append((sc, a, matched, skill_matched))
+                # score desc, then least-loaded, then name (fully deterministic)
+                scored.sort(key=lambda x: (-x[0], load.get(x[1].get("name"), 0),
+                                           x[1].get("name") or ""))
+                best = next((s for s in scored if s[3]), None)
+                if best is None:
+                    skipped.append({"id": str(t.get("id")), "title": t.get("title"),
+                                    "reason": "no confident skill match — left in triage"})
+                    continue
+                sc, agent, matched, skill_matched = best
+                name = agent.get("name")
+                runner = next((s[1].get("name") for s in scored
+                               if s[1].get("name") != name), None)
+                mcps = agent.get("mcps") or []
+                askills = agent.get("skills") or []
+                has_web = any(any(mk in str(mm).lower() for mk in WEB_MCP_MARKERS)
+                              for mm in mcps)
+                needs_web = any(any(mk in str(s).lower() for mk in WEB_SKILL_MARKERS)
+                                for s in askills)
+                web_gap = needs_web and not has_web
+                entry = {"id": str(t.get("id")), "title": t.get("title"),
+                         "assignee": name, "score": sc,
+                         "matched": sorted(matched),
+                         "skill_match": sorted(skill_matched),
+                         "runner_up": runner, "web_gap": web_gap}
+                if not dry_run:
+                    t["assignee"] = name
+                    t["status"] = "todo"
+                    self._event(m, str(t.get("id")), "routed", {
+                        **{k: entry[k] for k in
+                           ("assignee", "score", "matched", "skill_match",
+                            "runner_up", "web_gap")},
+                        "reason": (f"skill-match auto-route → {name} (score {sc}, "
+                                   f"matched {', '.join(sorted(skill_matched))})")})
+                    load[name] = load.get(name, 0) + 1
+                    changed = True
+                routed.append(entry)
+            if changed and not dry_run:
+                self._save_tasks(tasks)
+                self._save_meta(m)
+            n = len(routed)
+            verb = "would route" if dry_run else "routed"
+            msg = (f"route: {verb} {n} task(s)"
+                   + (f", {len(skipped)} left in triage" if skipped else "")) \
+                if (routed or skipped) else "route: no triage tasks"
+            return {"routed": routed, "skipped": skipped,
+                    "dry_run": dry_run, "message": msg}
 
     # --------------------------------------------------------------- boards
     def boards(self) -> list[dict[str, Any]]:

@@ -345,6 +345,34 @@ export async function reconcileKanban(thresholdHours?: number): Promise<Reconcil
   return data;
 }
 
+// --- Triage auto-route: assign triage tasks to the best-fit agent by skill ---
+// The deterministic "assign-by-skill" half of triage → specify → assign. Routed
+// tasks de-triage to `todo` with the winning agent; unmatched tasks are left in
+// triage (honest, never force-assigned). `dryRun` previews without mutating.
+export interface RoutedTask {
+  id: string;
+  title?: string;
+  assignee: string;
+  score: number;
+  matched: string[];
+  skill_match: string[];
+  runner_up?: string | null;
+  web_gap?: boolean;
+}
+export interface RouteResult {
+  routed: RoutedTask[];
+  skipped: Array<{ id: string; title?: string; reason: string }>;
+  dry_run: boolean;
+  message: string;
+}
+export async function routeTriage(opts?: { taskId?: string; dryRun?: boolean }): Promise<RouteResult> {
+  const body: Record<string, unknown> = {};
+  if (opts?.taskId != null) body.task_id = opts.taskId;
+  if (opts?.dryRun) body.dry_run = true;
+  const { data } = await bridge.post('/api/mc/kanban/route', body);
+  return data;
+}
+
 export async function getTaskNotifications(taskId: string): Promise<{ subscriptions: NotifySubscription[] }> {
   const { data } = await bridge.get(`/api/mc/tasks/${taskId}/notify`);
   return data;

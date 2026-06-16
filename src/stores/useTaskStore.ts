@@ -21,6 +21,7 @@ import {
   getKanbanStats,
   getKanbanDiagnostics,
   reconcileKanban,
+  routeTriage,
   getMcBoards,
   createMcBoard,
   switchMcBoard,
@@ -31,6 +32,7 @@ import {
   type KanbanStats,
   type KanbanBoard,
   type BoardDiagnostic,
+  type RouteResult,
 } from '../lib/api';
 
 export interface OpTask {
@@ -82,6 +84,7 @@ interface TaskStore {
   createBoard: (slug: string, name?: string, description?: string, switchTo?: boolean) => Promise<boolean>;
   fetchDiagnostics: () => Promise<void>;
   reconcileBoard: (thresholdHours?: number) => Promise<number>;
+  routeTriageTasks: (opts?: { taskId?: string; dryRun?: boolean }) => Promise<RouteResult | null>;
   specifyTask: (taskId: string) => Promise<boolean>;
   fetchTaskDetail: (taskId: string) => Promise<TaskDetail | null>;
   addMcTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<McTask | null>;
@@ -244,6 +247,25 @@ export const useTaskStore = create<TaskStore>((set, get) => {
         console.error('[TaskStore] reconcileBoard failed:', msg);
         set({ error: msg });
         return 0;
+      }
+    },
+
+    // Auto-route triage tasks to best-fit agents by skill match, then refresh so
+    // routed tasks leave the triage column. Returns the full plan (routed +
+    // skipped) for the UI, or null on error. `dryRun` previews without mutating.
+    routeTriageTasks: async (opts) => {
+      try {
+        const res = await routeTriage(opts);
+        if (!opts?.dryRun && res.routed.length > 0) {
+          await get().fetchTasks();
+          await get().fetchStats();
+        }
+        return res;
+      } catch (err) {
+        const msg = errMessage(err);
+        console.error('[TaskStore] routeTriageTasks failed:', msg);
+        set({ error: msg });
+        return null;
       }
     },
 

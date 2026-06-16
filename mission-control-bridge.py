@@ -863,6 +863,31 @@ def kanban_reconcile(payload: Optional[ReconcilePayload] = None):
     return STORE.reconcile_board(thr_seconds)
 
 
+class RoutePayload(BaseModel):
+    # Route a single triage task by id; omit to route every triage task.
+    task_id: Optional[str] = None
+    # Preview the assignment plan without mutating the board.
+    dry_run: bool = False
+
+
+@app.post("/api/mc/kanban/route")
+def kanban_route(payload: Optional[RoutePayload] = None):
+    """Auto-route triage task(s) to the best-fit agent by skill match.
+
+    The deterministic assign-by-skill half of "triage → specify → assign":
+    scores every agent against the task text, requires a skill-token match for
+    confidence, ties break toward the least-loaded agent, then de-triages the
+    task to `todo` (no worker is fired — there is no in-process dispatcher).
+    Unmatched tasks are honestly left in triage. `dry_run` previews the plan.
+    """
+    tid = payload.task_id if payload else None
+    dry = payload.dry_run if payload else False
+    try:
+        return STORE.route_triage(tid, dry_run=dry)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {tid} not found")
+
+
 @app.post("/api/mc/tasks/{task_id}/specify")
 def specify_task(task_id: str):
     """Flesh out a triage task's spec with Claude, then promote it to ready."""

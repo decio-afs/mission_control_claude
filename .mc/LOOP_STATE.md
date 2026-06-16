@@ -21,35 +21,39 @@ below. `## DONE` is append-only history; `## TO-DO` is rewritten each run for th
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 ~01:35** (Run #3 — built the web-access audit surface)._
+_Last run: **2026-06-16 ~03:15** (Run #4 — built skill-match auto-route for triage tasks)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~16.5h. **Still holds pre-restart code** — THREE built capabilities now wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` has no `scheduler` field), run#3 web-access audit (`GET /api/mc/agents/web-access`→405). |
+| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~18.5h. **Still holds pre-restart code** — now **FOUR** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404, confirmed this run). |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
-| `npm run build` | ✅ PASS | tsc + vite, exit 0 (chunk-size warning only) |
-| `npm run lint` | ✅ PASS | `npx eslint` on the 2 touched TS files (`OperationsCenter.tsx`, `api.ts`) = "No issues found"; only pre-existing `office/tower` churn remains (sibling-owned) |
-| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged from run#2). No `stale_claim`. 6 blocked still `blocked_no_reason` — root cause now **visibly audited** (see DONE). |
+| `npm run build` | ✅ PASS | tsc + vite, 156 modules, exit 0 (chunk-size warning only) |
+| `npm run lint` | ✅ PASS | `npx eslint` on the 3 touched TS files (`api.ts`, `useTaskStore.ts`, `OperationsCenter.tsx`) = "No issues found"; only pre-existing `office/tower` churn remains (sibling-owned) |
+| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged from run#3). No `stale_claim`. 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task now has a **live deterministic router** (run#4) — routes to `narratrix` on next restart. |
 | Cron jobs | 🟡 EMPTY + engine ready | store `jobs: []`; scheduler daemon built (run#2), loads on restart. Seeding the 2 pipeline jobs safe-to-fire post-restart — TO-DO #2. |
 | Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 22 · drafts 6 · calendar 31 (run#1); `.mc/data/` written |
-| Modules in error state | none observed | Vite preview (:5219) renders Operations LIVE; diagnostics modal opens clean, reconcile bar + blocked-no-reason rows show; new web-audit panel gracefully absent against the old bridge (405→caught→null), zero console errors |
+| Modules in error state | none observed | Vite preview (:5219) renders Operations LIVE; diagnostics modal opens clean; new **⤵ AUTO-ROUTE TRIAGE (1)** button renders enabled with correct tooltip, zero console errors. (Click 404s against the old bridge by design — works on restart.) |
 
 ---
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-1. **Restart the bridge to activate THREE built capabilities at once** (`npm run bridge`, or whatever
+1. **Restart the bridge to activate FOUR built capabilities at once** (`npm run bridge`, or whatever
    launches the operator's bridge / desktop app). The live bridge still holds pre-restart code
    (confirmed this run: reconcile → 404, `/api/mc/cron` no `scheduler` field, `/api/mc/agents/web-access`
-   → 405). After restart, confirm **all** of:
+   → 405, `/api/mc/kanban/route` → 404). After restart, confirm **all** of:
    - `GET /api/mc/cron` → includes `"scheduler": {enabled:true, running:true, tick_seconds:30, …}`;
      Operations → ⏱ CRON modal banner flips from amber "scheduler unknown" to green **DAEMON LIVE**.
    - `POST /api/mc/kanban/reconcile` (run#1) → `{reclaimed,threshold_hours,message}`; Operations →
      ⚠ diagnostics → **⟳ RECONCILE STALE** button works (disabled at 0 stale, the current state).
-   - **`GET /api/mc/agents/web-access` (run#3)** → `{agents,summary,hint}` (in-process it returns
-     `summary.missing_web=9, blocked_due_to_web=6`); Operations → ⚠ diagnostics → a **WEB-ACCESS AUDIT**
-     panel appears at the top of the modal listing the 9 flagged agents (narratrix top, 5 blocked) with
-     the amber provisioning hint. Against the old bridge the panel is correctly absent (verified).
+   - `GET /api/mc/agents/web-access` (run#3) → `{agents,summary,hint}` (in-process: `summary.missing_web=9,
+     blocked_due_to_web=6`); Operations → ⚠ diagnostics → a **WEB-ACCESS AUDIT** panel lists the 9 flagged
+     agents (narratrix top, 5 blocked) with the amber provisioning hint.
+   - **`POST /api/mc/kanban/route` (run#4)** → `{routed,skipped,dry_run,message}`. Verify safely first with
+     `{"dry_run":true}` → in-process it returns `routed:[{id:t_6f880653 → narratrix, score 23, skill_match
+     [brand,content,copy,voice], web_gap:false}]`, board unmutated. Then Operations → ⚠ diagnostics →
+     **⤵ AUTO-ROUTE TRIAGE (1)** button (cyan, currently renders enabled) → click routes the triage task to
+     narratrix and de-triages it to `todo` (triage 1→0, todo 8→9), result line shows `✓ routed 1 → narratrix`.
    - To run the bridge *without* the scheduler: `MC_SCHEDULER_ENABLED=0` (tick override:
      `MC_CRON_TICK_SECONDS`, per-job timeout: `MC_CRON_JOB_TIMEOUT`).
 2. **Seed sentinel(7:00 = `0 7 * * *`) + content-engine(7:30 = `30 7 * * *`) cron jobs.** This is now
@@ -67,12 +71,17 @@ _Last run: **2026-06-16 ~01:35** (Run #3 — built the web-access audit surface)
    `blocked_due_to_web=6`. Fix remains **config, not code**: provision `web-brave-free` /
    `BRAVE_SEARCH_API_KEY` and add it to each flagged agent's `mcps`, then unblock+reassign. The audit
    makes the gap visible but does NOT provision — operator action. Surface it, don't fake it.
-4. **Route the 1 triage task.** `"Produce content: Watch One Operator Run a Whole Agency"` (unassigned).
-   Next action: `POST /api/mc/tasks/{id}/specify` (Claude flesh-out → promote) then assign a content
-   profile (`narratrix`/`scriptwright`). Left un-fired (runs a live Claude turn) — do when operator present.
-5. **Next capability to BUILD:** auto-route for triage tasks (triage → specify → assign-by-skill verb,
-   GAPS #3) or retry-exhaustion escalation (GAPS #4) — these are the two remaining ranked gaps. One
-   end-to-end per run. (Run#3 took GAPS #5, the web-access audit surface.)
+4. **Route the 1 triage task — now AUTOMATED (run#4).** `"Produce content: Watch One Operator Run a Whole
+   Agency"` (`t_6f880653`, unassigned). The deterministic **skill-match router** now picks the owner:
+   after the restart, click ⤵ AUTO-ROUTE TRIAGE (or `POST /api/mc/kanban/route`) → assigns `narratrix`
+   (the content copywriter; score 23, runner-up claudelink) and de-triages to `todo`. The Claude `specify`
+   flesh-out (`POST /api/mc/tasks/{id}/specify`, runs a live turn) remains a separate optional step — fire
+   when the operator is present. Did NOT auto-route this run (live bridge predates the endpoint; safe to do
+   post-restart).
+5. **Next capability to BUILD:** retry-exhaustion escalation (GAPS #4) is now the **only** remaining ranked
+   gap — `max_retries` exists on tasks but nothing escalates/notifies/reassigns when a task exhausts them.
+   Note: the board currently has **no** `failed`/retry-exhausted tasks, so it's a self-management capability
+   with no live data to act on yet (build it pure + testable, like run#1-#4). One end-to-end per run.
 
 ---
 
@@ -89,10 +98,20 @@ _Last run: **2026-06-16 ~01:35** (Run #3 — built the web-access audit surface)
    clock, DOM/DOW OR rule); `CronScheduler` in the bridge wakes every 30s, fires due jobs single-flight
    via `run_claude`, stamps the outcome. Honest liveness is surfaced in the cron modal. **Loads on next
    bridge restart** (TO-DO #1). Seeding the 2 pipeline jobs is now unblocked (TO-DO #2).
-3. 🟡 **No auto-route for triage tasks.** Triage tasks sit until a human runs `/specify`. A
-   "triage → specify → assign by skill-match" orchestration verb is missing.
+3. ✅ **Skill-match auto-route for triage tasks (BUILT this run — run#4).** Triage tasks sat unassigned
+   until a human picked an owner (no dispatcher post-Hermes). Built the deterministic *assign-by-skill* half
+   of "triage → specify → assign": `POST /api/mc/kanban/route` → `MCStore.route_triage(task_id?, dry_run?)`
+   → `routeTriageTasks()` store action → a cyan **⤵ AUTO-ROUTE TRIAGE (n)** button in the Operations
+   diagnostics modal. Scores every agent (skill slugs ×3 + role text ×1, multiplicity rewards depth),
+   **requires ≥1 skill-token match** for confidence, breaks ties toward the **least-loaded** agent, assigns
+   the winner + de-triages to `todo` with a `routed` event, and **honestly leaves unmatched tasks in triage**
+   (never force-assigned). `dry_run` previews without mutating; flags `web_gap` when the winner needs web but
+   lacks an MCP (ties into run#3's audit). No worker is fired (no in-process dispatcher). The Claude `specify`
+   flesh-out stays a separate opt-in step. In-process against the live board: the 1 triage task routes to
+   `narratrix` (score 23). Loads on next bridge restart (TO-DO #1).
 4. 🟡 **No retry-exhaustion escalation.** `max_retries` exists on tasks but there is no path that
-   escalates / notifies / reassigns when a task exhausts retries (the spec calls for it).
+   escalates / notifies / reassigns when a task exhausts retries (the spec calls for it). **Now the only
+   remaining ranked gap** — next build (TO-DO #5). No live retry-exhausted tasks on the board yet.
 5. ✅ **Web-access audit surface (BUILT this run — run#3).** Research agents silently blocked on missing
    web tools with no way to *see* which agents lacked a web plugin. Built `GET /api/mc/agents/web-access`
    → `MCStore.web_access_audit()` → `getWebAccessAudit()` → a **WEB-ACCESS AUDIT** panel in the Operations
@@ -108,6 +127,52 @@ _Last run: **2026-06-16 ~01:35** (Run #3 — built the web-access audit surface)
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #4 (BUILT skill-match auto-route for triage tasks) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE green.** Bridge :8767 UP (`/api/ping` ok, uptime ~18.5h). Gateway :8642 N/A by design.
+   `npm run build` ✅ (156 modules, exit 0, chunk-size warning only); `npx eslint` on the 3 touched TS files ✅
+   ("No issues found"). Confirmed the live bridge still runs **pre-restart** code: reconcile → 404, `/api/mc/cron`
+   no `scheduler` field, web-access → 405, and this run's new `POST /api/mc/kanban/route` → 404. Did NOT kill the
+   operator's bridge — verified the new capability in-process instead. **FOUR** capabilities now load together on
+   the next restart (run#1 reconcile, run#2 scheduler, run#3 web-audit, run#4 triage-route) — see TO-DO #1.
+
+2. **ORCHESTRATION steady.** Kanban unchanged: todo 8 · ready 1 · done 10 · blocked 6 · triage 1. No
+   `stale_claim`. The 6 blocked (5×narratrix, 1×default) remain the audited web-access root cause (operator
+   config). The 1 triage task (`t_6f880653`) is no longer a manual-only item — this run gives it a live
+   deterministic router (below). Nothing silently broken; remaining items need operator config / a live Claude
+   turn, documented not faked.
+
+3. **BUILT: skill-match auto-route for triage tasks (CAPABILITY GAPS #3, this loop's signature increment),
+   end-to-end & LIVE-backed.** Post-Hermes there is no dispatcher, so triage tasks sit unassigned until a human
+   picks an owner. New deterministic *assign-by-skill* verb across every layer:
+   - `mc_store.py` — module const `ROUTE_STOPWORDS` (generic words stripped from routing signal); static
+     `_route_tokens()` + classmethod `_route_score()` (skill slugs split & weighted ×3, role text ×1,
+     multiplicity rewards depth in the matched area); new `MCStore.route_triage(task_id=None, dry_run=False)` —
+     scores every rostered agent per triage task, **requires ≥1 skill-token match** for confidence, ties break
+     toward the **least-loaded** agent, assigns the winner + sets status `triage`→`todo` with a `routed` event,
+     **leaves unmatched tasks in triage** (honest, never force-assigned). Returns `{routed,skipped,dry_run,
+     message}`; each routed row carries `score/matched/skill_match/runner_up/web_gap`. `dry_run` mutates nothing.
+   - `mission-control-bridge.py` — `POST /api/mc/kanban/route` (`RoutePayload{task_id?,dry_run?}`) →
+     `STORE.route_triage(...)`, 404 on unknown id. Placed right after `kanban_reconcile`.
+   - `src/lib/api.ts` — `RoutedTask` / `RouteResult` types + `routeTriage({taskId?,dryRun?})` fetcher.
+   - `src/stores/useTaskStore.ts` — `routeTriageTasks()` action (refreshes tasks+stats on a real route) + iface.
+   - `src/pages/OperationsCenter.tsx` — cyan **⤵ AUTO-ROUTE TRIAGE (n)** button in the diagnostics modal
+     toolbar (next to ⟳ RECONCILE STALE), `n` = live `stats.by_status.triage`, disabled at 0; result line
+     summarizes `✓ routed N → agent[…⚠web]` / `… left in triage — no skill match`.
+   **Verified:** `python -m py_compile` on bridge + store + scheduler ✅; **in-process `route_triage(dry_run=True)`
+   against the live store** ✅ → routes `t_6f880653` → **narratrix** (score 23, skill_match [brand,content,copy,
+   voice], runner_up claudelink, web_gap False), board left at triage 1 (no mutation). **Throwaway-store full
+   behavior test** ✅ — content task→narratrix(web_gap F), research task→signalscraper(web_gap **T**: research
+   skill, no web MCP), gibberish→skipped/left-in-triage, `routed` event recorded, board mutated correctly
+   (2→todo, 1 triage), idempotent 2nd pass, single-task on a non-triage task rejected, KeyError on unknown id.
+   `npm run build` ✅ + `npx eslint` ✅. **Live Vite preview** (:5219, bridge up) ✅ — Operations → ⚠ diagnostics:
+   modal opens, the **⤵ AUTO-ROUTE TRIAGE (1)** button renders **enabled** with tooltip "Auto-route 1 triage
+   task(s) to the best-fit agent by skill match", **zero console errors**. `graphify update .` run after edits
+   (1444 nodes / 2792 edges).
+   **Not verified:** the live click→route→`✓ routed` result path — needs the bridge restart (TO-DO #1); the
+   button click 404s against the old bridge by design. The data path is fully proven by the in-process dry-run
+   against the live store.
 
 ### 2026-06-16 — Run #3 (BUILT the web-access audit surface) · branch `auto/loop-reconcile-20260615`
 

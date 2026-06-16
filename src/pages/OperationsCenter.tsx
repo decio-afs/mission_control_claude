@@ -56,7 +56,7 @@ function hasDeliverable(t: McTask): boolean {
 }
 
 export default function OperationsCenter() {
-  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
+  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
   const nodes = useGhostStore((s) => s.nodes);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -64,6 +64,8 @@ export default function OperationsCenter() {
   const [diagOpen, setDiagOpen] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   const [reconcileMsg, setReconcileMsg] = useState<string | null>(null);
+  const [routing, setRouting] = useState(false);
+  const [routeMsg, setRouteMsg] = useState<string | null>(null);
   const [webAudit, setWebAudit] = useState<WebAccessAudit | null>(null);
   const loadWebAudit = () => getWebAccessAudit().then(setWebAudit).catch(() => {});
   const [boardModal, setBoardModal] = useState(false);
@@ -284,8 +286,9 @@ export default function OperationsCenter() {
         <Modal title={`BOARD DIAGNOSTICS · ${diagCount}`} onClose={() => setDiagOpen(false)}>
           {(() => {
             const staleCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'stale_claim').length || 0), 0);
+            const triageCount = stats?.by_status?.triage || 0;
             return (
-              <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.06] flex-wrap">
                 <button
                   disabled={reconciling || staleCount === 0}
                   onClick={async () => {
@@ -299,6 +302,27 @@ export default function OperationsCenter() {
                   {reconciling ? '… reconciling' : `⟳ RECONCILE STALE${staleCount > 0 ? ` (${staleCount})` : ''}`}
                 </button>
                 {reconcileMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{reconcileMsg}</span>}
+                <button
+                  disabled={routing || triageCount === 0}
+                  onClick={async () => {
+                    setRouting(true); setRouteMsg(null);
+                    const res = await routeTriageTasks();
+                    if (!res) setRouteMsg('⚠ route failed — see console');
+                    else {
+                      const r = res.routed.length, s = res.skipped.length;
+                      const who = res.routed.map((x) => `${x.assignee}${x.web_gap ? '⚠web' : ''}`).join(', ');
+                      setRouteMsg(r > 0
+                        ? `✓ routed ${r} → ${who}${s ? ` · ${s} left in triage` : ''}`
+                        : (s ? `${s} task${s === 1 ? '' : 's'} left in triage — no skill match` : 'no triage tasks'));
+                    }
+                    setRouting(false);
+                    void fetchDiagnostics();
+                  }}
+                  title={triageCount === 0 ? 'No triage tasks to route' : `Auto-route ${triageCount} triage task(s) to the best-fit agent by skill match`}
+                  className={`text-[10px] font-mono border px-2 py-1 ${triageCount > 0 && !routing ? 'border-cyan-400/50 text-cyan-400 hover:bg-cyan-400/10' : 'border-white/10 text-[#545454] cursor-default'}`}>
+                  {routing ? '… routing' : `⤵ AUTO-ROUTE TRIAGE${triageCount > 0 ? ` (${triageCount})` : ''}`}
+                </button>
+                {routeMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{routeMsg}</span>}
               </div>
             );
           })()}
