@@ -25,6 +25,7 @@ import {
   escalateExhausted,
   cascadeDependencies,
   reassignDeadAgent,
+  sweepBoard as runSweepBoard,
   getMcBoards,
   createMcBoard,
   switchMcBoard,
@@ -39,6 +40,7 @@ import {
   type EscalateResult,
   type CascadeResult,
   type ReassignResult,
+  type SweepResult,
 } from '../lib/api';
 
 export interface OpTask {
@@ -94,6 +96,7 @@ interface TaskStore {
   escalateExhaustedTasks: (opts?: { taskId?: string; dryRun?: boolean }) => Promise<EscalateResult | null>;
   cascadeDeps: (opts?: { dryRun?: boolean }) => Promise<CascadeResult | null>;
   reassignDead: (opts?: { fromAgent?: string; dryRun?: boolean }) => Promise<ReassignResult | null>;
+  sweepBoard: (opts?: { dryRun?: boolean }) => Promise<SweepResult | null>;
   specifyTask: (taskId: string) => Promise<boolean>;
   fetchTaskDetail: (taskId: string) => Promise<TaskDetail | null>;
   addMcTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<McTask | null>;
@@ -336,6 +339,28 @@ export const useTaskStore = create<TaskStore>((set, get) => {
       } catch (err) {
         const msg = errMessage(err);
         console.error('[TaskStore] reassignDead failed:', msg);
+        set({ error: msg });
+        return null;
+      }
+    },
+
+    // One-call self-manage macro: run reconcile → cascade → reassign → escalate in
+    // order (the four self-heal verbs in one shot), then refresh the board +
+    // diagnostics so every remediated state reflects at once. Returns the full
+    // aggregate plan (each sub-result + counts/total), or null on error. `dryRun`
+    // previews the whole plan without mutating.
+    sweepBoard: async (opts) => {
+      try {
+        const res = await runSweepBoard(opts);
+        if (!opts?.dryRun && res.total > 0) {
+          await get().fetchTasks();
+          await get().fetchStats();
+        }
+        await get().fetchDiagnostics();
+        return res;
+      } catch (err) {
+        const msg = errMessage(err);
+        console.error('[TaskStore] sweepBoard failed:', msg);
         set({ error: msg });
         return null;
       }

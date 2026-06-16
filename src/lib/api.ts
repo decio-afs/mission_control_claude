@@ -337,6 +337,7 @@ export async function getKanbanDiagnostics(): Promise<{ diagnostics: BoardDiagno
 export interface ReconcileResult {
   reclaimed: Array<{ id: string; title?: string; assignee?: string | null; stale_hours?: number }>;
   threshold_hours: number;
+  dry_run?: boolean;
   message: string;
 }
 export async function reconcileKanban(thresholdHours?: number): Promise<ReconcileResult> {
@@ -456,6 +457,36 @@ export async function reassignDeadAgent(opts?: { fromAgent?: string; dryRun?: bo
   if (opts?.fromAgent != null) body.from_agent = opts.fromAgent;
   if (opts?.dryRun) body.dry_run = true;
   const { data } = await bridge.post('/api/mc/kanban/reassign', body);
+  return data;
+}
+
+// --- One-call board self-manage macro: run the four self-heal verbs in order ---
+// reconcile (reclaim stale claims → ready) → cascade (hold/promote on deps) →
+// reassign (move dead-agent work to live owners) → escalate (block retry-burned
+// tasks). Order matters (reconcile frees claims for reassign; cascade before
+// reassign; escalate last). Each sub-verb is idempotent + dry-run-able, so the
+// macro is low-risk and a second pass is a no-op. `dryRun` previews the whole plan.
+export interface SweepCounts {
+  reconciled: number;
+  held: number;
+  promoted: number;
+  reassigned: number;
+  escalated: number;
+}
+export interface SweepResult {
+  reconciled: ReconcileResult;
+  cascade: CascadeResult;
+  reassigned: ReassignResult;
+  escalated: EscalateResult;
+  counts: SweepCounts;
+  total: number;
+  dry_run: boolean;
+  message: string;
+}
+export async function sweepBoard(opts?: { dryRun?: boolean }): Promise<SweepResult> {
+  const body: Record<string, unknown> = {};
+  if (opts?.dryRun) body.dry_run = true;
+  const { data } = await bridge.post('/api/mc/kanban/sweep', body);
   return data;
 }
 

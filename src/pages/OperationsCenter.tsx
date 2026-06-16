@@ -56,7 +56,7 @@ function hasDeliverable(t: McTask): boolean {
 }
 
 export default function OperationsCenter() {
-  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, escalateExhaustedTasks, cascadeDeps, reassignDead, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
+  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, escalateExhaustedTasks, cascadeDeps, reassignDead, sweepBoard, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
   const nodes = useGhostStore((s) => s.nodes);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -72,6 +72,8 @@ export default function OperationsCenter() {
   const [cascadeMsg, setCascadeMsg] = useState<string | null>(null);
   const [reassigning, setReassigning] = useState(false);
   const [reassignMsg, setReassignMsg] = useState<string | null>(null);
+  const [sweeping, setSweeping] = useState(false);
+  const [sweepMsg, setSweepMsg] = useState<string | null>(null);
   const [webAudit, setWebAudit] = useState<WebAccessAudit | null>(null);
   const loadWebAudit = () => getWebAccessAudit().then(setWebAudit).catch(() => {});
   const [boardModal, setBoardModal] = useState(false);
@@ -296,8 +298,28 @@ export default function OperationsCenter() {
             const exhaustedCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'retry_exhausted').length || 0), 0);
             const depCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'blocked_by_dependency').length || 0), 0);
             const deadCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'dead_agent_task').length || 0), 0);
+            // Master self-manage macro: enabled when ANY of the four self-heal
+            // verbs has pending work (one click runs reconcile→cascade→reassign→escalate).
+            const sweepCount = staleCount + depCount + deadCount + exhaustedCount;
             return (
               <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.06] flex-wrap">
+                <button
+                  disabled={sweeping || sweepCount === 0}
+                  onClick={async () => {
+                    setSweeping(true); setSweepMsg(null);
+                    const res = await sweepBoard();
+                    if (!res) setSweepMsg('⚠ sweep failed — see console');
+                    else setSweepMsg(res.total > 0
+                      ? `✓ swept ${res.total} · reconciled ${res.counts.reconciled} · held ${res.counts.held} · promoted ${res.counts.promoted} · reassigned ${res.counts.reassigned} · escalated ${res.counts.escalated}`
+                      : 'board already healthy — nothing to do');
+                    setSweeping(false);
+                  }}
+                  title={sweepCount === 0 ? 'Board healthy — no self-heal actions pending' : `Self-manage the board in one pass: reconcile + cascade + reassign + escalate (${sweepCount} pending action(s))`}
+                  className={`text-[10px] font-mono border px-2 py-1 ${sweepCount > 0 && !sweeping ? 'border-emerald-400/60 text-emerald-400 hover:bg-emerald-400/10' : 'border-white/10 text-[#545454] cursor-default'}`}>
+                  {sweeping ? '… sweeping' : `⚙ SWEEP BOARD${sweepCount > 0 ? ` (${sweepCount})` : ''}`}
+                </button>
+                {sweepMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{sweepMsg}</span>}
+                <span className="text-[#2a2a2a]">·</span>
                 <button
                   disabled={reconciling || staleCount === 0}
                   onClick={async () => {

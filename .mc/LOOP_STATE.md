@@ -21,26 +21,41 @@ below. `## DONE` is append-only history; `## TO-DO` is rewritten each run for th
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 ~14:35** (Run #8 — built dependency cycle/self-link guard)._
+_Last run: **2026-06-16 ~16:35** (Run #9 — built one-call board self-manage macro `/api/mc/kanban/sweep`)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~26.5h. **Still holds pre-restart code** — now **EIGHT** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404), run#6 cascade (`POST /api/mc/kanban/cascade`→404), run#7 reassign (`POST /api/mc/kanban/reassign`→404), run#8 dep-cycle guard (`POST /api/mc/tasks/link` still accepts cycles; no `dependency_cycle` diagnostic kind — confirmed `reassign`→404 this run). |
+| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~28.5h. **Still holds pre-restart code** — now **NINE** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404), run#6 cascade (`POST /api/mc/kanban/cascade`→404), run#7 reassign (`POST /api/mc/kanban/reassign`→404), run#8 dep-cycle guard (`POST /api/mc/tasks/link` accepts cycles; no `dependency_cycle` diagnostic), run#9 sweep (`POST /api/mc/kanban/sweep`→404 — confirmed this run). |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
 | `npm run build` | ✅ PASS | tsc + vite, 156 modules, exit 0 (chunk-size warning only) |
-| `npm run lint` | ✅ PASS (unchanged) | Run #8 touched **zero TS files** (pure Python: `mc_store.py` + `mission-control-bridge.py`), so the TS lint surface is unchanged; only pre-existing `office/tower` churn remains (sibling-owned). |
-| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged). No `stale_claim`, no `retry_exhausted`, no `blocked_by_dependency`, no `dead_agent_task`, **no `dependency_cycle`** (`kanban-meta.json["links"]` is empty → no cycles). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task has a live deterministic router (run#4). |
+| `npm run lint` | ✅ PASS | Run #9 touched 3 TS files (`api.ts`, `useTaskStore.ts`, `OperationsCenter.tsx`); `npx eslint` on all three = "No issues found". Only pre-existing `office/tower` churn remains (sibling-owned). |
+| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged). No `stale_claim`, no `retry_exhausted`, no `blocked_by_dependency`, no `dead_agent_task`, no `dependency_cycle`. Live `sweep_board(dry_run)` → total 0 (honest no-op: 0 of all four self-heal conditions). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task has a live deterministic router (run#4). |
 | Cron jobs | 🟡 EMPTY + engine ready | store `jobs: []`; scheduler daemon built (run#2), loads on restart. Seeding the 2 pipeline jobs safe-to-fire post-restart — TO-DO #2. |
 | Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 22 · drafts 6 · calendar 31 (run#1); `.mc/data/` written |
-| Modules in error state | none observed | Run #8 is a pure backend guard + read-only diagnostic — the diagnostics modal renders `dependency_cycle` automatically via its generic `x.message || x.kind` row (`OperationsCenter.tsx:410`); no new button, no frontend change. Prior runs' buttons unchanged. |
+| Modules in error state | none observed | Run #9 adds the emerald **⚙ SWEEP BOARD** button as the lead of the Operations → ⚠ diagnostics toolbar; live preview shows it **disabled** with the honest tooltip "Board healthy — no self-heal actions pending" (sweepCount = stale+dep+dead+exhausted = 0), zero console errors. Prior runs' buttons unchanged. |
 
 ---
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-1. **Restart the bridge to activate EIGHT built capabilities at once** (`npm run bridge`, or whatever
+1. **Restart the bridge to activate NINE built capabilities at once** (`npm run bridge`, or whatever
    launches the operator's bridge / desktop app). The live bridge still holds pre-restart code
-   (confirmed this run: `/api/mc/kanban/reassign` → 404). After restart, confirm **all** of:
+   (confirmed this run: `/api/mc/kanban/sweep` → 404, `/api/mc/kanban/reassign` → 404). After restart, confirm **all** of:
+   - **one-call board self-manage macro (run#9)** → `POST /api/mc/kanban/sweep` with `{"dry_run":true}` returns
+     `{reconciled,cascade,reassigned,escalated,counts:{reconciled,held,promoted,reassigned,escalated},total,dry_run,message}`.
+     On the current board it returns `total:0` ("board already healthy — nothing to do") because all four self-heal
+     conditions are absent (0 stale claims, 0 dep-blocked, 0 dead agents, 0 retry-exhausted), so Operations → ⚠
+     diagnostics → the emerald **⚙ SWEEP BOARD** button (lead of the toolbar) stays **disabled** with tooltip
+     "Board healthy — no self-heal actions pending" (`sweepCount = staleCount+depCount+deadCount+exhaustedCount = 0`).
+     To exercise the live path you need ≥1 of those conditions; one click then runs reconcile→cascade→reassign→escalate
+     **in that fixed order** (reconcile first frees stale claims so reassign sees the idle agent; cascade before reassign
+     so a dep-held task isn't moved; escalate last as the safety net) and the result line summarizes each sub-count.
+     Each sub-verb is idempotent + dry-run-able so a 2nd sweep is a no-op. Fully proven in-process this run on a throwaway
+     store (4 conditions seeded → 1 sweep remediated all four in order → 2nd pass total 0; no `blocked_no_reason` after)
+     and dry-run against the LIVE store (total 0, board unmutated). **Dry-run caveat (documented):** in dry-run each
+     sub-verb plans against the *current* board, so a later verb doesn't see an earlier verb's planned-but-unapplied
+     change (e.g. reconcile not freeing an agent yet can make reassign undercount) — the live non-dry sweep applies
+     them sequentially so each verb sees the prior's result.
    - **dependency cycle/self-link guard (run#8)** → `POST /api/mc/tasks/link` with `{"parent_id":"X","child_id":"X"}`
      returns **400** ("refusing self-link … a task cannot depend on itself"); a cycle-closing edge (link `A→B`,
      `B→C`, then `C→A`) returns **400** ("would create a dependency cycle"); a valid DAG edge still 200s. If the
@@ -113,21 +128,21 @@ _Last run: **2026-06-16 ~14:35** (Run #8 — built dependency cycle/self-link gu
    flesh-out (`POST /api/mc/tasks/{id}/specify`, runs a live turn) remains a separate optional step — fire
    when the operator is present. Did NOT auto-route this run (live bridge predates the endpoint; safe to do
    post-restart).
-5. **Next capability to BUILD:** **one-call board self-manage macro** (GAPS #9, now ranked next). The four
-   self-heal verbs (reconcile / reassign / cascade / escalate) each need a separate button and call; there is no
-   single `POST /api/mc/kanban/sweep` that runs them in the correct order in one shot (the "self-manage the board"
-   macro). Build it end-to-end: `MCStore.sweep_board(dry_run?)` calls — in order — `reconcile_board` (reclaim stale
-   running claims → ready), `cascade_dependencies` (hold/promote on deps), `reassign_dead_agent` (move dead-agent
-   work to live owners), then `escalate_exhausted` (block retry-burned tasks), aggregating each sub-result into
-   `{reconciled, cascade, reassigned, escalated, dry_run, message}`; `POST /api/mc/kanban/sweep` → `sweepBoard()`
-   store action → a single **⚙ SWEEP BOARD** button in the Operations diagnostics modal toolbar (enabled when ANY
-   of the four sub-counts > 0). Order matters: reconcile first (frees stale claims so reassign sees them), cascade
-   before reassign (don't move a dep-held task), escalate last (final safety net). Each sub-verb is already
-   idempotent + has a `dry_run`, so composition is low-risk; the macro must thread `dry_run` to every sub-call and
-   re-pull diagnostics once at the end. Pure + testable like run#1–#8 (throwaway store seeded with one of each
-   condition → assert the single sweep remediates all four and a 2nd pass is a no-op). Runner-up gap: **per-task
-   `unlink` remediation affordance** for a flagged `dependency_cycle` (a "break cycle" action in the task drawer) —
-   but that's bughunt-adjacent UI; prefer the sweep macro. One end-to-end per run.
+5. **Next capability to BUILD:** **scheduled / hands-free board self-heal** (GAPS #11, now ranked next). The sweep
+   macro (run#9) is manual-only — an operator must open the diagnostics modal and click ⚙ SWEEP BOARD. The cron
+   scheduler (run#2) *exists* but can only fire **Claude prompts** via `run_claude` — there is no job *kind* that runs
+   an internal maintenance verb like `sweep_board` directly, so the board cannot self-heal on a timer without a human
+   or a Claude turn. Build the missing "internal maintenance job" path end-to-end: extend the cron job model with a
+   `kind: "maintenance"` (vs the default `"claude"`) + an `action` (e.g. `"sweep"`); teach `CronScheduler._fire` (in
+   `mission-control-bridge.py`) to dispatch a maintenance job to `STORE.sweep_board()` instead of `run_claude`,
+   stamping the same `record_cron_result(ok, detail)` outcome (detail = the sweep message); surface the job kind in
+   the ⏱ CRON modal (a "⚙ maintenance" chip vs the prompt preview) so the operator can *see* a self-heal job. Then a
+   single recurring `*/30 * * * *` "board self-heal" job keeps the fleet healthy with no human in the loop — the true
+   post-Hermes autonomy goal. Pure + testable: unit-test the scheduler dispatch picks `sweep_board` for a maintenance
+   job and `run_claude` for a claude job; in-process seed a maintenance job + a stale claim → tick → assert the claim
+   was reclaimed and `last_status=ok` stamped. **No auto-seeding of the recurring job without operator sign-off**
+   (standing config), but the *capability* is this loop's to build. Runner-up gap: **per-task `unlink` cycle-break
+   affordance** (GAPS #10) — bughunt-adjacent UI; prefer the maintenance-job path. One end-to-end per run.
 
 ---
 
@@ -204,11 +219,20 @@ _Last run: **2026-06-16 ~14:35** (Run #8 — built dependency cycle/self-link gu
    task participating in a pre-existing loop (so already-bad data is visible, not just newly-rejected). No new
    button — the diagnostics modal renders the new kind via its generic row (`OperationsCenter.tsx:410`); zero TS
    changed. Pure + testable; honest no-op on the live board (0 links). Loads on next bridge restart (TO-DO #1).
-9. 🟡 **No one-call board self-manage macro.** The four self-heal verbs (reconcile/reassign/cascade/escalate) each
-   need a separate button; no `POST /api/mc/kanban/sweep` runs them in the right order in one call. Each sub-verb
-   is idempotent → composition is low-risk. **Next build** (TO-DO #5).
+9. ✅ **One-call board self-manage macro (BUILT this run — run#9).** The four self-heal verbs
+   (reconcile/cascade/reassign/escalate) each needed a separate button + call; nothing ran them in the right order
+   in one shot. Built `MCStore.sweep_board(dry_run?)` (composes the four verbs in fixed order: reconcile → cascade →
+   reassign → escalate, aggregating `{reconciled,cascade,reassigned,escalated,counts,total,dry_run,message}`) +
+   added a `dry_run` param to `reconcile_board` so the macro previews cleanly; `POST /api/mc/kanban/sweep` →
+   `sweepBoard()` store action → an emerald **⚙ SWEEP BOARD** button leading the Operations diagnostics toolbar
+   (enabled when `staleCount+depCount+deadCount+exhaustedCount > 0`). Idempotent (2nd pass is a no-op), honest no-op
+   on the live board. Loads on next bridge restart (TO-DO #1).
 10. 🟡 **No per-task cycle-break remediation.** run#8 surfaces `dependency_cycle` read-only; there's no in-UI
     "unlink to break cycle" affordance in the task drawer. Bughunt-adjacent UI — runner-up (TO-DO #5).
+11. 🟡 **No scheduled / hands-free board self-heal.** The sweep macro (run#9) is manual-only; the cron scheduler
+    (run#2) can only fire Claude *prompts* (`run_claude`), not internal maintenance verbs. A `kind:"maintenance"`
+    cron job that dispatches to `STORE.sweep_board()` would let the board self-heal on a timer with no human/Claude
+    turn — the post-Hermes autonomy goal. **Next build** (TO-DO #5).
 5. ✅ **Web-access audit surface (BUILT this run — run#3).** Research agents silently blocked on missing
    web tools with no way to *see* which agents lacked a web plugin. Built `GET /api/mc/agents/web-access`
    → `MCStore.web_access_audit()` → `getWebAccessAudit()` → a **WEB-ACCESS AUDIT** panel in the Operations
@@ -224,6 +248,64 @@ _Last run: **2026-06-16 ~14:35** (Run #8 — built dependency cycle/self-link gu
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #9 (BUILT one-call board self-manage macro) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE green.** Bridge :8767 UP (`/api/ping` ok, uptime ~28.5h). Gateway :8642 N/A by design.
+   `npm run build` ✅ (156 modules, exit 0, chunk-size warning only); `npx eslint` on the 3 touched TS files ✅
+   ("No issues found"). Confirmed the live bridge still runs **pre-restart** code: this run's new
+   `POST /api/mc/kanban/sweep` → 404, and `/api/mc/kanban/reassign` → 404. Did NOT kill the operator's bridge —
+   verified the new capability in-process instead. **NINE** capabilities now load together on the next restart
+   (run#1–#9) — see TO-DO #1. Sibling lanes confirmed clear: my edits sit in distinct regions from the sibling WIP
+   — bughunt's `get_briefing` fix (`mission-control-bridge.py:~1550`, far from my `kanban_sweep` endpoint at ~970)
+   and evolve's cron-display polish (`api.ts` `McCronJob.created_at` ~L92, `OperationsCenter.tsx` `CronNextFire`/
+   schedule-anchor — far from my kanban-diagnostics toolbar + `SweepResult`). My hunks were staged surgically
+   (`git apply --cached` of mine-only hunks) so the commit carries zero sibling lines; sibling hunks left in the
+   working tree.
+
+2. **ORCHESTRATION steady.** Kanban unchanged: todo 8 · ready 1 · done 10 · blocked 6 · triage 1. No `stale_claim`,
+   no `retry_exhausted`, no `blocked_by_dependency`, no `dead_agent_task`, no `dependency_cycle`. Live
+   `sweep_board(dry_run=True)` → `total 0` (honest no-op — 0 of all four self-heal conditions; board unmutated). The
+   6 blocked (5×narratrix, 1×default) remain the audited web-access root cause (operator config). Nothing silently
+   broken.
+
+3. **BUILT: one-call board self-manage macro (CAPABILITY GAPS #9, this loop's signature increment), end-to-end &
+   LIVE-backed.** The four self-heal verbs (reconcile/cascade/reassign/escalate) each needed a separate button + call;
+   nothing ran them in the right order in one shot. New capability across every layer:
+   - `mc_store.py` — added `dry_run: bool = False` to `reconcile_board` (gates the mutation + save, adds `dry_run` to
+     the result) so the macro can preview reconcile alongside the other (already dry-run-able) verbs; new
+     `MCStore.sweep_board(dry_run=False)` calls — in fixed order — `reconcile_board` → `cascade_dependencies` →
+     `reassign_dead_agent` → `escalate_exhausted`, aggregating each sub-result plus a `counts`
+     (`{reconciled,held,promoted,reassigned,escalated}`) / `total` / one-line `message`. Order is load-bearing:
+     reconcile first frees stale claims so reassign sees the now-idle agent; cascade before reassign so a dep-held
+     task isn't moved to a new owner; escalate last as the final safety net. Each sub-verb is idempotent + dry-run-able,
+     so the macro is low-risk and a 2nd pass is a no-op. `_lock` is an `RLock`, so the sub-verbs' own locking composes
+     safely. Docstring documents the dry-run caveat (each verb plans against the current board independently).
+   - `mission-control-bridge.py` — `POST /api/mc/kanban/sweep` (`SweepPayload{dry_run?}`) → `STORE.sweep_board(...)`,
+     placed right after `kanban_reassign`.
+   - `src/lib/api.ts` — `SweepCounts`/`SweepResult` types + `sweepBoard({dryRun?})` fetcher; also added `dry_run?` to
+     `ReconcileResult` (the store response now carries it).
+   - `src/stores/useTaskStore.ts` — `sweepBoard()` action (imports the api fn aliased `runSweepBoard` to avoid the
+     name clash; refreshes tasks+stats on a real change, always re-pulls diagnostics so all four diagnostic kinds
+     clear at once) + iface entry.
+   - `src/pages/OperationsCenter.tsx` — emerald **⚙ SWEEP BOARD (n)** button as the **lead** of the diagnostics modal
+     toolbar (before ⟳ RECONCILE), `n = staleCount+depCount+deadCount+exhaustedCount`, disabled at 0; result line
+     summarizes `✓ swept N · reconciled … · held … · promoted … · reassigned … · escalated …`. State `sweeping`/`sweepMsg`.
+   **Verified:** `python -m py_compile` on bridge + store + scheduler ✅; **in-process behavior test on a throwaway
+   store** ✅ — seeded one of each condition (stale running claim, parent→child dep with open parent, off-roster
+   agent holding a skill-matchable task, retry-exhausted task at 1/1 failed): `dry_run` planned without mutating
+   (board identical before/after); the real sweep remediated **all four in order** (reconciled the stale claim →
+   ready, held the child → blocked, reassigned the orphan → the live skill-match agent, escalated the exhausted →
+   blocked; `counts` = reconciled 1/held 1/promoted 0/reassigned 1/escalated 1, `total` 4); a 2nd pass was a no-op
+   (`total` 0); **zero `blocked_no_reason` diagnostics after** (escalate + cascade both record a reason). The
+   dry-run vs real difference (reassigned 0→1) demonstrated the documented caveat (reconcile frees the agent before
+   reassign sees it only in the live sequential run). **In-process dry-run against the LIVE store** ✅ → `total 0`,
+   "board already healthy", board unmutated. `npm run build` ✅ + `npx eslint` ✅. **Live Vite preview** (:5219,
+   bridge up) ✅ — Operations → ⚠ diagnostics: the **⚙ SWEEP BOARD** button leads the toolbar, renders **disabled**
+   with the honest tooltip "Board healthy — no self-heal actions pending" (DOM-read `{text:"⚙ SWEEP BOARD",
+   disabled:true}`), **zero console errors**. `graphify update .` run after edits (1505 nodes / 2930 edges).
+   **Not verified:** the live enabled click→sweep path — needs both the bridge restart (TO-DO #1) **and** a board with
+   ≥1 self-heal condition (none exist live). The full composition is proven by the in-process behavior test.
 
 ### 2026-06-16 — Run #8 (BUILT dependency cycle/self-link guard) · branch `auto/loop-reconcile-20260615`
 

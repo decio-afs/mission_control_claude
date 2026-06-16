@@ -968,6 +968,28 @@ def kanban_reassign(payload: Optional[ReassignPayload] = None):
     return STORE.reassign_dead_agent(frm, dry_run=dry)
 
 
+class SweepPayload(BaseModel):
+    # Preview the full self-manage plan without mutating the board.
+    dry_run: bool = False
+
+
+@app.post("/api/mc/kanban/sweep")
+def kanban_sweep(payload: Optional[SweepPayload] = None):
+    """One-call board self-manage macro: run the four self-heal verbs in order.
+
+    reconcile (reclaim stale claims → ready) → cascade (hold/promote on deps) →
+    reassign (move dead-agent work to live owners) → escalate (block retry-burned
+    tasks). Order matters: reconcile first frees stale claims so reassign sees the
+    idle agent; cascade before reassign so a dep-held task is not moved; escalate
+    last as the final safety net. Each sub-verb is idempotent + dry-run-able, so
+    the macro is low-risk and a second pass is a no-op. `dry_run` previews the whole
+    plan without mutating. Returns each sub-result plus aggregate `counts`, `total`,
+    and a one-line `message`.
+    """
+    dry = payload.dry_run if payload else False
+    return STORE.sweep_board(dry_run=dry)
+
+
 @app.post("/api/mc/tasks/{task_id}/specify")
 def specify_task(task_id: str):
     """Flesh out a triage task's spec with Claude, then promote it to ready."""

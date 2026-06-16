@@ -766,7 +766,8 @@ class MCStore:
             return {"reassigned": reassigned, "skipped": skipped,
                     "dead_agents": dead_list, "dry_run": dry_run, "message": msg}
 
-    def reconcile_board(self, threshold_seconds: Optional[float] = None) -> dict[str, Any]:
+    def reconcile_board(self, threshold_seconds: Optional[float] = None,
+                        dry_run: bool = False) -> dict[str, Any]:
         """Self-heal the board: reclaim running tasks whose claim has gone stale.
 
         A claim is stale when its ``started_at`` is older than ``threshold_seconds``
@@ -775,7 +776,9 @@ class MCStore:
         why — the fleet's auto-recovery from a dead/abandoned agent. The
         ``stale_claim`` diagnostic surfaces these; before this verb the only fix
         was a manual per-task reclaim, so a single dead agent could freeze the
-        whole board indefinitely.
+        whole board indefinitely. ``dry_run`` returns the same plan without
+        mutating — so the ``sweep_board`` macro can preview reconcile alongside the
+        other self-heal verbs.
         """
         thr = STALE_CLAIM_SECONDS if threshold_seconds is None else float(threshold_seconds)
         with self._lock:
@@ -793,21 +796,24 @@ class MCStore:
                 if age <= thr:
                     continue
                 hrs = int(age // 3600)
-                t["status"] = "ready"
-                t["started_at"] = None
                 reason = (f"stale claim auto-reclaimed after {hrs}h "
                           f"(assignee {t.get('assignee') or 'unassigned'} unresponsive)")
-                self._event(m, str(t.get("id")), "reconciled",
-                            {"reason": reason, "stale_hours": hrs})
                 reclaimed.append({"id": str(t.get("id")), "title": t.get("title"),
                                   "assignee": t.get("assignee"), "stale_hours": hrs})
-            if reclaimed:
+                if not dry_run:
+                    t["status"] = "ready"
+                    t["started_at"] = None
+                    self._event(m, str(t.get("id")), "reconciled",
+                                {"reason": reason, "stale_hours": hrs})
+            if reclaimed and not dry_run:
                 self._save_tasks(tasks)
                 self._save_meta(m)
+            verb = "would reclaim" if dry_run else "reclaimed"
             return {
                 "reclaimed": reclaimed,
                 "threshold_hours": round(thr / 3600, 2),
-                "message": (f"reconcile: {len(reclaimed)} stale claim(s) reclaimed"
+                "dry_run": dry_run,
+                "message": (f"reconcile: {verb} {len(reclaimed)} stale claim(s)"
                             if reclaimed else "reconcile: no stale claims found"),
             }
 
@@ -1190,6 +1196,62 @@ class MCStore:
                                  else "no dependency changes")
             return {"held": held, "promoted": promoted, "waiting": waiting,
                     "dry_run": dry_run, "message": msg}
+
+    def sweep_board(self, dry_run: bool = False) -> dict[str, Any]:
+        """One-call board self-manage macro — run the four self-heal verbs in order.
+
+        Each self-heal verb (reconcile / cascade / reassign / escalate) had its own
+        button and call, but there was no single entry point that ran them in the
+        right order in one shot — the "self-manage the board" macro an operator (or
+        a future cron sweep) actually wants. The order is fixed and matters:
+
+          1. ``reconcile_board``      — reclaim stale running claims → ``ready``
+             FIRST, so the now-idle agent is visible to step 3.
+          2. ``cascade_dependencies`` — hold/promote on parent→child deps BEFORE
+             reassign, so a task about to be dependency-held is not moved to a new
+             owner first.
+          3. ``reassign_dead_agent``  — move a dead/idle agent's workable tasks to
+             a live best-fit owner.
+          4. ``escalate_exhausted``   — block retry-burned tasks LAST, the final
+             safety net once the earlier verbs have had their chance to recover the
+             task.
+
+        Every sub-verb is idempotent and ``dry_run``-able, so the macro is low-risk
+        and a second pass is a no-op. ``dry_run`` threads through to every sub-call
+        (note: in dry-run each verb plans against the *current* board, so a later
+        verb does not see an earlier verb's planned-but-unapplied change — the live,
+        non-dry sweep applies them in sequence so each verb sees the prior's result).
+        Returns each sub-result plus an aggregate ``counts``/``total`` and a one-line
+        ``message``.
+        """
+        reconciled = self.reconcile_board(dry_run=dry_run)
+        cascade = self.cascade_dependencies(dry_run=dry_run)
+        reassigned = self.reassign_dead_agent(dry_run=dry_run)
+        escalated = self.escalate_exhausted(dry_run=dry_run)
+        counts = {
+            "reconciled": len(reconciled.get("reclaimed", [])),
+            "held": len(cascade.get("held", [])),
+            "promoted": len(cascade.get("promoted", [])),
+            "reassigned": len(reassigned.get("reassigned", [])),
+            "escalated": len(escalated.get("escalated", [])),
+        }
+        total = sum(counts.values())
+        verb = "would change" if dry_run else "changed"
+        if total > 0:
+            bits = [f"{k} {v}" for k, v in counts.items() if v]
+            msg = f"sweep: {verb} {total} ({', '.join(bits)})"
+        else:
+            msg = "sweep: board already healthy — nothing to do"
+        return {
+            "reconciled": reconciled,
+            "cascade": cascade,
+            "reassigned": reassigned,
+            "escalated": escalated,
+            "counts": counts,
+            "total": total,
+            "dry_run": dry_run,
+            "message": msg,
+        }
 
     # --------------------------------------------------------------- boards
     def boards(self) -> list[dict[str, Any]]:
