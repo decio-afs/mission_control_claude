@@ -6,66 +6,67 @@ which runs **every 2 hours**. It is SEPARATE from `LOOP_LOG.md` (evolve) and `BU
 
 **Every run MUST:** read this file top-to-bottom first → run the `/loop` protocol
 (HEALTH → ORCHESTRATION → PIPELINES → CLOSE GAPS → VERIFY) → then rewrite the sections
-below. `## DONE` is append-only history; `## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
+below. `## DONE` is append-only history.
 
-1. **Restart the bridge, then activate + verify the TASK DISPATCHER (run #11, the NORTH STAR).** The live
-   bridge predates run #11 (confirmed this run: `GET /api/mc/dispatcher` → 404), so the new endpoints + the
-   `TaskDispatcher` daemon load only on the next `python mission-control-bridge.py` restart. After restart, in order:
-   - `GET /api/mc/dispatcher` → `{status:{enabled:false,running:false,concurrency:1,…}, dispatchable:[…]}`. With
-     the board as-is (1 `ready` task: signalscraper's `t_f76cf250`), `dispatchable` lists that one task (web_gap:true —
-     signalscraper has no web MCP). Operations → ⚠ diagnostics now shows a **TASK DISPATCHER** panel: "○ daemon OFF —
-     manual / operator-gated", the dispatchable preview, and a green **▶ DISPATCH NEXT** button.
-   - **Dry-run a manual dispatch:** `POST /api/mc/dispatcher/dispatch {"dry_run":true}` → `{dispatched:false,target:{…},
-     message:"would dispatch … → …"}` (claims nothing). This is safe to verify anytime.
-   - **One real manual dispatch (operator-watched):** `POST /api/mc/dispatcher/dispatch {}` (or the ▶ button) fires ONE
-     headless `run_claude` turn in the background for the top task → claims it `running`, and on success completes it with
-     the result stored + a recorded run (on failure: records an error run + requeues to `ready`). NOTE: this is an
-     autonomous, tool-using, **bypassPermissions** Claude turn with real side effects — fine as an operator-initiated
-     single dispatch, but watch the task's status/runs for the outcome. (signalscraper's `t_f76cf250` needs web it lacks,
-     so it may fail/requeue — pick a task whose agent is fully provisioned for the first clean end-to-end demo.)
-   - **Autonomous mode (operator sign-off required):** set `MC_DISPATCHER_ENABLED=1` (env) and restart → the daemon
-     auto-runs every `ready`+assigned task on a 30s tick, single-flight, `MC_DISPATCH_CONCURRENCY` at a time (default 1).
-     **Do NOT enable without operator sign-off** — same posture as the Buffer cron + the self-heal cron (it fires
-     side-effecting Claude turns unattended). Knobs: `MC_DISPATCH_CONCURRENCY`, `MC_DISPATCH_TICK_SECONDS`,
-     `MC_DISPATCH_TIMEOUT` (900s). Fully proven in-process this run (see DONE Run #11).
-   - Also re-confirm the run#1–#10 endpoints are still 200 after the restart (they were in `.mc/bridge.log` this run).
-2. **Promote `todo`→`ready` to feed the dispatcher.** The dispatcher only picks `ready` tasks (conservative on purpose).
-   After the 6 triage tasks were routed to `todo` this run, the board has **14 todo · 1 ready**. For the dispatcher to do
-   real work, ready-promote the genuinely-actionable todo tasks (operator judgment, or build a promote-verb gate). The
-   content tasks (narratrix/claudelink carousels) are good first candidates once their agents are web-provisioned.
-3. **Provision web access for the 6 blocked + the web_gap agents (operator config, audited run#3).** All 6 blocked tasks
-   (5×narratrix, 1×default) are research/content tasks with no recorded reason; root cause = no web MCP. Several routed
-   content tasks also flag `web_gap`. Fix is config not code: provision `web-brave-free` / `BRAVE_SEARCH_API_KEY` and add it
-   to each flagged agent's `mcps` (the WEB-ACCESS AUDIT panel names them), then unblock + dispatch. The dispatcher will
-   otherwise burn turns on web-less research tasks.
-4. **Seed cron jobs (operator sign-off).** The scheduler daemon is LIVE (222 ticks). Safe to seed: sentinel (`0 7 * * *`)
-   + content-engine (`30 7 * * *`) pipeline jobs — BUT content-engine auto-posts to Buffer (outward side effect), so
-   confirm with the operator first; AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`,
-   `action:"sweep"`, run#10). Use the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded — standing config + external
-   side effects, operator not present.
-5. **Next capability to BUILD (after the dispatcher proves out):** a **dispatcher worktree/isolation seam** so concurrent
-   dispatched agents don't collide in the repo (each gets `cwd`/branch per the task's `workspace_*` fields, already on the
-   task shape but unused by `dispatch_task`, which runs every turn in `PROJECT_ROOT`). Runner-up: per-task `unlink`
-   cycle-break affordance (GAPS #10) — prefer adding it to the diagnostics modal row (this loop's file) to stay in-lane
-   vs `TaskDetailDrawer.tsx` (bughunt's working tree).
+## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
+0. **⛔ BLOCKER → bughunt: `HEAD:mc_store.py` is committed in a NON-PARSING state.** Discovered run #12 while trying to
+   isolate-commit: `git cat-file -p HEAD:mc_store.py` is valid UTF-8 but does **not** compile — `python -c "import ast,
+   subprocess; ast.parse(subprocess.run(['git','cat-file','-p','HEAD:mc_store.py'],capture_output=True).stdout.decode())"`
+   raises `SyntaxError: invalid character '—' (U+2014)` at ~line 1058 (the em-dash bytes are valid `e2 80 94`; the real
+   cause is an **unterminated string literal earlier in the file** that makes the parser hit the docstring em-dash as a
+   token). The **WORKING TREE `mc_store.py` compiles fine** (`python -m py_compile mc_store.py` ✅) and the live bridge runs
+   the working tree, so nothing is operationally broken — but a prior loop committed a broken `mc_store.py` to this branch's
+   HEAD. **This poisons clean per-hunk commits for EVERY loop** (you can't build a compiling "HEAD+mine" on a broken HEAD).
+   Fix: run `.mc/repair_mojibake.py` against HEAD's content / find the unterminated string before 1058, then commit the
+   repaired `mc_store.py` so HEAD parses again. Until then, code commits that touch `mc_store.py` must be hand-verified.
+1. **Restart the bridge to load run #12's `promote_ready` (todo→ready gate).** The bridge was restarted earlier today and
+   now runs run #1–#11 LIVE (confirmed run #12: `/api/mc/dispatcher` → 200 `{enabled:false,running:false}`, `/api/mc/kanban/
+   sweep` → 200, scheduler `running:true`). Run #12's NEW endpoint `POST /api/mc/kanban/promote` + the `promotable`
+   diagnostic load on the **next** `python mission-control-bridge.py` restart (they live in the WORKING TREE, verified, but
+   are NOT yet committed — see #0 blocker). After restart, confirm: `POST /api/mc/kanban/promote {"dry_run":true}` →
+   `{promoted:[…8 todo…], skipped:[…], message:"promote: would promote 8 task(s) todo→ready"}`; Operations → ⚠ diagnostics
+   shows a sky **▲ PROMOTE READY (8)** button (after AUTO-ROUTE) + 8 `promotable` info rows; the ⚙ SWEEP BOARD button now
+   also enables on promotable count (sweep runs reconcile→cascade→reassign→escalate→**promote** and reports `promoted_ready`).
+2. **PROMOTE then DISPATCH — close the autonomy loop.** The dispatcher is LIVE but **starved**: board is `todo 8 · ready 0`
+   so `dispatchable:[]` (it only fires `ready`). After restart (#1), click **▲ PROMOTE READY** (or `POST /api/mc/kanban/
+   promote {}`) → the 8 actionable todos (all live-assignee, no deps) become `ready` → the dispatcher's `dispatchable`
+   populates. THEN do one operator-watched manual dispatch (`POST /api/mc/dispatcher/dispatch {}` or ▶ DISPATCH NEXT) for the
+   first clean end-to-end run. Autonomous mode (`MC_DISPATCHER_ENABLED=1`) still needs operator sign-off (side-effecting
+   bypassPermissions turns). Note: the carousels (narratrix/claudelink) and research tasks need web — see #3.
+3. **Web access — treat as AVAILABLE (do NOT keep asking for a Brave key).** `BRAVE_SEARCH_API_KEY` is ALREADY in
+   `MC_HOME/.env`, AND `run_claude` spawns agents with `--permission-mode bypassPermissions` → native WebSearch/WebFetch, no
+   third-party key needed. The web-access audit's "missing web" is a narrow heuristic (scans agent `mcps` only). Real follow-
+   up: on the FIRST dispatched research task, watch whether native WebSearch is actually allowed headless; only if NOT,
+   attach a web tool to the research agent profiles.
+4. **Seed cron jobs (operator sign-off).** Scheduler daemon LIVE (45 ticks @ 30s this run). Safe to seed once the operator
+   confirms: sentinel (`0 7 * * *`) + content-engine (`30 7 * * *`) pipeline jobs (content-engine auto-posts to Buffer — outward
+   side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
+   run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
+   hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
+5. **Next capability to BUILD (after promote+dispatch prove out):** the **dispatcher worktree/isolation seam** so concurrent
+   dispatched agents don't collide in the repo (each gets `cwd`/branch per the task's `workspace_*` fields, on the task shape
+   but unused by `dispatch_task`, which runs every turn in `PROJECT_ROOT`). Runner-up: per-task `unlink` cycle-break
+   affordance (GAPS #10), added to the diagnostics modal row (this loop's file) to stay in-lane.
+
+### TO-DO — earlier detail (run #11 and before; kept for reference, superseded by 0–5 above)
 
 ---
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 ~18:50** (Run #11 — built the **kanban TASK DISPATCHER** = the NORTH STAR / the one piece still missing post-Hermes: a daemon + endpoints that claim a `ready` task and run it through its assigned agent via one headless `run_claude` turn. Gated OFF by default; manual + dry-run surface live. Also exercised the now-live router → routed all 6 triage tasks to owners (triage 6→0))._
+_Last run: **2026-06-16 ~21:00** (Run #12 — built the **board-wide `promote_ready` gate** (todo→ready), the dispatcher's missing FEEDER: the bridge is now restarted so the dispatcher is LIVE but **starved** (`ready 0`), because nothing promoted `todo`→`ready` in bulk. New `POST /api/mc/kanban/promote` + `promotable` diagnostic + ▲ PROMOTE READY button + a 5th `promote` step in `sweep_board`. Verified in-process + build + lint + UI. **Code lives in the WORKING TREE, NOT committed** — clean commit blocked by `HEAD:mc_store.py` being non-parsing (see TO-DO #0))._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP + on current code | `GET /api/ping` ok, uptime ~2h (the operator's restart this morning). Scheduler **DAEMON LIVE** (`/api/mc/cron` → `scheduler.running:true`, 222 ticks @ 30s). Runs #1–#10 all confirmed 200 in `.mc/bridge.log` (reconcile/sweep/route/web-access). **This run's NEW dispatcher endpoints (`/api/mc/dispatcher`, `/api/mc/dispatcher/dispatch`) 404 on the live bridge — it predates run #11 — so they + the `TaskDispatcher` daemon load on the NEXT bridge restart (TO-DO #1).** |
+| Bridge (:8767) | ✅ UP + run #1–#11 LIVE | `GET /api/ping` ok, uptime ~30min this run (operator restarted it after run #11). **Dispatcher now LIVE**: `/api/mc/dispatcher` → 200 `{enabled:false,running:false,concurrency:1,ticks:0}`, `dispatchable:[]`. `/api/mc/kanban/sweep` → 200. Scheduler **DAEMON LIVE** (`/api/mc/cron` → `running:true`, 45 ticks @ 30s, 0 fired). **Run #12's `/api/mc/kanban/promote` is NOT on the live bridge yet** (working-tree only) — loads on next restart (TO-DO #1). |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
-| `npm run build` | ✅ PASS | tsc + vite, 156 modules, exit 0 (chunk-size warning only) — run twice this run (before + after the dispatcher UI). |
-| `npm run lint` | ✅ PASS | `npx eslint src/lib/api.ts src/pages/OperationsCenter.tsx` = "No issues found". Python: `py_compile` on `mc_store.py`/`mission-control-bridge.py`/`mc_brain.py`/`mc_scheduler.py` ✅. Only pre-existing `office/tower` churn in the full lint (sibling-owned). |
-| Kanban / orchestration | ✅ flowing — triage cleared | **todo 14 · ready 1 · done 10 · blocked 6 · triage 0** (was triage 6 — this run routed all 6 to owners: narratrix×2, claudelink×4, via the now-live `POST /api/mc/kanban/route`). No `stale_claim`/`retry_exhausted`/`blocked_by_dependency`/`dead_agent_task`/`dependency_cycle`. 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). **15 assigned tasks now sit dispatchable-but-idle — exactly what the new dispatcher addresses once enabled.** |
-| Cron jobs | 🟡 EMPTY + engine LIVE | store `jobs: []`; scheduler daemon **running now** (222 ticks). Maintenance-job kind (run#10) lets a recurring `*/30` sweep self-heal the board with no Claude turn. Seeding pipeline + self-heal jobs needs operator sign-off (TO-DO #2/#4). |
-| Content pipeline | ✅ stores live | `/api/content/pipeline` live (campaigns/drafts/calendar growing; writing `.mc/data/`). |
-| Modules in error state | none observed | Run #11 adds a **TASK DISPATCHER panel** to the Operations → ⚠ diagnostics modal (daemon state · best-first dispatchable preview · ▶ DISPATCH NEXT button). Live preview (bridge up, pre-restart): panel correctly **absent** (live bridge 404s on `/api/mc/dispatcher` → `.catch` → null), all run#1–#9 buttons + WEB-ACCESS panel still render, **zero console errors**. |
+| `npm run build` | ✅ PASS | tsc + vite, exit 0 (chunk-size warning only) — run twice this run (before + after the promote UI). |
+| `npm run lint` | ✅ PASS | `npx eslint src/pages/OperationsCenter.tsx src/lib/api.ts src/stores/useTaskStore.ts` = "No issues found". Python WORKING TREE: `py_compile mc_store.py mission-control-bridge.py` ✅. **NB: `HEAD`'s `mc_store.py` does NOT parse (TO-DO #0) — working tree is fine.** |
+| Kanban / orchestration | 🟡 flowing but dispatcher STARVED | **todo 8 · ready 0 · done 18 · blocked 6 · triage 0**. No `stale_claim`/`retry_exhausted`/`dep`/`dead_agent`/`cycle`. 6 blocked still `blocked_no_reason` (web-access root cause). The 8 todo are all live-assignee + no-deps = **promotable** → run #12's PROMOTE READY makes them `ready` to feed the now-live dispatcher (TO-DO #1/#2). (`?status=todo` query param appears ignored by the bridge — returns all tasks; `kanban/stats` is authoritative; minor, possible bughunt item.) |
+| Cron jobs | 🟡 EMPTY + engine LIVE | store `jobs: []`; scheduler daemon running (45 ticks). Maintenance `*/30` sweep (run#10) now ALSO promotes todo→ready (run #12 sweep step). Seeding needs operator sign-off (TO-DO #4). |
+| Content pipeline | ✅ stores live | `/api/content/pipeline` live (campaigns/drafts/calendar; writing `.mc/data/`). |
+| Modules in error state | none observed | Run #12 adds a sky **▲ PROMOTE READY** button to the Operations → ⚠ diagnostics toolbar (after ⤵ AUTO-ROUTE). Live preview (bridge up, pre-restart): button correctly **disabled** (live bridge predates run #12 → no `promotable` diagnostic → count 0, honest fallback), all run#1–#11 buttons render, **zero console errors**. |
 
 ---
 
@@ -310,13 +311,64 @@ _Last run: **2026-06-16 ~18:50** (Run #11 — built the **kanban TASK DISPATCHER
     ▶ DISPATCH NEXT). **Daemon DISABLED by default** (`MC_DISPATCHER_ENABLED`) — autonomous bypassPermissions turns have
     side effects, so the operator opts in (same posture as the Buffer/self-heal crons); manual + dry-run usable
     immediately. Loads on next bridge restart (TO-DO #1).
-- → bughunt / NOT this loop: block-reason **display** in the task drawer already exists (built by
-  bughunt, reads event payloads client-side); FAILED-vs-BLOCKED column reconciliation done by bughunt.
-  Do not redo these.
+13. ✅ **Board-wide promote_ready gate (BUILT this run — run #12).** The dispatcher (run#11) only fires `ready` work, but
+    post-Hermes nothing moved `todo`→`ready` in bulk, so a freshly-routed/assigned task sat in `todo` forever and the
+    dispatcher stayed starved (board `ready 0` ⇒ `dispatchable:[]`). Built the missing FEEDER end-to-end:
+    `MCStore.promote_ready(task_id?, dry_run?)` (promotes every `todo` task with a **live-roster assignee** and **no open
+    parent dependency** → `ready` with a `promoted` event; honestly leaves unassigned/off-roster/dep-blocked tasks in todo;
+    distinct from the per-task ungated `promote_task`), a new **`promotable` info diagnostic** (the button's count source),
+    a 5th **promote** step in `sweep_board` (`reconcile→cascade→reassign→escalate→promote`, new `promoted_ready` count) so
+    the recurring maintenance cron flows work end-to-end; `POST /api/mc/kanban/promote` → `promoteReady()` api fn →
+    `useTaskStore.promoteReady` → a sky **▲ PROMOTE READY (n)** button after ⤵ AUTO-ROUTE in the diagnostics toolbar (and
+    `promoteCount` folded into the ⚙ SWEEP BOARD enable predicate). **Loads on next bridge restart (TO-DO #1).**
+- → bughunt / NOT this loop: **`HEAD:mc_store.py` is committed NON-PARSING** (TO-DO #0 — valid UTF-8 but an unterminated
+  string makes it fail `ast.parse` at ~1058; working tree is fine). This poisons clean per-hunk commits for every loop —
+  hand to bughunt to repair HEAD. Also: block-reason **display** in the task drawer + FAILED-vs-BLOCKED reconciliation are
+  bughunt's — do not redo.
 
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #12 (BUILT the board-wide `promote_ready` gate — the dispatcher's feeder) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE green; key change — bridge was RESTARTED, dispatcher now LIVE.** Bridge :8767 UP (uptime ~30min — the
+   operator restarted it after run #11). The run#11 dispatcher is now LIVE: `GET /api/mc/dispatcher` → 200
+   `{enabled:false,running:false,concurrency:1}`, `/api/mc/kanban/sweep` → 200 (was 404 for 11 runs), scheduler `running:true`
+   (45 ticks). `npm run build` ✅ (twice); `npx eslint` on the 3 touched TS files ✅; `py_compile` on the WORKING-TREE
+   `mc_store.py`/`mission-control-bridge.py` ✅.
+
+2. **ORCHESTRATION — dispatcher LIVE but STARVED (the gap this run fills).** Board: **todo 8 · ready 0 · done 18 · blocked
+   6 · triage 0**. `dispatchable:[]` because there are 0 `ready` tasks (the dispatcher is conservative — only fires `ready`).
+   The 8 todo are all live-assignee + no-deps = genuinely actionable but stuck in `todo`. No stale/dead/cycle/exhausted
+   diagnostics; the 6 blocked remain the audited web-access root cause. **Did NOT manually promote via the old per-task
+   endpoint** (operator absent; the proper gated `promote_ready` is the right tool and loads on restart).
+
+3. **BUILT: board-wide `promote_ready` (CAPABILITY GAPS #13), end-to-end & verified.** The post-run#11 missing link —
+   nothing fed the dispatcher. Files: `mc_store.py` (`promote_ready` verb + `promotable` diagnostic + `sweep_board` 5th
+   promote step + `promoted_ready` count), `mission-control-bridge.py` (`PromoteReadyPayload` + `POST /api/mc/kanban/promote`
+   + sweep docstring), `src/lib/api.ts` (`PromoteReadyResult`/`promoteReady` + `SweepCounts.promoted_ready` +
+   `SweepResult.promoted`), `src/stores/useTaskStore.ts` (`promoteReady` action + iface), `src/pages/OperationsCenter.tsx`
+   (▲ PROMOTE READY button + `promoteCount` + sweepMsg/sweepCount). **Verified:** in-process behavior test on throwaway
+   stores ✅ — promotable detects only live-assignee+no-dep todos (A,D), skips unassigned/off-roster/dep-blocked; dry-run
+   previews without mutating; real promote moves todo→ready; idempotent; **the promoted tasks then appear in
+   `dispatchable_tasks`** (composes with the dispatcher); completing a parent makes its child promotable; `sweep_board`
+   reports `promoted_ready` + a 2nd sweep is a no-op; unknown id → `KeyError`→404. `npm run build` ✅ + `npx eslint` ✅.
+   **Live Vite preview** (:5219, bridge up): Operations → ⚠ diagnostics shows the new ▲ PROMOTE READY button (disabled,
+   honest count-0 fallback since the live bridge predates run #12 → no `promotable` diagnostic), all run#1–#11 buttons
+   render, **zero console errors**. `graphify update .` run (1654 nodes / 3143 edges). **Not verified live:** the endpoint +
+   real promote+dispatch (needs the bridge restart, TO-DO #1).
+
+4. **COMMIT — ledger only; code commit BLOCKED (documented loudly).** Attempted the usual isolate-my-hunks commit but hit a
+   pre-existing blocker: **`HEAD:mc_store.py` does not parse** (valid UTF-8 but an unterminated string → `ast.parse` fails at
+   ~1058; the working tree compiles). You cannot build a compiling "HEAD+mine" on a broken HEAD, and the sibling has
+   **restructured** the shared Python files (code moves) which defeats both `git apply --unidiff-zero` (misplaced a hunk,
+   deleting `dispatchable_tasks`) and difflib opcode filtering. Rather than commit a broken base or risk contaminating with
+   sibling WIP, committed **only `.mc/LOOP_STATE.md`**. My run #12 code stays in the WORKING TREE — verified, and
+   operationally live on the next bridge restart (the bridge runs the working tree). TO-DO #0 hands the HEAD-parse repair to
+   bughunt; once HEAD parses, the working-tree changes commit cleanly. (No mojibake in my edits — the Edit tool writes UTF-8;
+   the corruption that surfaced during staging attempts was a Windows `subprocess(text=True)` cp1252 round-trip, avoided by
+   reading git output as bytes. Working tree left fully intact; all scratch/backup temp files removed.)
 
 ### 2026-06-16 — Run #11 (BUILT the kanban TASK DISPATCHER — the NORTH STAR) · branch `auto/loop-reconcile-20260615`
 
