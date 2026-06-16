@@ -888,6 +888,32 @@ def kanban_route(payload: Optional[RoutePayload] = None):
         raise HTTPException(status_code=404, detail=f"task {tid} not found")
 
 
+class EscalatePayload(BaseModel):
+    # Escalate a single task by id; omit to sweep every retry-exhausted task.
+    task_id: Optional[str] = None
+    # Preview the escalation plan without mutating the board.
+    dry_run: bool = False
+
+
+@app.post("/api/mc/kanban/escalate")
+def kanban_escalate(payload: Optional[EscalatePayload] = None):
+    """Escalate tasks that have exhausted their retry budget.
+
+    `max_retries` exists on every task but nothing acted on it post-Hermes —
+    a task whose assignee kept failing would silently loop. This is the missing
+    self-management remediation for the `retry_exhausted` diagnostic: it moves
+    each exhausted task to `blocked` with a recorded reason + an `escalated`
+    event (attempts/budget/assignee), so a human or the route verb picks the
+    next owner. Reversible; `dry_run` previews without mutating.
+    """
+    tid = payload.task_id if payload else None
+    dry = payload.dry_run if payload else False
+    try:
+        return STORE.escalate_exhausted(tid, dry_run=dry)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {tid} not found")
+
+
 @app.post("/api/mc/tasks/{task_id}/specify")
 def specify_task(task_id: str):
     """Flesh out a triage task's spec with Claude, then promote it to ready."""

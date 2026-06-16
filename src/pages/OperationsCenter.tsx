@@ -56,7 +56,7 @@ function hasDeliverable(t: McTask): boolean {
 }
 
 export default function OperationsCenter() {
-  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
+  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, escalateExhaustedTasks, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
   const nodes = useGhostStore((s) => s.nodes);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -66,6 +66,8 @@ export default function OperationsCenter() {
   const [reconcileMsg, setReconcileMsg] = useState<string | null>(null);
   const [routing, setRouting] = useState(false);
   const [routeMsg, setRouteMsg] = useState<string | null>(null);
+  const [escalating, setEscalating] = useState(false);
+  const [escalateMsg, setEscalateMsg] = useState<string | null>(null);
   const [webAudit, setWebAudit] = useState<WebAccessAudit | null>(null);
   const loadWebAudit = () => getWebAccessAudit().then(setWebAudit).catch(() => {});
   const [boardModal, setBoardModal] = useState(false);
@@ -287,6 +289,7 @@ export default function OperationsCenter() {
           {(() => {
             const staleCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'stale_claim').length || 0), 0);
             const triageCount = stats?.by_status?.triage || 0;
+            const exhaustedCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'retry_exhausted').length || 0), 0);
             return (
               <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.06] flex-wrap">
                 <button
@@ -323,6 +326,26 @@ export default function OperationsCenter() {
                   {routing ? '… routing' : `⤵ AUTO-ROUTE TRIAGE${triageCount > 0 ? ` (${triageCount})` : ''}`}
                 </button>
                 {routeMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{routeMsg}</span>}
+                <button
+                  disabled={escalating || exhaustedCount === 0}
+                  onClick={async () => {
+                    setEscalating(true); setEscalateMsg(null);
+                    const res = await escalateExhaustedTasks();
+                    if (!res) setEscalateMsg('⚠ escalate failed — see console');
+                    else {
+                      const e = res.escalated.length;
+                      const who = res.escalated.map((x) => `${x.title || x.id} (${x.attempts}/${x.max_retries})`).join(', ');
+                      setEscalateMsg(e > 0
+                        ? `✓ escalated ${e} → blocked for review · ${who}`
+                        : 'nothing to escalate');
+                    }
+                    setEscalating(false);
+                  }}
+                  title={exhaustedCount === 0 ? 'No retry-exhausted tasks to escalate' : `Escalate ${exhaustedCount} task(s) that burned their retry budget → blocked-with-reason for human review`}
+                  className={`text-[10px] font-mono border px-2 py-1 ${exhaustedCount > 0 && !escalating ? 'border-red-400/50 text-red-400 hover:bg-red-400/10' : 'border-white/10 text-[#545454] cursor-default'}`}>
+                  {escalating ? '… escalating' : `⚑ ESCALATE EXHAUSTED${exhaustedCount > 0 ? ` (${exhaustedCount})` : ''}`}
+                </button>
+                {escalateMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{escalateMsg}</span>}
               </div>
             );
           })()}

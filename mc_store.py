@@ -30,6 +30,11 @@ from typing import Any, Optional
 TERMINAL = {"done", "archived"}
 STALE_CLAIM_SECONDS = 2 * 3600
 
+# Run-outcome strings that count as a failed attempt against a task's retry
+# budget. Matched case-insensitively. `max_retries` is the budget; a task has
+# exhausted it when its failed-attempt count reaches that number.
+FAILED_OUTCOMES = {"error", "failed", "failure", "timeout", "timed_out", "crashed"}
+
 # Substrings that identify a web-capable MCP plugin on an agent's `mcps` list.
 # Matched case-insensitively — covers the common web-search/scrape providers.
 WEB_MCP_MARKERS = ("brave", "tavily", "serper", "exa", "perplexity",
@@ -173,6 +178,35 @@ class MCStore:
             except OSError:
                 pass
         return False
+
+    @staticmethod
+    def _failed_attempts(task: dict[str, Any], runs: list[dict[str, Any]]) -> int:
+        """How many attempts at a task have failed (against its retry budget).
+
+        The signal is the task's run history: each run carries an ``outcome``,
+        and any outcome in ``FAILED_OUTCOMES`` is a failed attempt. An explicit
+        ``retries`` / ``attempts`` counter on the task (if a future worker writes
+        one) is honored as a floor so the count is never under-reported. Used by
+        both the ``retry_exhausted`` diagnostic and the escalation verb.
+        """
+        failed = sum(
+            1 for r in runs
+            if isinstance(r, dict) and str(r.get("outcome", "")).lower() in FAILED_OUTCOMES
+        )
+        explicit = task.get("retries")
+        if not isinstance(explicit, (int, float)):
+            explicit = task.get("attempts")
+        if isinstance(explicit, (int, float)):
+            failed = max(failed, int(explicit))
+        return failed
+
+    @staticmethod
+    def _retry_budget(task: dict[str, Any]) -> Optional[int]:
+        """Positive retry budget for a task, or None when it has no budget set."""
+        mr = task.get("max_retries")
+        if isinstance(mr, (int, float)) and int(mr) > 0:
+            return int(mr)
+        return None
 
     def list_tasks(self) -> dict[str, Any]:
         tasks = self._tasks()
@@ -407,6 +441,19 @@ class MCStore:
                 if not any(e.get("kind") == "blocked" and (e.get("payload") or {}).get("reason") for e in evs):
                     diags.append({"kind": "blocked_no_reason", "severity": "info",
                                   "message": "blocked without a recorded reason"})
+            # Retry budget exhausted but never escalated — the task keeps
+            # failing/re-queuing with no human in the loop. Only flag while it is
+            # still open and not yet escalated (the escalate verb clears it).
+            if t.get("status") not in TERMINAL:
+                budget = self._retry_budget(t)
+                if budget is not None:
+                    attempts = self._failed_attempts(t, m["runs"].get(tid, []) or [])
+                    already = any(e.get("kind") == "escalated" for e in m["events"].get(tid, []))
+                    if attempts >= budget and not already:
+                        diags.append({"kind": "retry_exhausted", "severity": "warn",
+                                      "message": (f"exhausted retry budget "
+                                                  f"({attempts}/{budget} attempts failed) "
+                                                  f"— not yet escalated")})
             if diags:
                 out.append({"task_id": tid, "title": t.get("title"), "status": t.get("status"),
                             "assignee": t.get("assignee"), "diagnostics": diags})
@@ -514,6 +561,90 @@ class MCStore:
                 "message": (f"reconcile: {len(reclaimed)} stale claim(s) reclaimed"
                             if reclaimed else "reconcile: no stale claims found"),
             }
+
+    def escalate_exhausted(self, task_id: Optional[str] = None,
+                           dry_run: bool = False) -> dict[str, Any]:
+        """Escalate tasks that have exhausted their retry budget.
+
+        ``max_retries`` exists on every task but, post-Hermes, nothing acted on
+        it — a task whose assignee kept failing would silently loop or sit with
+        no human in the loop. This is the missing self-management path: for each
+        open task whose failed-attempt count has reached its budget (and which
+        hasn't already been escalated), it transitions the task to ``blocked``
+        with a *recorded reason* (so it never shows as ``blocked_no_reason``) and
+        an ``escalated`` event capturing attempts/budget/assignee. Blocking — not
+        silent reassignment — is the safe default: the same agent would likely
+        fail again, so a human (or the route verb) decides the next owner. The
+        action is fully reversible (unblock / reassign / route). ``dry_run``
+        returns the same plan without mutating. Honest by construction: with no
+        failed runs recorded, nothing is escalated.
+        """
+        with self._lock:
+            tasks = self._tasks()
+            m = self._meta()
+            if task_id is not None:
+                cand = [t for t in tasks if str(t.get("id")) == str(task_id)]
+                if not cand:
+                    raise KeyError(task_id)
+                pool = cand
+            else:
+                pool = list(tasks)
+
+            escalated: list[dict[str, Any]] = []
+            skipped: list[dict[str, Any]] = []
+            changed = False
+            for t in pool:
+                tid = str(t.get("id"))
+                budget = self._retry_budget(t)
+                already = any(e.get("kind") == "escalated"
+                              for e in m["events"].get(tid, []))
+                attempts = self._failed_attempts(t, m["runs"].get(tid, []) or [])
+                exhausted = (budget is not None and t.get("status") not in TERMINAL
+                             and attempts >= budget and not already)
+                if not exhausted:
+                    # Only explain the skip for an explicitly-named task.
+                    if task_id is not None:
+                        if budget is None:
+                            why = "no retry budget (max_retries unset)"
+                        elif t.get("status") in TERMINAL:
+                            why = f"terminal status ({t.get('status')})"
+                        elif already:
+                            why = "already escalated"
+                        else:
+                            why = f"budget not exhausted ({attempts}/{budget})"
+                        skipped.append({"id": tid, "title": t.get("title"),
+                                        "reason": why})
+                    continue
+                assignee = t.get("assignee") or "unassigned"
+                reason = (f"retry budget exhausted: {attempts}/{budget} attempts "
+                          f"failed (assignee {assignee}) — escalated for human review")
+                entry = {"id": tid, "title": t.get("title"), "assignee": t.get("assignee"),
+                         "attempts": attempts, "max_retries": budget,
+                         "prev_status": t.get("status"), "reason": reason}
+                if not dry_run:
+                    t["status"] = "blocked"
+                    self._event(m, tid, "escalated", {
+                        "attempts": attempts, "max_retries": budget,
+                        "assignee": t.get("assignee"),
+                        "prev_status": entry["prev_status"], "reason": reason})
+                    # Also record a `blocked` reason so the blocked card never
+                    # shows up as `blocked_no_reason`.
+                    self._event(m, tid, "blocked", {"reason": reason})
+                    changed = True
+                escalated.append(entry)
+            if changed and not dry_run:
+                self._save_tasks(tasks)
+                self._save_meta(m)
+            n = len(escalated)
+            verb = "would escalate" if dry_run else "escalated"
+            if n > 0:
+                msg = f"escalate: {verb} {n} retry-exhausted task(s)"
+            elif skipped:
+                msg = f"escalate: nothing to escalate ({len(skipped)} skipped)"
+            else:
+                msg = "escalate: no retry-exhausted tasks"
+            return {"escalated": escalated, "skipped": skipped,
+                    "dry_run": dry_run, "message": msg}
 
     # ------------------------------------------------------- triage routing
     @staticmethod

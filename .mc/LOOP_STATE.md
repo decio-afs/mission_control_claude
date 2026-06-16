@@ -21,27 +21,27 @@ below. `## DONE` is append-only history; `## TO-DO` is rewritten each run for th
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 ~03:15** (Run #4 — built skill-match auto-route for triage tasks)._
+_Last run: **2026-06-16 ~05:15** (Run #5 — built retry-exhaustion escalation)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~18.5h. **Still holds pre-restart code** — now **FOUR** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404, confirmed this run). |
+| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~20.5h. **Still holds pre-restart code** — now **FIVE** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404, confirmed this run). |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
 | `npm run build` | ✅ PASS | tsc + vite, 156 modules, exit 0 (chunk-size warning only) |
 | `npm run lint` | ✅ PASS | `npx eslint` on the 3 touched TS files (`api.ts`, `useTaskStore.ts`, `OperationsCenter.tsx`) = "No issues found"; only pre-existing `office/tower` churn remains (sibling-owned) |
-| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged from run#3). No `stale_claim`. 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task now has a **live deterministic router** (run#4) — routes to `narratrix` on next restart. |
+| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged from run#4). No `stale_claim`, no `retry_exhausted` (no failed/budget-burned tasks on the board). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task has a live deterministic router (run#4). |
 | Cron jobs | 🟡 EMPTY + engine ready | store `jobs: []`; scheduler daemon built (run#2), loads on restart. Seeding the 2 pipeline jobs safe-to-fire post-restart — TO-DO #2. |
 | Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 22 · drafts 6 · calendar 31 (run#1); `.mc/data/` written |
-| Modules in error state | none observed | Vite preview (:5219) renders Operations LIVE; diagnostics modal opens clean; new **⤵ AUTO-ROUTE TRIAGE (1)** button renders enabled with correct tooltip, zero console errors. (Click 404s against the old bridge by design — works on restart.) |
+| Modules in error state | none observed | Vite preview (:5219) renders Operations LIVE; diagnostics modal opens clean; new red **⚑ ESCALATE EXHAUSTED** button renders **disabled** with honest tooltip "No retry-exhausted tasks to escalate", zero console errors. (Disabled is correct: 0 exhausted tasks on the live board + old bridge has no `retry_exhausted` diagnostic; activates on restart.) |
 
 ---
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-1. **Restart the bridge to activate FOUR built capabilities at once** (`npm run bridge`, or whatever
+1. **Restart the bridge to activate FIVE built capabilities at once** (`npm run bridge`, or whatever
    launches the operator's bridge / desktop app). The live bridge still holds pre-restart code
    (confirmed this run: reconcile → 404, `/api/mc/cron` no `scheduler` field, `/api/mc/agents/web-access`
-   → 405, `/api/mc/kanban/route` → 404). After restart, confirm **all** of:
+   → 405, `/api/mc/kanban/route` → 404, `/api/mc/kanban/escalate` → 404). After restart, confirm **all** of:
    - `GET /api/mc/cron` → includes `"scheduler": {enabled:true, running:true, tick_seconds:30, …}`;
      Operations → ⏱ CRON modal banner flips from amber "scheduler unknown" to green **DAEMON LIVE**.
    - `POST /api/mc/kanban/reconcile` (run#1) → `{reclaimed,threshold_hours,message}`; Operations →
@@ -49,11 +49,17 @@ _Last run: **2026-06-16 ~03:15** (Run #4 — built skill-match auto-route for tr
    - `GET /api/mc/agents/web-access` (run#3) → `{agents,summary,hint}` (in-process: `summary.missing_web=9,
      blocked_due_to_web=6`); Operations → ⚠ diagnostics → a **WEB-ACCESS AUDIT** panel lists the 9 flagged
      agents (narratrix top, 5 blocked) with the amber provisioning hint.
-   - **`POST /api/mc/kanban/route` (run#4)** → `{routed,skipped,dry_run,message}`. Verify safely first with
-     `{"dry_run":true}` → in-process it returns `routed:[{id:t_6f880653 → narratrix, score 23, skill_match
-     [brand,content,copy,voice], web_gap:false}]`, board unmutated. Then Operations → ⚠ diagnostics →
-     **⤵ AUTO-ROUTE TRIAGE (1)** button (cyan, currently renders enabled) → click routes the triage task to
-     narratrix and de-triages it to `todo` (triage 1→0, todo 8→9), result line shows `✓ routed 1 → narratrix`.
+   - `POST /api/mc/kanban/route` (run#4) → `{routed,skipped,dry_run,message}`. Verify safely first with
+     `{"dry_run":true}` → routes `t_6f880653` → narratrix (score 23, skill_match [brand,content,copy,voice]),
+     board unmutated. Then Operations → ⚠ diagnostics → **⤵ AUTO-ROUTE TRIAGE (1)** button → click routes
+     the triage task to narratrix and de-triages it to `todo` (triage 1→0, todo 8→9).
+   - **`POST /api/mc/kanban/escalate` (run#5)** → `{escalated,skipped,dry_run,message}`. On the current board
+     it returns `escalated:[]` (no task has burned its retry budget — no failed runs recorded), so Operations →
+     ⚠ diagnostics → the red **⚑ ESCALATE EXHAUSTED** button stays **disabled** (correct, honest empty state).
+     To exercise the live path you need a task with `max_retries=N` and ≥N runs whose `outcome` ∈
+     {error,failed,failure,timeout,timed_out,crashed}; such a task gets a `retry_exhausted` warn diagnostic,
+     the button enables `(n)`, and clicking moves it to `blocked` with a recorded reason + `escalated` event.
+     Fully proven in-process this run on a throwaway store (see DONE Run#5).
    - To run the bridge *without* the scheduler: `MC_SCHEDULER_ENABLED=0` (tick override:
      `MC_CRON_TICK_SECONDS`, per-job timeout: `MC_CRON_JOB_TIMEOUT`).
 2. **Seed sentinel(7:00 = `0 7 * * *`) + content-engine(7:30 = `30 7 * * *`) cron jobs.** This is now
@@ -78,10 +84,16 @@ _Last run: **2026-06-16 ~03:15** (Run #4 — built skill-match auto-route for tr
    flesh-out (`POST /api/mc/tasks/{id}/specify`, runs a live turn) remains a separate optional step — fire
    when the operator is present. Did NOT auto-route this run (live bridge predates the endpoint; safe to do
    post-restart).
-5. **Next capability to BUILD:** retry-exhaustion escalation (GAPS #4) is now the **only** remaining ranked
-   gap — `max_retries` exists on tasks but nothing escalates/notifies/reassigns when a task exhausts them.
-   Note: the board currently has **no** `failed`/retry-exhausted tasks, so it's a self-management capability
-   with no live data to act on yet (build it pure + testable, like run#1-#4). One end-to-end per run.
+5. **Next capability to BUILD:** **dependency-aware promotion gate** (new GAPS #6, ranked next). Parent→child
+   links exist (`kanban-meta.json["links"]`, exposed via `parents`/`children` in `show_task`, and a
+   `missing_dependency` diagnostic), but **nothing enforces ordering**: a child task can be promoted/claimed
+   while its parents are still open, and nothing auto-promotes a child when its last parent completes. Build the
+   missing orchestration path: (a) a `blocked_by_dependency` diagnostic when a non-terminal task has an open
+   parent; (b) a `promote` guard / `unblock-on-parent-done` sweep verb (`POST /api/mc/kanban/cascade` or similar)
+   that promotes children whose parents are all `done` and surfaces those still waiting — end-to-end, pure +
+   testable like run#1–#5. Runner-up gap: **auto-reassign-on-dead-agent** (GAPS #7) — reconcile reclaims a stale
+   claim to `ready` but leaves it on the same dead assignee; no verb bulk-reassigns a dead agent's open work.
+   One end-to-end per run.
 
 ---
 
@@ -109,9 +121,23 @@ _Last run: **2026-06-16 ~03:15** (Run #4 — built skill-match auto-route for tr
    lacks an MCP (ties into run#3's audit). No worker is fired (no in-process dispatcher). The Claude `specify`
    flesh-out stays a separate opt-in step. In-process against the live board: the 1 triage task routes to
    `narratrix` (score 23). Loads on next bridge restart (TO-DO #1).
-4. 🟡 **No retry-exhaustion escalation.** `max_retries` exists on tasks but there is no path that
-   escalates / notifies / reassigns when a task exhausts retries (the spec calls for it). **Now the only
-   remaining ranked gap** — next build (TO-DO #5). No live retry-exhausted tasks on the board yet.
+4. ✅ **Retry-exhaustion escalation (BUILT this run — run#5).** `max_retries` existed on every task but nothing
+   acted on it post-Hermes — a task whose assignee kept failing would silently loop. Built the missing
+   self-management path: `_failed_attempts()` counts runs whose `outcome` ∈ `FAILED_OUTCOMES`
+   (error/failed/failure/timeout/timed_out/crashed; honors an explicit `retries`/`attempts` floor), a new
+   `retry_exhausted` warn **diagnostic** (open task whose failed-attempt count ≥ its positive `max_retries`,
+   not yet escalated), and `POST /api/mc/kanban/escalate` → `MCStore.escalate_exhausted(task_id?, dry_run?)`
+   → `escalateExhaustedTasks()` store action → a red **⚑ ESCALATE EXHAUSTED (n)** button in the Operations
+   diagnostics modal. Escalation moves each exhausted task to `blocked` with a **recorded reason**
+   (never `blocked_no_reason`) + an `escalated` event (attempts/budget/prev_status/assignee). Blocking — not
+   silent reassign — is the safe default (same agent would re-fail; a human or the route verb picks the next
+   owner); fully reversible; idempotent (a 2nd pass re-escalates nothing); `dry_run` previews. Honest by
+   construction: no failed runs → nothing escalates. Loads on next bridge restart (TO-DO #1).
+6. 🟡 **No dependency-aware promotion gate.** Parent→child links exist but nothing enforces ordering — a child
+   can run before its parents finish, and no sweep auto-promotes children when parents complete. **Next build**
+   (TO-DO #5).
+7. 🟡 **No auto-reassign-on-dead-agent.** Reconcile reclaims a stale claim to `ready` but keeps it on the dead
+   assignee; no verb bulk-reassigns a dead/idle agent's open work to a live best-fit owner. Runner-up build.
 5. ✅ **Web-access audit surface (BUILT this run — run#3).** Research agents silently blocked on missing
    web tools with no way to *see* which agents lacked a web plugin. Built `GET /api/mc/agents/web-access`
    → `MCStore.web_access_audit()` → `getWebAccessAudit()` → a **WEB-ACCESS AUDIT** panel in the Operations
@@ -127,6 +153,58 @@ _Last run: **2026-06-16 ~03:15** (Run #4 — built skill-match auto-route for tr
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #5 (BUILT retry-exhaustion escalation) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE green.** Bridge :8767 UP (`/api/ping` ok, uptime ~20.5h). Gateway :8642 N/A by design.
+   `npm run build` ✅ (156 modules, exit 0, chunk-size warning only); `npx eslint` on the 3 touched TS files ✅
+   ("No issues found"). Confirmed the live bridge still runs **pre-restart** code: reconcile → 404, `/api/mc/cron`
+   no `scheduler` field, web-access → 405, route → 404, and this run's new `POST /api/mc/kanban/escalate` → 404.
+   Did NOT kill the operator's bridge — verified the new capability in-process instead. **FIVE** capabilities now
+   load together on the next restart (run#1 reconcile, run#2 scheduler, run#3 web-audit, run#4 triage-route,
+   run#5 escalate) — see TO-DO #1. Sibling lanes confirmed clear: bughunt = `src/stores`/`src/lib` bug fixes,
+   evolve = pages/nav/command-palette — neither touches my five bridge/store/api/page files.
+
+2. **ORCHESTRATION steady.** Kanban unchanged: todo 8 · ready 1 · done 10 · blocked 6 · triage 1. No
+   `stale_claim`, and **no `retry_exhausted`** (no task on the board has a burned retry budget — there are no
+   recorded failed runs). The 6 blocked (5×narratrix, 1×default) remain the audited web-access root cause
+   (operator config). Nothing silently broken; remaining items need operator config / a live Claude turn.
+
+3. **BUILT: retry-exhaustion escalation (CAPABILITY GAPS #4, this loop's signature increment), end-to-end &
+   LIVE-backed.** `max_retries` existed on every task but post-Hermes nothing escalated/notified/reassigned when
+   a task burned its budget — it would silently loop. New capability across every layer:
+   - `mc_store.py` — module const `FAILED_OUTCOMES` (error/failed/failure/timeout/timed_out/crashed); static
+     `_failed_attempts(task, runs)` (counts runs whose `outcome` ∈ FAILED_OUTCOMES; honors an explicit
+     `retries`/`attempts` field as a floor) + `_retry_budget(task)` (positive `max_retries` or None); a new
+     **`retry_exhausted` warn diagnostic** in `diagnostics()` (open, non-terminal task whose failed-attempt count
+     ≥ budget and not yet escalated); and `MCStore.escalate_exhausted(task_id=None, dry_run=False)` — sweeps (or
+     targets one id), moves each exhausted task to `blocked` with a recorded reason + an `escalated` event
+     (attempts/max_retries/prev_status/assignee) **and** a `blocked` reason event (so it never shows
+     `blocked_no_reason`), leaves everything else untouched with explained skips for a named id, idempotent via
+     the existing-`escalated`-event guard. Returns `{escalated,skipped,dry_run,message}`; `dry_run` mutates
+     nothing.
+   - `mission-control-bridge.py` — `POST /api/mc/kanban/escalate` (`EscalatePayload{task_id?,dry_run?}`) →
+     `STORE.escalate_exhausted(...)`, 404 on unknown id. Placed right after `kanban_route`.
+   - `src/lib/api.ts` — `EscalatedTask` / `EscalateResult` types + `escalateExhausted({taskId?,dryRun?})` fetcher.
+   - `src/stores/useTaskStore.ts` — `escalateExhaustedTasks()` action (refreshes tasks+stats on a real escalate,
+     always re-pulls diagnostics so the `retry_exhausted` rows clear) + import + iface.
+   - `src/pages/OperationsCenter.tsx` — red **⚑ ESCALATE EXHAUSTED (n)** button in the diagnostics modal toolbar
+     (after ⤵ AUTO-ROUTE TRIAGE), `n` = count of `retry_exhausted` diagnostics, disabled at 0; result line
+     summarizes `✓ escalated N → blocked for review · title (attempts/budget)`.
+   **Verified:** `python -m py_compile` on bridge + store + scheduler ✅; **in-process behavior test on a throwaway
+   store** ✅ — seeded a task at 2/2 failed-runs (flags `retry_exhausted`), a 1/3 task (no flag), a no-budget task
+   (no flag), and a `done` task with 2 fails (terminal, no flag); `dry_run` planned the 1 exhausted task without
+   mutating (status stayed `running`); the real sweep moved it to `blocked` with both `escalated`+`blocked` events
+   and the diagnostic then **cleared**; a 2nd pass was idempotent (escalated 0); single-id on the 1/3 task skipped
+   with reason `budget not exhausted (1/3)`; unknown id raised `KeyError`. `npm run build` ✅ + `npx eslint` ✅.
+   **Live Vite preview** (:5219, bridge up) ✅ — Operations → ⚠ diagnostics: modal opens, the **⚑ ESCALATE
+   EXHAUSTED** button renders **disabled** with the honest tooltip "No retry-exhausted tasks to escalate" and the
+   muted styling, **zero console errors** (DOM-read verified: `{found:true, disabled:true, title:…}`). `graphify
+   update .` run after edits (1460 nodes / 2832 edges).
+   **Not verified:** the live enabled click→escalate→`✓ escalated` path — needs both the bridge restart (TO-DO #1)
+   **and** a task that has actually burned its retry budget (none exist on the live board; the screenshot tool
+   timed out on the live animation widgets, as in run#2/#3 — DOM text + clean console stand in). The full data
+   path is proven by the in-process behavior test.
 
 ### 2026-06-16 — Run #4 (BUILT skill-match auto-route for triage tasks) · branch `auto/loop-reconcile-20260615`
 

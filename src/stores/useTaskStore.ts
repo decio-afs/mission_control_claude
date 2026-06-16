@@ -22,6 +22,7 @@ import {
   getKanbanDiagnostics,
   reconcileKanban,
   routeTriage,
+  escalateExhausted,
   getMcBoards,
   createMcBoard,
   switchMcBoard,
@@ -33,6 +34,7 @@ import {
   type KanbanBoard,
   type BoardDiagnostic,
   type RouteResult,
+  type EscalateResult,
 } from '../lib/api';
 
 export interface OpTask {
@@ -85,6 +87,7 @@ interface TaskStore {
   fetchDiagnostics: () => Promise<void>;
   reconcileBoard: (thresholdHours?: number) => Promise<number>;
   routeTriageTasks: (opts?: { taskId?: string; dryRun?: boolean }) => Promise<RouteResult | null>;
+  escalateExhaustedTasks: (opts?: { taskId?: string; dryRun?: boolean }) => Promise<EscalateResult | null>;
   specifyTask: (taskId: string) => Promise<boolean>;
   fetchTaskDetail: (taskId: string) => Promise<TaskDetail | null>;
   addMcTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<McTask | null>;
@@ -264,6 +267,26 @@ export const useTaskStore = create<TaskStore>((set, get) => {
       } catch (err) {
         const msg = errMessage(err);
         console.error('[TaskStore] routeTriageTasks failed:', msg);
+        set({ error: msg });
+        return null;
+      }
+    },
+
+    // Escalate retry-exhausted tasks (blocked-with-reason), then refresh so the
+    // board reflects the new blocked state + diagnostics clear. Returns the full
+    // plan (escalated + skipped) for the UI, or null on error. `dryRun` previews.
+    escalateExhaustedTasks: async (opts) => {
+      try {
+        const res = await escalateExhausted(opts);
+        if (!opts?.dryRun && res.escalated.length > 0) {
+          await get().fetchTasks();
+          await get().fetchStats();
+        }
+        await get().fetchDiagnostics();
+        return res;
+      } catch (err) {
+        const msg = errMessage(err);
+        console.error('[TaskStore] escalateExhaustedTasks failed:', msg);
         set({ error: msg });
         return null;
       }

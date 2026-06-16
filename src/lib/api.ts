@@ -373,6 +373,34 @@ export async function routeTriage(opts?: { taskId?: string; dryRun?: boolean }):
   return data;
 }
 
+// --- Retry-exhaustion escalation: blocked-with-reason when a task burns its budget ---
+// `max_retries` exists on every task but nothing acted on it post-Hermes. This sweeps
+// tasks whose failed-attempt count reached their budget and moves them to `blocked`
+// with a recorded reason + `escalated` event so a human (or routeTriage) picks the
+// next owner. Reversible; `dryRun` previews the plan without mutating.
+export interface EscalatedTask {
+  id: string;
+  title?: string;
+  assignee?: string | null;
+  attempts: number;
+  max_retries: number;
+  prev_status?: string;
+  reason: string;
+}
+export interface EscalateResult {
+  escalated: EscalatedTask[];
+  skipped: Array<{ id: string; title?: string; reason: string }>;
+  dry_run: boolean;
+  message: string;
+}
+export async function escalateExhausted(opts?: { taskId?: string; dryRun?: boolean }): Promise<EscalateResult> {
+  const body: Record<string, unknown> = {};
+  if (opts?.taskId != null) body.task_id = opts.taskId;
+  if (opts?.dryRun) body.dry_run = true;
+  const { data } = await bridge.post('/api/mc/kanban/escalate', body);
+  return data;
+}
+
 export async function getTaskNotifications(taskId: string): Promise<{ subscriptions: NotifySubscription[] }> {
   const { data } = await bridge.get(`/api/mc/tasks/${taskId}/notify`);
   return data;
