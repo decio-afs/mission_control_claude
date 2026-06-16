@@ -247,7 +247,14 @@ class MCStore:
             self._save_tasks(tasks)
             m = self._meta()
             self._event(m, t["id"], "created", {"by": t["created_by"]})
+            # Append parent links through the same cycle guard. A fresh task has
+            # no children yet, so the only edge a single parent can close is a
+            # self-link (parent == new id); routing every parent through
+            # `_would_cycle` against the running link set keeps create_task and
+            # link() consistent and defends against bad parent ids.
             for parent in getattr(payload, "parents", None) or []:
+                if self._would_cycle(m["links"], parent, t["id"]):
+                    continue
                 m["links"].append([parent, t["id"]])
             self._save_meta(m)
             return {"task": t}
@@ -371,6 +378,17 @@ class MCStore:
         with self._lock:
             m = self._meta()
             pair = [parent_id, child_id]
+            # Refuse self-links and any edge that would close a dependency
+            # cycle — otherwise the cascade gate's "all parents done" becomes
+            # unreachable and the child waits forever, silently.
+            if self._would_cycle(m["links"], parent_id, child_id):
+                if str(parent_id) == str(child_id):
+                    raise ValueError(
+                        f"refusing self-link {parent_id} -> {child_id}: "
+                        f"a task cannot depend on itself")
+                raise ValueError(
+                    f"refusing link {parent_id} -> {child_id}: "
+                    f"would create a dependency cycle")
             if pair not in m["links"]:
                 m["links"].append(pair)
             self._save_meta(m)
@@ -431,6 +449,10 @@ class MCStore:
         parents_of: dict[str, list[str]] = {}
         for p, c in m["links"]:
             parents_of.setdefault(str(c), []).append(str(p))
+        # Pre-existing dependency cycles (self-links or longer loops) that slipped
+        # in before the `_would_cycle` guard — a cycle makes the cascade gate's
+        # "all parents done" unreachable, so a child waits forever, silently.
+        cycle_nodes = self._cycle_nodes(m["links"])
         # Dead/idle assignees (off-roster or sitting on a stale running claim) —
         # used to flag their reassignable open work for the reassign verb.
         roster_names = {a.get("name") for a in self.list_agents()}
@@ -474,6 +496,15 @@ class MCStore:
                     diags.append({"kind": "blocked_by_dependency", "severity": "warn",
                                   "message": (f"waiting on {len(open_parents)} open "
                                               f"dependency task(s): {', '.join(open_parents)}")})
+            # Dependency cycle: this task is part of a directed loop in the link
+            # graph (self-link or longer). The cascade gate can never clear it,
+            # so it would wait forever — surface it for an unlink remediation.
+            if tid in cycle_nodes:
+                parents = parents_of.get(tid, [])
+                diags.append({"kind": "dependency_cycle", "severity": "warn",
+                              "message": ("part of a dependency cycle — "
+                                          "the gate can never clear it; "
+                                          f"parent(s): {', '.join(parents) or 'self'}")})
             # Dead/idle assignee: an off-roster or stale-claim agent still holds
             # workable open work (todo/ready or a stale running claim). Surfaces
             # the gate the `reassign` verb remediates — move the work to a live
@@ -996,6 +1027,66 @@ class MCStore:
                     "dry_run": dry_run, "message": msg}
 
     # ------------------------------------------------- dependency ordering
+    @staticmethod
+    def _would_cycle(links: list[Any], parent: Any, child: Any) -> bool:
+        """Whether adding the edge ``parent -> child`` would create a cycle.
+
+        Links are ``[parent, child]`` pairs (a parent must finish before its
+        child). Adding ``parent -> child`` closes a cycle iff ``child`` can
+        already reach ``parent`` by following existing edges — or the edge is a
+        self-link (``parent == child``). Pure DFS over the current link set; the
+        proposed edge is NOT added first (we look for an existing child→parent
+        path). Used as the guard at both `link()` and `create_task`'s
+        parent-append loop so a cycle can never be persisted in the first place.
+        """
+        parent, child = str(parent), str(child)
+        if parent == child:
+            return True
+        adj: dict[str, list[str]] = {}
+        for p, c in links:
+            adj.setdefault(str(p), []).append(str(c))
+        stack = [child]
+        seen: set[str] = set()
+        while stack:
+            n = stack.pop()
+            if n == parent:
+                return True
+            if n in seen:
+                continue
+            seen.add(n)
+            stack.extend(adj.get(n, []))
+        return False
+
+    @staticmethod
+    def _cycle_nodes(links: list[Any]) -> set[str]:
+        """The set of node ids that participate in ≥1 directed cycle.
+
+        Catches pre-existing bad data that slipped in before the `_would_cycle`
+        guard existed (self-links and longer cycles). A node is in a cycle iff,
+        following ``parent -> child`` edges, it can return to itself via ≥1 edge.
+        Self-loops (``A -> A``) are included. O(V·(V+E)) — fine for a board.
+        """
+        adj: dict[str, list[str]] = {}
+        nodes: set[str] = set()
+        for p, c in links:
+            adj.setdefault(str(p), []).append(str(c))
+            nodes.add(str(p))
+            nodes.add(str(c))
+        in_cycle: set[str] = set()
+        for start in nodes:
+            stack = list(adj.get(start, []))
+            seen: set[str] = set()
+            while stack:
+                n = stack.pop()
+                if n == start:
+                    in_cycle.add(start)
+                    break
+                if n in seen:
+                    continue
+                seen.add(n)
+                stack.extend(adj.get(n, []))
+        return in_cycle
+
     @staticmethod
     def _dep_held(events: list[dict[str, Any]]) -> bool:
         """Whether a task is currently held by the dependency gate.

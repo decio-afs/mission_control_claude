@@ -822,8 +822,16 @@ def edit_task(task_id: str, payload: EditTaskPayload):
 
 @app.post("/api/mc/tasks/link")
 def link_tasks(payload: LinkPayload):
-    """Add a parent->child dependency."""
-    return STORE.link(payload.parent_id, payload.child_id)
+    """Add a parent->child dependency.
+
+    Refuses self-links and cycle-closing edges (the store raises ValueError),
+    surfaced as a 400 so the caller learns the link was rejected rather than
+    silently persisting a loop the cascade gate can never clear.
+    """
+    try:
+        return STORE.link(payload.parent_id, payload.child_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/mc/tasks/unlink")

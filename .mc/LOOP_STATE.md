@@ -21,28 +21,35 @@ below. `## DONE` is append-only history; `## TO-DO` is rewritten each run for th
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 ~12:35** (Run #7 — built auto-reassign-on-dead-agent)._
+_Last run: **2026-06-16 ~14:35** (Run #8 — built dependency cycle/self-link guard)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~24.5h. **Still holds pre-restart code** — now **SEVEN** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404), run#6 cascade (`POST /api/mc/kanban/cascade`→404), run#7 reassign (`POST /api/mc/kanban/reassign`→404, confirmed this run). |
+| Bridge (:8767) | ✅ UP | `GET /api/ping` ok, uptime ~26.5h. **Still holds pre-restart code** — now **EIGHT** built capabilities wait on one restart: run#1 reconcile (`POST /api/mc/kanban/reconcile`→404), run#2 scheduler (`/api/mc/cron` no `scheduler` field), run#3 web-audit (`GET /api/mc/agents/web-access`→405), run#4 triage-route (`POST /api/mc/kanban/route`→404), run#5 escalate (`POST /api/mc/kanban/escalate`→404), run#6 cascade (`POST /api/mc/kanban/cascade`→404), run#7 reassign (`POST /api/mc/kanban/reassign`→404), run#8 dep-cycle guard (`POST /api/mc/tasks/link` still accepts cycles; no `dependency_cycle` diagnostic kind — confirmed `reassign`→404 this run). |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
 | `npm run build` | ✅ PASS | tsc + vite, 156 modules, exit 0 (chunk-size warning only) |
-| `npm run lint` | ✅ PASS | `npx eslint` on the 3 touched TS files (`api.ts`, `useTaskStore.ts`, `OperationsCenter.tsx`) = "No issues found"; only pre-existing `office/tower` churn remains (sibling-owned) |
-| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged). No `stale_claim`, no `retry_exhausted`, no `blocked_by_dependency`, **no `dead_agent_task`** (all 8 board assignees are on the live roster; 0 running/stale claims → 0 dead/idle agents). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task has a live deterministic router (run#4). |
+| `npm run lint` | ✅ PASS (unchanged) | Run #8 touched **zero TS files** (pure Python: `mc_store.py` + `mission-control-bridge.py`), so the TS lint surface is unchanged; only pre-existing `office/tower` churn remains (sibling-owned). |
+| Kanban / orchestration | 🟡 steady board | todo 8 · ready 1 · done 10 · blocked 6 · triage 1 (unchanged). No `stale_claim`, no `retry_exhausted`, no `blocked_by_dependency`, no `dead_agent_task`, **no `dependency_cycle`** (`kanban-meta.json["links"]` is empty → no cycles). 6 blocked still `blocked_no_reason` (web-access root cause, audited run#3). The 1 triage task has a live deterministic router (run#4). |
 | Cron jobs | 🟡 EMPTY + engine ready | store `jobs: []`; scheduler daemon built (run#2), loads on restart. Seeding the 2 pipeline jobs safe-to-fire post-restart — TO-DO #2. |
 | Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 22 · drafts 6 · calendar 31 (run#1); `.mc/data/` written |
-| Modules in error state | none observed | Vite preview (:5219) renders Operations LIVE; diagnostics modal opens clean; new orange **♻ REASSIGN DEAD** button renders **disabled** with honest tooltip "No dead/idle agents with reassignable work", zero console errors (DOM-read: `{text:"♻ REASSIGN DEAD", disabled:true}`). (Disabled is correct: 0 dead/idle agents on the live board + old bridge has no endpoint; activates on restart.) |
+| Modules in error state | none observed | Run #8 is a pure backend guard + read-only diagnostic — the diagnostics modal renders `dependency_cycle` automatically via its generic `x.message || x.kind` row (`OperationsCenter.tsx:410`); no new button, no frontend change. Prior runs' buttons unchanged. |
 
 ---
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-1. **Restart the bridge to activate SEVEN built capabilities at once** (`npm run bridge`, or whatever
+1. **Restart the bridge to activate EIGHT built capabilities at once** (`npm run bridge`, or whatever
    launches the operator's bridge / desktop app). The live bridge still holds pre-restart code
-   (confirmed this run: reconcile → 404, `/api/mc/cron` no `scheduler` field, `/api/mc/agents/web-access`
-   → 405, `/api/mc/kanban/route` → 404, `/api/mc/kanban/escalate` → 404, `/api/mc/kanban/cascade` → 404,
-   `/api/mc/kanban/reassign` → 404). After restart, confirm **all** of:
+   (confirmed this run: `/api/mc/kanban/reassign` → 404). After restart, confirm **all** of:
+   - **dependency cycle/self-link guard (run#8)** → `POST /api/mc/tasks/link` with `{"parent_id":"X","child_id":"X"}`
+     returns **400** ("refusing self-link … a task cannot depend on itself"); a cycle-closing edge (link `A→B`,
+     `B→C`, then `C→A`) returns **400** ("would create a dependency cycle"); a valid DAG edge still 200s. If the
+     `kanban-meta.json["links"]` graph ever contains a pre-existing loop, `GET /api/mc/kanban/diagnostics` emits a
+     `dependency_cycle` warn row per task in the loop and the Operations → ⚠ diagnostics modal renders it
+     automatically (generic `x.message || x.kind` row). On the current board (0 links) it's an honest no-op.
+     Fully proven in-process this run (throwaway store: A→A rejected, A→B→C→A rejected, A→B→C valid, a pre-seeded
+     X⇄Y cycle flags both X and Y). No restart needed to verify the diagnostic surface (read-only) — only the 400
+     guard needs the new bridge code.
    - **`POST /api/mc/kanban/reassign` (run#7)** → `{reassigned,skipped,dead_agents,dry_run,message}`. On the
      current board it returns all-empty (`reassigned:[] dead_agents:[]`, "no dead/idle agents") because all 8
      board assignees are on the live roster and there are **0 running (stale) claims**, so Operations → ⚠
@@ -106,21 +113,21 @@ _Last run: **2026-06-16 ~12:35** (Run #7 — built auto-reassign-on-dead-agent).
    flesh-out (`POST /api/mc/tasks/{id}/specify`, runs a live turn) remains a separate optional step — fire
    when the operator is present. Did NOT auto-route this run (live bridge predates the endpoint; safe to do
    post-restart).
-5. **Next capability to BUILD:** **dependency cycle/self-link guard** (GAPS #8, now ranked next). `create_task(
-   parents=...)` (`mc_store.py:250`) and `link()` (`mc_store.py:370`) accept `A→A` and longer cycles unchecked.
-   A cycle makes run#6's cascade gate's "all parents done" **unreachable** — a child waits forever, silently. Build
-   the missing guard end-to-end: reject self-links and cycles at link-creation time (a `_would_cycle(links, p, c)`
-   DFS helper used by both `link()` and `create_task`'s parent-append loop; `link()` should return a refusal
-   message / raise, surfaced as a 4xx on `POST /api/mc/tasks/link`), **and** a `dependency_cycle` warn diagnostic
-   in `diagnostics()` that detects any pre-existing cycle among `links` (so already-bad data is visible, not just
-   newly-rejected). No new button strictly needed (it's a guard + a read-only diagnostic row); if surfacing a
-   remediation, an "unlink to break cycle" affordance in the task drawer is bughunt-adjacent — keep this loop's
-   increment to the guard + diagnostic. Pure + testable like run#1–#7 (throwaway store: assert A→A rejected,
-   A→B→A rejected, A→B→C valid, a pre-seeded cycle flags `dependency_cycle`). Runner-up gap: **stale-board
-   auto-sweep composition** (NEW, GAPS #9) — a single `POST /api/mc/kanban/sweep` that runs reconcile → reassign
-   → cascade → escalate in the correct order in one call (the "self-manage the board" macro), so the operator has
-   one button instead of four; each sub-verb already exists and is idempotent, so composition is low-risk. One
-   end-to-end per run.
+5. **Next capability to BUILD:** **one-call board self-manage macro** (GAPS #9, now ranked next). The four
+   self-heal verbs (reconcile / reassign / cascade / escalate) each need a separate button and call; there is no
+   single `POST /api/mc/kanban/sweep` that runs them in the correct order in one shot (the "self-manage the board"
+   macro). Build it end-to-end: `MCStore.sweep_board(dry_run?)` calls — in order — `reconcile_board` (reclaim stale
+   running claims → ready), `cascade_dependencies` (hold/promote on deps), `reassign_dead_agent` (move dead-agent
+   work to live owners), then `escalate_exhausted` (block retry-burned tasks), aggregating each sub-result into
+   `{reconciled, cascade, reassigned, escalated, dry_run, message}`; `POST /api/mc/kanban/sweep` → `sweepBoard()`
+   store action → a single **⚙ SWEEP BOARD** button in the Operations diagnostics modal toolbar (enabled when ANY
+   of the four sub-counts > 0). Order matters: reconcile first (frees stale claims so reassign sees them), cascade
+   before reassign (don't move a dep-held task), escalate last (final safety net). Each sub-verb is already
+   idempotent + has a `dry_run`, so composition is low-risk; the macro must thread `dry_run` to every sub-call and
+   re-pull diagnostics once at the end. Pure + testable like run#1–#8 (throwaway store seeded with one of each
+   condition → assert the single sweep remediates all four and a 2nd pass is a no-op). Runner-up gap: **per-task
+   `unlink` remediation affordance** for a flagged `dependency_cycle` (a "break cycle" action in the task drawer) —
+   but that's bughunt-adjacent UI; prefer the sweep macro. One end-to-end per run.
 
 ---
 
@@ -187,12 +194,21 @@ _Last run: **2026-06-16 ~12:35** (Run #7 — built auto-reassign-on-dead-agent).
    mode). Off-roster truth uses the raw `list_agents()` roster in both the diagnostic and the verb so the button
    count and the action agree exactly. `dry_run` previews. Honest by construction: 0 dead agents on the live board
    → nothing changes. Loads on next bridge restart (TO-DO #1).
-8. 🟡 **No dependency cycle/self-link guard.** `create_task(parents=...)` + `link()` accept `A→A` and cycles;
-   run#6's cascade "all parents done" then never holds (a child waits forever, silently). Add a `_would_cycle`
-   DFS guard at link-creation + a `dependency_cycle` diagnostic for pre-existing bad data. **Next build** (TO-DO #5).
+8. ✅ **Dependency cycle/self-link guard (BUILT this run — run#8).** `create_task(parents=...)` (`mc_store.py:233`)
+   and `link()` (`mc_store.py:377`) accepted `A→A` and longer cycles unchecked, making run#6's cascade gate's "all
+   parents done" unreachable — a child would wait forever, silently. Built the missing guard end-to-end: static
+   `MCStore._would_cycle(links, parent, child)` (DFS — self-link OR child-can-already-reach-parent) wired into both
+   `link()` (raises `ValueError`, surfaced as **400** on `POST /api/mc/tasks/link`) and `create_task`'s
+   parent-append loop (cycle-forming parent edges silently skipped — a fresh child can only self-cycle); static
+   `MCStore._cycle_nodes(links)` + a new **`dependency_cycle` warn diagnostic** in `diagnostics()` that flags every
+   task participating in a pre-existing loop (so already-bad data is visible, not just newly-rejected). No new
+   button — the diagnostics modal renders the new kind via its generic row (`OperationsCenter.tsx:410`); zero TS
+   changed. Pure + testable; honest no-op on the live board (0 links). Loads on next bridge restart (TO-DO #1).
 9. 🟡 **No one-call board self-manage macro.** The four self-heal verbs (reconcile/reassign/cascade/escalate) each
    need a separate button; no `POST /api/mc/kanban/sweep` runs them in the right order in one call. Each sub-verb
-   is idempotent → composition is low-risk. Runner-up build (TO-DO #5).
+   is idempotent → composition is low-risk. **Next build** (TO-DO #5).
+10. 🟡 **No per-task cycle-break remediation.** run#8 surfaces `dependency_cycle` read-only; there's no in-UI
+    "unlink to break cycle" affordance in the task drawer. Bughunt-adjacent UI — runner-up (TO-DO #5).
 5. ✅ **Web-access audit surface (BUILT this run — run#3).** Research agents silently blocked on missing
    web tools with no way to *see* which agents lacked a web plugin. Built `GET /api/mc/agents/web-access`
    → `MCStore.web_access_audit()` → `getWebAccessAudit()` → a **WEB-ACCESS AUDIT** panel in the Operations
@@ -208,6 +224,51 @@ _Last run: **2026-06-16 ~12:35** (Run #7 — built auto-reassign-on-dead-agent).
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #8 (BUILT dependency cycle/self-link guard) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE green.** Bridge :8767 UP (`/api/ping` ok, uptime ~26.5h). Gateway :8642 N/A by design.
+   `npm run build` ✅ (156 modules, exit 0, chunk-size warning only). Confirmed the live bridge still runs
+   **pre-restart** code (`POST /api/mc/kanban/reassign` → 404; `/api/mc/cron` no `scheduler` field; cron `jobs:[]`).
+   Did NOT kill the operator's bridge — verified the new capability in-process instead. **EIGHT** capabilities now
+   load together on the next restart (run#1–#8) — see TO-DO #1. This run touched **zero TS files** (pure Python),
+   so `npm run lint`'s TS surface is unchanged. Sibling lane confirmed clear: the only working-tree change in my
+   shared file is bughunt's `get_briefing` fix in `mission-control-bridge.py:~1547` (cron `last_status` read — far
+   from the `link_tasks` endpoint at ~824); isolated via a path-limited `git stash` so my commit carries only my
+   hunk, then the sibling hunk was restored.
+
+2. **ORCHESTRATION steady.** Kanban unchanged: todo 8 · ready 1 · done 10 · blocked 6 · triage 1. No `stale_claim`,
+   no `retry_exhausted`, no `blocked_by_dependency`, no `dead_agent_task`, and **no `dependency_cycle`** — the board
+   has **0 dependency links** (`kanban-meta.json["links"]` empty), so the new guard/diagnostic is an honest no-op
+   live. The 6 blocked (5×narratrix, 1×default) remain the audited web-access root cause (operator config). Nothing
+   silently broken.
+
+3. **BUILT: dependency cycle/self-link guard (CAPABILITY GAPS #8, this loop's signature increment), end-to-end &
+   LIVE-backed.** `create_task(parents=...)` and `link()` accepted `A→A` and longer cycles unchecked — a cycle makes
+   run#6's cascade gate's "all parents done" unreachable, so a child waits forever, silently. New guard + visibility:
+   - `mc_store.py` — static `_would_cycle(links, parent, child)` (DFS: self-link, or `child` can already reach
+     `parent` along existing `parent→child` edges) + static `_cycle_nodes(links)` (set of node ids in ≥1 directed
+     loop, includes self-loops). `link()` now raises `ValueError` on a self-link / cycle-closing edge (distinct
+     messages) **before** persisting; `create_task`'s parent-append loop routes every parent through `_would_cycle`
+     and silently skips a cycle-forming edge (a fresh child can only self-cycle). `diagnostics()` computes
+     `cycle_nodes` once and emits a new **`dependency_cycle` warn** row for each task in a pre-existing loop (so
+     already-bad data is visible, not just newly-rejected).
+   - `mission-control-bridge.py` — `POST /api/mc/tasks/link` (`link_tasks`, ~824) wraps `STORE.link(...)` in
+     `try/except ValueError` → **HTTP 400** with the refusal detail (was a bare passthrough that silently persisted
+     loops).
+   - **No frontend change** — the diagnostics modal already renders any diagnostic kind via its generic
+     `x.message || x.kind` row (`src/pages/OperationsCenter.tsx:410`) and `BoardDiagnostic` is an open type
+     (`src/lib/api.ts:290`), so `dependency_cycle` surfaces automatically. Zero TS touched.
+   **Verified:** `python -m py_compile` on bridge + store + scheduler ✅; **in-process behavior test on throwaway
+   stores** ✅ — `_would_cycle`: A→A True, A→B then B→A True, A→B→C then C→A True, A→B→C valid edge False, fresh
+   fanout False; `_cycle_nodes`: self-loop {A}, 2-cycle {A,B}, 3-cycle {A,B,C}, DAG ∅; `link()` persisted A→B/B→C,
+   **rejected A→A** (msg "self-link") **and C→A** (msg "cycle") with neither persisted; `diagnostics()` on a
+   pre-seeded X⇄Y cycle flagged exactly {X,Y} with `dependency_cycle`. **In-process against the LIVE store** ✅ →
+   `links=[]`, `cycle_nodes=∅`, 0 `dependency_cycle` diagnostics (honest no-op). `npm run build` ✅.
+   `graphify update .` run after edits (1495 nodes / 2907 edges).
+   **Not verified:** the live 400 on `POST /api/mc/tasks/link` — needs the bridge restart (TO-DO #1); the guard
+   logic + the diagnostic surface are fully proven by the in-process tests. Did not mutate the live board (no test
+   links created).
 
 ### 2026-06-16 — Run #7 (BUILT auto-reassign-on-dead-agent) · branch `auto/loop-reconcile-20260615`
 
