@@ -10,13 +10,19 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#14) — bridge RESTARTED + board UN-STARVED (`ready 0 → 8`).** The two prior blockers are cleared:
-   the operator restarted the bridge (uptime ~10min this run, was ~2.4h/predating run #12), so `POST /api/mc/kanban/promote`
-   is now **LIVE — returns 200** (was 404 for 3 runs). I then ran the real promote (`POST …/promote {}`) → **8 todos
-   promoted todo→ready**, and confirmed the dispatcher's `dispatchable` list now fully populates (8 tasks: gridkeeper×2,
-   narratrix×2, claudelink×4; the 4 claudelink carousels flag `web_gap:true` — Notion MCP, no web tool, the known
-   heuristic per #3). `HEAD:mc_store.py` still parses ✅ (run #13 repair holds). The autonomy loop's previously-missing
-   FEEDER step is now operationally proven end-to-end. (See DONE Run #14.)
+0. **✅ DONE this run (#15) — BUILT the DELIVERABLES BROWSER (orphaned agent output now has a reachable UI home).** A
+   dispatch produced 6 real artifacts (`deliverables/DA-Agency-Competitor-Analysis.md`, `…instagram-strategy-MASTER.md`
+   24.5K, a 25.9MB hero PNG, `research/da-agency-llc-baseline.md`, `research/daautonomous-instagram-strategy.md`, +1 subdir
+   file) sitting orphaned on disk — written to `deliverables/`+`research/` at repo root with NO task linkage and NO UI
+   surface (the per-task workspace browser only reads a task's own `workspace_path`, which dispatch doesn't populate). Built
+   end-to-end: bridge `GET /api/mc/deliverables` (flat newest-first listing) + `GET /api/mc/deliverables/file?path=` (text
+   read, path-confined to the 2 roots, size-capped, binary not inlined) → `listDeliverables`/`readDeliverable` in api.ts →
+   a NEW self-contained `src/components/DeliverablesDrawer.tsx` (list+viewer modal) → a **📄 DELIVERABLES** toolbar button in
+   OperationsCenter. **Verified:** in-process the list logic returns all 6 files + path-traversal/escape rejected (`../`→403,
+   root file→403); `npm run build` ✅; `npx eslint` on all 4 touched files = **No issues found**; live Vite preview — button
+   renders, modal opens, honest **404 error state** (the LIVE bridge predates the new endpoints → loads on restart, same as
+   every prior run's capability), zero console errors. Board still healthy: `ready 8 · blocked 6 · done 18`, dispatcher LIVE
+   but OFF + FED (8 dispatchable). (See DONE Run #15.)
 1. **OPERATOR-WATCHED FIRST DISPATCH — the one remaining piece to prove the full autonomy loop.** Board is now
    `ready 8 · blocked 6 · done 18`; dispatcher is **LIVE but OFF** (`enabled:false,running:false`) and FED
    (`dispatchable` = 8). Next operational step (needs operator present — side-effecting bypassPermissions turns):
@@ -27,16 +33,20 @@ below. `## DONE` is append-only history.
    content calendar" or `t_688a5265` narratrix) so web availability isn't a confound. Only after a clean watched run,
    consider autonomous mode (`MC_DISPATCHER_ENABLED=1` env on bridge start). I did NOT dispatch this run (operator
    absent; dispatch has external side effects and needs sign-off — same posture as run #11–#13).
-2. **Commit the stranded run #12 promote endpoint + TS wiring — ONLY on a QUIET tree.** The promote capability is LIVE
-   (working tree; operator restarted onto it) but **still uncommitted in git**. I did NOT commit it this run: `mission-
-   control-bridge.py` has **6 intertwined hunks** mixing my promote endpoint (`PromoteReadyPayload`+`kanban_promote`,
-   working-tree L1227–1314) with sibling bughunt WIP (`fail_task` after `block_task` ~L990, `get_briefing` fix ~L1881),
-   and two hunks (`@403` `_build_dispatch_prompt` skills/MCP/web enhancement, `@868` get_activity) are **ambiguous
-   mine-vs-sibling** with no blame to disambiguate (all uncommitted). The hard rule ("stage only YOUR files") + the
-   already-live capability made forcing a 6-hunk surgery not worth the contamination risk. Land it when the tree is quiet
-   (16 TS files + 2 py files are dirty with sibling WIP right now) — clean-blob technique (run #13) works for `mc_store.py`,
-   but bridge needs the `@403`/`@868` attribution settled first. TS wiring (api.ts `promoteReady`, useTaskStore, the
-   ▲ PROMOTE READY button in OperationsCenter) is likewise live-but-uncommitted in those congested files.
+2. **Commit the stranded run #12 promote + run #15 deliverables features — ONLY on a QUIET tree.** BOTH are LIVE
+   (working tree; bridge serves it on restart, Vite serves it now) but **uncommitted in git** — same intra-file
+   cross-contamination blocker as runs #12–#14. Confirmed this run by reading the diffs: `src/lib/api.ts` (+57) MIXES my
+   work (deliverables block L386–407, promote block L551–593, dispatcher types) with **sibling bughunt** `failMcTask`
+   (L247–253) and an ambiguous `McCronJob.created_at` field — so committing api.ts *in full* would sweep in sibling WIP
+   (forbidden). `mission-control-bridge.py` (+215) likewise mixes my deliverables endpoints (a CLEAN contiguous insert
+   between `task_workspace` and `task_notify_list`) + my promote endpoint + sibling `fail_task`/`get_briefing`.
+   `mc_store.py` (+10) is **purely sibling** `fail_task` (run #13 confirmed) — never commit it. The clean-blob technique
+   (run #13) could isolate the bridge deliverables block (pure insertion, refs only HEAD symbols) AND the new
+   `DeliverablesDrawer.tsx` is 100% mine — BUT the frontend unit can't be committed without api.ts's deliverables exports,
+   and api.ts can't be committed in full (sibling `failMcTask`). Landing this needs per-hunk clean-blob surgery on
+   api.ts+bridge.py excluding sibling hunks — defer to a quiet tree or hand to whichever lane owns `failMcTask` to land it
+   first, then this commits cleanly on top. Did NOT force it (autonomous run, hard rule). New file this run:
+   `src/components/DeliverablesDrawer.tsx` (clean, committable once its api.ts dep lands).
 3. **Web access — treat as AVAILABLE (do NOT keep asking for a Brave key).** `BRAVE_SEARCH_API_KEY` is ALREADY in
    `MC_HOME/.env`, AND `run_claude` spawns agents with `--permission-mode bypassPermissions` → native WebSearch/WebFetch, no
    third-party key needed. The web-access audit's "missing web" is a narrow heuristic (scans agent `mcps` only). Real follow-
@@ -47,10 +57,15 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **Next capability to BUILD (after promote+dispatch prove out):** the **dispatcher worktree/isolation seam** so concurrent
-   dispatched agents don't collide in the repo (each gets `cwd`/branch per the task's `workspace_*` fields, on the task shape
-   but unused by `dispatch_task`, which runs every turn in `PROJECT_ROOT`). Runner-up: per-task `unlink` cycle-break
-   affordance (GAPS #10), added to the diagnostics modal row (this loop's file) to stay in-lane.
+5. **Next capability to BUILD — the dispatcher workspace/isolation seam (now HIGHER impact, ties into run #15).** Build #15
+   gave orphaned deliverables a UI home, but they're still NOT task-linked: `dispatch_task` runs every turn in `PROJECT_ROOT`
+   (`cwd = task.get("workspace_path") or None` → None), so output lands at repo root untracked with no owner, and concurrent
+   dispatch (concurrency>1) would collide. Build it: `MCStore.ensure_workspace(task_id)` sets `meta['workspace_path']` to a
+   per-task dir (e.g. `.mc/workspaces/<id>/`), `dispatch_task` calls it before claiming so the agent's cwd is per-task. Payoff
+   is triple: (a) the ALREADY-BUILT per-task workspace browser (`GET …/tasks/{id}/workspace`) starts returning real files
+   instead of "no workspace"; (b) deliverables become task-linked; (c) concurrent dispatch is collision-safe. Caveat:
+   `dispatch_task`/`mc_store.py` are sibling-congested — prefer adding `ensure_workspace` as a pure appended method + a minimal
+   call-site edit. Runner-up: per-task `unlink` cycle-break affordance (GAPS #10) in the diagnostics modal row.
 6. **→ bughunt/evolve: `npm run lint` fails project-wide (~500 errors, NEW finding run #13).** Run #13 ran the FULL project
    lint (prior runs only `npx eslint`'d their 2–3 touched files, masking this). 500 errors / 473 auto-fixable, dominant rules
    `typescript-eslint/ban-ts-comment`, `typescript-eslint/no-unused-vars`, `react-hooks/set-state-in-effect`,
@@ -66,18 +81,22 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 (Run #14)** — **bridge RESTARTED → `promote` endpoint LIVE → board UN-STARVED.** The operator
-restarted the bridge (uptime ~10min, on run #12/#13 code), so `POST /api/mc/kanban/promote` now returns **200** (was 404 for
-3 runs). I ran the real promote → **8 todos promoted todo→ready** (`ready 0 → 8`), and the dispatcher's `dispatchable` list now
-populates with all 8 (gridkeeper×2, narratrix×2, claudelink×4; the 4 carousels flag `web_gap:true`). The autonomy loop's
-missing FEEDER step is now operationally proven. Dispatcher remains **LIVE but OFF** (`enabled:false`) — the one remaining
-step is an operator-watched first dispatch (TO-DO #1, needs sign-off). `HEAD:mc_store.py` parses ✅; `npm run build` ✅.
-No new code committed: the stranded run #12 promote endpoint stays live-but-uncommitted (tree too congested to isolate
-safely — TO-DO #2). Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (TO-DO #6)._
+_Last run: **2026-06-16 (Run #15)** — **BUILT the DELIVERABLES BROWSER: orphaned agent output now has a reachable UI home.**
+A prior dispatch left 6 real artifacts (markdown strategy docs, a 25.9MB hero PNG) sitting orphaned in `deliverables/`+
+`research/` at repo root with no task linkage and no UI surface. Built end-to-end (bridge `GET /api/mc/deliverables` +
+`…/deliverables/file` path-confined reader → api.ts fetchers → new `DeliverablesDrawer.tsx` → 📄 DELIVERABLES toolbar
+button). Verified: list logic returns all 6 + traversal rejected; `npm run build` ✅; `npx eslint` on all 4 touched files
+= No issues found; live Vite preview — button + modal render, honest 404 state (live bridge predates the endpoints → loads
+on restart), zero console errors. Board steady + healthy: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED
+(8 dispatchable). No new commits beyond LOOP_STATE: the deliverables feature joins the run #12 promote endpoint in the
+live-but-uncommitted bucket — `api.ts`/`bridge.py` mix my work with sibling bughunt `failMcTask`/`fail_task`, so committing
+in full is forbidden (TO-DO #2). Operator-watched first dispatch (TO-DO #1) + cron seeding (#4) still need sign-off. Lint
+baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (TO-DO #6)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP + run #1–#12 LIVE (RESTARTED) | `GET /api/ping` ok, uptime ~10min this run (operator restarted onto run #12/#13 code). **`POST /api/mc/kanban/promote` → 200** (was 404 for 3 runs). **Dispatcher LIVE but OFF + now FED**: `/api/mc/dispatcher` → 200 `{enabled:false,running:false,concurrency:1,ticks:0}`, `dispatchable` = **8** (after this run's promote). `/api/mc/kanban/sweep` → 200. Scheduler **DAEMON LIVE** (`/api/mc/cron` → `running:true`, 32 ticks @ 30s, 0 fired). |
+| Bridge (:8767) | ✅ UP + run #1–#12 LIVE | `GET /api/ping` ok, uptime ~2.2h this run (predates run #15). **`POST /api/mc/kanban/promote` → 200**, **`GET …/deliverables` → 404** (NEW run #15 endpoints load on next restart). **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → 200 `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. `/api/mc/kanban/sweep` → 200. Scheduler **DAEMON LIVE** (`/api/mc/cron` → `running:true`, 262 ticks @ 30s, 0 fired). |
+| Deliverables (run #15) | 🟢 BUILT, loads on restart | 6 real artifacts in `deliverables/`+`research/` (orphaned before this run). `GET /api/mc/deliverables` + `…/deliverables/file` + 📄 DELIVERABLES button. 404 on live bridge (pre-restart) → honest error state in the drawer; lists all 6 once restarted. |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
 | `npm run build` | ✅ PASS | tsc + vite, exit 0 in 613ms (chunk-size warning only). |
 | `npm run lint` | 🔴 FAIL (pre-existing, NOT this run) | **Full project `npm run lint` = 500 errors / 473 auto-fixable** (`ban-ts-comment`, `no-unused-vars`, `set-state-in-effect`, `react-hooks/refs`) across sibling/untouched TS (`GhostNetwork.tsx`, `Layout.tsx`, …). Run #13 touched **0 TS** so introduced none — handed off (TO-DO #6). Python (my lane): `py_compile mc_store.py` ✅; **`ast.parse(HEAD:mc_store.py)` ✅ now (blocker #0 fixed).** |
@@ -349,12 +368,69 @@ safely — TO-DO #2). Lint baseline (~500 errors, sibling/untouched TS) unchange
     Per-hunk commits have a clean base again. (See DONE Run #13.)
 15. 🔴 → bughunt/evolve (NEW, run #13): **`npm run lint` fails project-wide (~500 errors)** — pre-existing baseline in
     sibling/untouched TS, not this loop's. TO-DO #6 owns the hand-off + the suggested one-time reviewed `eslint --fix` sweep.
+16. ✅ **Deliverables browser (BUILT this run — run #15).** Dispatched-agent output (markdown docs, a 25.9MB hero PNG) landed
+    orphaned in `deliverables/`+`research/` at repo root — no task linkage, no UI surface (the per-task workspace browser only
+    reads a task's own `workspace_path`, unset by dispatch). Built `GET /api/mc/deliverables` (listing) + `…/deliverables/file`
+    (path-confined text reader, 256K cap, binary-safe) → `listDeliverables`/`readDeliverable` (api.ts) → new self-contained
+    `DeliverablesDrawer.tsx` (list+viewer modal) → 📄 DELIVERABLES toolbar button in OperationsCenter. Read-only, honest-empty,
+    LIVE-backed. Verified in-process (all 6 files listed, traversal→403) + build/eslint/Vite-preview. Loads on next bridge
+    restart (404 until then). The natural follow-up (GAPS-runner, TO-DO #5) is the dispatcher workspace seam so these become
+    task-linked. Live-but-uncommitted (TO-DO #2).
 - → bughunt / NOT this loop: block-reason **display** in the task drawer + FAILED-vs-BLOCKED reconciliation (the sibling
   `fail_task` WIP, still uncommitted in the working tree) are bughunt's — do not redo.
 
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #15 (BUILT the DELIVERABLES BROWSER — orphaned agent output now reachable in the UI) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green.** Bridge :8767 UP (`/api/ping` ok, uptime ~2.2h, predates run #15). `POST /api/mc/kanban/promote`
+   → 200 (run #12/#14 live); `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}` LIVE-but-OFF, `dispatchable`
+   = 8; `/api/mc/kanban/sweep` → 200; scheduler `running:true` (262 ticks, 0 fired). `npm run build` ✅ (622ms). `ast.parse`
+   working-tree `mc_store.py` ✅. Diagnostics clean apart from the 6 web-access `blocked_no_reason` (now severity `info`).
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18 · todo 0 · triage 0`
+   (unchanged from run #14 — board stays fed). No stale/dead/cycle/exhausted/promotable diagnostics. The 6 blocked are the
+   audited web-access research tasks (operator config). Dispatcher fed (8 dispatchable: gridkeeper×2, narratrix×2,
+   claudelink×4 with `web_gap:true`). **Did NOT dispatch** (operator absent; side-effecting bypassPermissions turns need
+   sign-off — TO-DO #1) and did NOT enable the daemon or seed crons. Content pipeline healthy (campaigns 27, drafts 13,
+   calendar 36; `.mc/data/` writing).
+
+3. **BUILT: the DELIVERABLES BROWSER (CAPABILITY GAPS #16), end-to-end & LIVE-backed.** The gap: a dispatch had produced
+   6 real artifacts under `deliverables/`+`research/` at repo root (`DA-Agency-Competitor-Analysis.md` 10.3K,
+   `daautonomous-instagram-strategy-MASTER.md` 24.5K, a 25.9MB hero PNG, `da-agency-llc-baseline.md`,
+   `daautonomous-instagram-strategy.md`, +1 subdir file) — orphaned: no task linkage, no UI surface (the per-task workspace
+   browser at `mission-control-bridge.py:1400` only reads a task's own `workspace_path`, which `dispatch_task` doesn't
+   populate). The protocol requires every deliverable have a reachable home. Files:
+   - `mission-control-bridge.py` (NEW, inserted between `task_workspace` and `task_notify_list`, ~L1488): `GET
+     /api/mc/deliverables` (flat newest-first listing of every file under the 2 roots, `.`-hidden/`.git` skipped, 500-entry
+     cap) + `GET /api/mc/deliverables/file?path=` (one file's text, resolved-and-re-confined inside the roots → 403 on
+     escape, 404 missing, `_MAX_FILE_BYTES`=256K cap, binary `\x00`-detected and NOT inlined). Refs only HEAD symbols
+     (`_MAX_FILE_BYTES`, `Any`, `HTTPException`, `Path`) — a clean contiguous insert.
+   - `src/lib/api.ts` (L386–407): `DeliverableEntry`/`DeliverableFile` types + `listDeliverables()`/`readDeliverable(path)`.
+   - `src/components/DeliverablesDrawer.tsx` (NEW, 100% mine): a list+viewer modal — newest-first file list (root chip,
+     size, age), click-to-open inline text viewer, honest empty state, binary/truncation notices, fetch-error surfaced.
+     Remounts on open (parent keys on `open`) so the effect only sets state in async callbacks (keeps it clean of the
+     `react-hooks/set-state-in-effect` rule that dominates the project lint baseline).
+   - `src/pages/OperationsCenter.tsx`: `deliverablesOpen` state + a **📄 DELIVERABLES** toolbar button (after ⏱ CRON) +
+     keyed `<DeliverablesDrawer>` render.
+   **Verified:** in-process replication of the list logic against the real dirs → all 6 files returned; path-confinement
+   rejects `deliverables/../../mc_store.py` and root `mc_store.py` (→403), accepts a real deliverable. `npm run build` ✅
+   (622ms). `npx eslint` on all 4 touched files → **No issues found**. **Live Vite preview** (:5219): Operations → 📄
+   DELIVERABLES button renders, modal opens with header/"0 files"/✕ CLOSE, shows the honest **"⚠ Request failed with status
+   code 404"** state (live bridge predates the endpoints — loads on restart, exactly like every prior run's capability),
+   **zero console errors**. `graphify update .` run. **Not verified live:** the populated list (needs the bridge restart).
+
+4. **COMMIT — ledger only (deliberate, same blocker as runs #12–#14).** Read the working-tree diffs to attempt isolating my
+   code: `src/lib/api.ts` (+57) MIXES my deliverables + promote + dispatcher work with **sibling bughunt** `failMcTask`
+   (L247–253) and an ambiguous `McCronJob.created_at`; `mission-control-bridge.py` (+215) mixes my deliverables/promote
+   endpoints with sibling `fail_task`/`get_briefing`; `mc_store.py` (+10) is purely sibling `fail_task`. Committing any of
+   those *in full* sweeps in sibling WIP (forbidden). The new `DeliverablesDrawer.tsx` is 100% mine but can't be committed
+   without api.ts's deliverables exports, and api.ts can't go in full. Per the hard rule + autonomous-run caution, did NOT
+   force per-hunk clean-blob surgery; committed **only `.mc/LOOP_STATE.md`**. The deliverables feature is operationally LIVE
+   on the next bridge restart (bridge serves the working tree) and now in the Vite preview — it joins the run #12 promote
+   endpoint in the live-but-uncommitted bucket (TO-DO #2). Sibling WIP left fully intact; scratch temp diffs removed.
 
 ### 2026-06-16 — Run #14 (bridge RESTARTED → `promote` LIVE → board UN-STARVED: `ready 0 → 8`) · branch `auto/loop-reconcile-20260615`
 
