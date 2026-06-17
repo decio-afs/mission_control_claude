@@ -10,8 +10,20 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#22) — BUILT the board-wide RECENT-ACTIVITY feed (GAPS #22 / prior TO-DO #5): a ▦ ACTIVITY drawer in
-   Operations merges every task's FULL event timeline newest-first, reusing run #21's icon/label layer.** PRE-SCOUT found
+0. **✅ DONE this run (#23) — made the ▦ ACTIVITY feed LIVE (prior TO-DO #5): run #22's board-wide event drawer now
+   auto-polls `/api/mc/events` every 5s with a ● LIVE/PAUSED toggle + a kind-filter chip row (all/lifecycle/dependency/
+   orchestration).** Fully in-lane — `src/components/EventFeedDrawer.tsx` ONLY (100% mine, untracked). The `open` effect now
+   fetches immediately then `setInterval(fetchOnce,5000)`, teardown clears it + drops in-flight via the `live` guard; the
+   header LIVE chip doubles as pause/resume (pausing tears the interval down via the `paused` dep, resuming refetches);
+   coarse `CATEGORY_OF` map drives the filter chips (per-category `useMemo` counts; honest "No ‹filter› events" empty
+   state). **Verified:** `npm run build` ✅ (157 modules, 647ms); `npx eslint EventFeedDrawer.tsx` → No issues; **Vite
+   preview** (port 5219, `#/operations`) → ▦ ACTIVITY drawer opens, LIVE toggle present, **LIVE→PAUSED→LIVE** flips,
+   4 filter chips render w/ counts; against the live (pre-restart) bridge the feed shows the honest **"⚠ 404"** (endpoint
+   loads on restart) — graceful, **0 console errors**. `graphify update .` ✅ (1833 nodes). **Commit: LOOP_STATE only** —
+   `EventFeedDrawer.tsx` is mine but untracked + imports the uncommitted-in-full api.ts exports → stays in the
+   live-but-uncommitted bucket (TO-DO #2); no new sibling-tangle introduced this run. Board healthy throughout:
+   `ready 8 · blocked 6 · done 18`, diagnostics → no stale/dead/cycle/exhausted. (See DONE Run #23.) — _Prior run #22
+   built the feed itself (GAPS #22):_ PRE-SCOUT found
    `GET /api/mc/activity` already exists (`bridge:873`) but only synthesizes 3 coarse lifecycle entries (created/claimed/completed)
    from timestamps — it never walks the per-task event log, so it misses `promoted`/`reconciled`/`routed`/`escalated`/`reassigned`/
    `dependency_link`/`dependency_unlink`/`workspace_ready` (the kinds run #21's `labelFor`/`eventParent` were built for) → built the
@@ -78,21 +90,20 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#22) — board-wide RECENT-ACTIVITY feed BUILT** (see item 0 + DONE Run #22): `MCStore.recent_events`
-   (`mc_store.py:1770`) → `GET /api/mc/events` (`bridge:923`) → `McEvent`/`getRecentEvents` (`api.ts:829`) →
-   `EventFeedDrawer.tsx` (new, mine) → ▦ ACTIVITY button in `OperationsCenter.tsx`. **Next capability to BUILD — make the
-   ▦ ACTIVITY feed LIVE (auto-refresh while open).** RATIONALE: the feed currently fetches once on open (`getRecentEvents(100)` in
-   the mount effect), so an operator watching the board's pulse must close+reopen the drawer to see new events — it's a snapshot,
-   not a live feed. The narrow `/api/mc/activity` is already polled live by `useActivityStore` (`src/stores/useActivityStore.ts`,
-   `startPolling`/`stopPolling`, consumed by War Room / Ghost Network) — mirror that pattern for the new full-taxonomy feed.
-   **Fully in-lane** (`EventFeedDrawer.tsx` is 100% mine): add a `setInterval` (e.g. 5s) inside the existing `open` effect that
-   re-calls `getRecentEvents`, clearing it on unmount/close (guard the `live` flag already there); optionally a small "● LIVE"
-   pulse + a paused state. No new endpoint/store/api work — pure component. Bonus (cheap, same file): a kind-filter chip row
-   (all / lifecycle / dependency / orchestration) on top of the list, since the full taxonomy can get noisy. **Runner-ups**
-   (smaller, also in-lane): (i) a "⬡ open task" affordance on the per-task WORKSPACE browser rows for symmetry with run #20's
-   deliverables-chip navigation; (ii) a reciprocal **↳ child ‹id›** chip in the feed/timeline (currently only `parent` is
-   surfaced) if children-edge events ever carry a `child` payload. Lane note: keep clear of the sibling FAIL-action/banner region
-   in `TaskDetailDrawer.tsx` (`:159-231`, `:293`).
+5. **✅ DONE this run (#23) — ▦ ACTIVITY feed is now LIVE** (see item 0 + DONE Run #23): `EventFeedDrawer.tsx` auto-polls
+   `/api/mc/events` every 5s, ● LIVE/PAUSED toggle, kind-filter chips (all/lifecycle/dependency/orchestration). **Next
+   capability to BUILD (run #24) — the WORKSPACE-browser "⬡ open task" affordance**, for symmetry with run #20's
+   deliverables-chip navigation. RATIONALE: the per-task WORKSPACE browser (the rows that list a task's `deliverables/tasks/<id>/`
+   output via `GET /api/mc/tasks/{id}/workspace`) shows files but offers no jump back to the producing task's detail drawer —
+   the deliverables drawer got that in run #20, the workspace browser did not. Find the workspace-browser component (grep
+   `getTaskWorkspace`/`workspace` in `OperationsCenter.tsx` + `src/components/`; it may live in `DeliverablesDrawer.tsx` or a
+   sibling) and add a small **⬡ open task** chip per row → `onOpenTask(task_id)`, reusing the exact `onOpenTask` prop plumbing
+   run #20/#22 already wired through OperationsCenter. Likely in-lane (OperationsCenter + a mine-or-shared drawer) — confirm the
+   target file isn't sibling-congested before editing; if it is, prefer the OperationsCenter-side wiring. **Runner-up** (also
+   in-lane, needs a backend bit first): a reciprocal **↳ child ‹id›** chip in the feed/timeline — currently only `parent` is
+   surfaced by `eventParent(payload)`; would require dependency-edge events to also carry a `child` in their payload (a small
+   `mc_store.py` change, sibling-congested) before the UI can render it. Lane note: keep clear of the sibling FAIL-action/banner
+   region in `TaskDetailDrawer.tsx` (`:159-231`, `:293`).
 6. **→ bughunt/evolve: `npm run lint` fails project-wide (~500 errors, NEW finding run #13).** Run #13 ran the FULL project
    lint (prior runs only `npx eslint`'d their 2–3 touched files, masking this). 500 errors / 473 auto-fixable, dominant rules
    `typescript-eslint/ban-ts-comment`, `typescript-eslint/no-unused-vars`, `react-hooks/set-state-in-effect`,
@@ -108,8 +119,20 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-17 (Run #22)** — **BUILT the board-wide RECENT-ACTIVITY feed (GAPS #22 / prior TO-DO #5): a ▦ ACTIVITY
-drawer in Operations merges every task's FULL event timeline newest-first, reusing run #21's icon/label layer.** PRE-SCOUT:
+_Last run: **2026-06-17 (Run #23)** — **made the ▦ ACTIVITY feed LIVE (prior TO-DO #5): run #22's board-wide event drawer now
+auto-polls `/api/mc/events` every 5s with a ● LIVE/PAUSED toggle + a kind-filter chip row (all/lifecycle/dependency/
+orchestration).** Fully in-lane: `EventFeedDrawer.tsx` only (100% mine, untracked) — `open` effect fetches immediately then
+`setInterval(fetchOnce,5000)`, teardown clears it via the `live` guard; LIVE chip doubles as pause/resume (paused dep tears the
+interval down); `CATEGORY_OF` map drives filter chips w/ per-category `useMemo` counts + honest "No ‹filter› events" empty state.
+Verified: `npm run build` ✅ (157 modules, 647ms); `npx eslint` → No issues; **Vite preview** (port 5219, `#/operations`) →
+drawer opens, LIVE toggle present, **LIVE→PAUSED→LIVE** flips, 4 filter chips render w/ counts; against the live (pre-restart)
+bridge the feed shows honest **"⚠ 404"** (loads on restart) — **0 console errors**. `graphify update .` ✅ (1833 nodes). Board
+steady + healthy: `ready 8 · blocked 6 · done 18`, diagnostics → no stale/dead/cycle/exhausted, dispatcher LIVE-but-OFF + FED
+(8 dispatchable). Commit: LOOP_STATE only — `EventFeedDrawer.tsx` is mine but untracked + imports uncommitted-in-full api.ts,
+stays in the live-but-uncommitted bucket (TO-DO #2); no new sibling-tangle this run. Operator-watched first dispatch (#1) + cron
+seeding (#4) still need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6).
+Next gap (run #24, TO-DO #5): the WORKSPACE-browser "⬡ open task" affordance, for symmetry with run #20's deliverables chip.
+— _Prior run #22 PRE-SCOUT:_
 `GET /api/mc/activity` already exists but only synthesizes 3 coarse lifecycle entries (created/claimed/completed) from timestamps
 — it never walks the per-task event log (misses promoted/reconciled/routed/escalated/reassigned/dependency-edge/workspace_ready),
 so built the true full-taxonomy aggregation (branch (b)), leaving `/api/mc/activity` untouched (4 consumers, no regression).
@@ -129,7 +152,7 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 | Subsystem | State | Notes |
 |---|---|---|
 | Bridge (:8767) | ✅ UP + runs #1–#15 LIVE | `GET /api/ping` ok, **uptime ~9.5h** (34325s — on run #15 code). **`POST /api/mc/kanban/promote` → 200** (run #12 LIVE), **`GET /api/mc/deliverables` → 200** (run #15 LIVE). Runs #16 (dispatch-workspace) + #17 (cycle-break `cycle_parents` + `unlink` event) + #18 (deliverables `task_id` parse) + #19 (`dependency_link` event) load on NEXT restart. **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. `/api/mc/kanban/reconcile` → "no stale claims". |
-| Event-timeline UI (run #21) + board-wide feed (run #22) | 🟢 #21 per-task LIVE on rebuild; #22 endpoint loads on restart | **Run #21:** per-task EVENT TIMELINE renders each kind with icon+label + ↳ parent chip (`eventLabels.ts` + `TaskDetailDrawer.tsx:405`). **Run #22: a board-wide ▦ ACTIVITY drawer** (`EventFeedDrawer.tsx`, new) merges EVERY task's full event timeline newest-first via `GET /api/mc/events` → `MCStore.recent_events` — distinct from the narrow 3-entry `/api/mc/activity`. Each row reuses `labelFor`/`eventParent`, clickable task title → detail drawer. Endpoint 404s until bridge restart (live bridge predates it); UI degrades honestly (shows the 404, no crash). Next gap (TO-DO #5): make the feed auto-refresh (live polling) reusing the `useActivityStore` pattern. |
+| Event-timeline UI (run #21) + board-wide feed (run #22) + LIVE polling (run #23) | 🟢 #21 per-task LIVE on rebuild; #22/#23 endpoint loads on restart, UI live on rebuild | **Run #21:** per-task EVENT TIMELINE renders each kind with icon+label + ↳ parent chip (`eventLabels.ts` + `TaskDetailDrawer.tsx:405`). **Run #22: a board-wide ▦ ACTIVITY drawer** (`EventFeedDrawer.tsx`) merges EVERY task's full event timeline newest-first via `GET /api/mc/events` → `MCStore.recent_events`. **Run #23: the feed is now LIVE** — auto-polls `/api/mc/events` every 5s with a ● LIVE/PAUSED toggle + a kind-filter chip row (all/lifecycle/dependency/orchestration, per-category counts). Endpoint 404s until bridge restart (live bridge predates it); UI degrades honestly (shows the 404, no crash, the LIVE toggle + chips still render). Next gap (run #24, TO-DO #5): the WORKSPACE-browser "⬡ open task" affordance. |
 | Deliverables (#15 LIVE) + workspace seam (#16) + task_id parse (#18) + clickable chip (#20) | 🟢 #15 LIVE, #16/#18/#20 load on restart+rebuild | `GET /api/mc/deliverables` → 200, lists all 6 (all root-level/`research/` → `task_id:null`). Run #16: dispatch writes to `deliverables/tasks/<id>/` (task-linked, dual-browser). Run #18: listing derives `task_id` from a `tasks/<id>/…` path → UI ⬡ chip. **Run #20: the ⬡ chip is now CLICKABLE → opens the producing task's detail drawer** (DeliverablesDrawer `onOpenTask` prop + OperationsCenter wiring). Verified in Vite preview: drawer opens + lists 6 + 0 console errors. No `tasks/<id>/` file exists yet (needs a dispatch) → chip dormant (honest no-op) until then. |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
 | `npm run build` | ✅ PASS | tsc + vite, exit 0 ~634ms, 157 modules (chunk-size warning only). Run #19 touched **only `mc_store.py`** (Python) → no TS change, JS build unaffected. |
@@ -482,12 +505,37 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
     `recent_events` (total=4, sorted desc, parent/title/assignee on each row) + build (671ms) + eslint 3 files clean + Vite preview
     (button renders, drawer opens, honest 404 against pre-restart bridge, 0 console errors). Endpoint loads on next bridge restart.
     Live-but-uncommitted (TO-DO #2). Follow-up (TO-DO #5): make the feed auto-refresh (live polling) via the `useActivityStore` pattern.
+23. ✅ **LIVE ▦ ACTIVITY feed (BUILT this run — run #23).** run #22's feed fetched once on open — a snapshot, not a feed; an
+    operator watching the board's pulse had to close+reopen to see new events. Mirrored `useActivityStore`'s polling for the
+    full-taxonomy feed, **fully in-lane** (`src/components/EventFeedDrawer.tsx` only, 100% mine): the `open` effect now fetches
+    immediately then `setInterval(fetchOnce,5000)` (teardown clears it + drops in-flight via the `live` guard; deps `[open,paused]`);
+    a header ● LIVE/PAUSED chip doubles as pause/resume (pausing early-returns the effect → tears the interval down; resuming
+    refetches); a `CATEGORY_OF` map drives a kind-filter chip row (all/lifecycle/dependency/orchestration) with per-category
+    `useMemo` counts + an honest "No ‹filter› events in the last N" empty state. No new endpoint/store/api work — pure component.
+    Verified: build (647ms) + eslint clean + Vite preview (drawer opens, LIVE toggle present, LIVE→PAUSED→LIVE flips, 4 chips
+    render w/ counts, honest 404 against pre-restart bridge, 0 console errors). UI live on rebuild; the feed populates +
+    auto-refreshes once the bridge restart lands run #22's `/api/mc/events`. Live-but-uncommitted (untracked, imports api.ts —
+    TO-DO #2). Follow-up (TO-DO #5): the WORKSPACE-browser "⬡ open task" affordance (run #20 symmetry).
 - → bughunt / NOT this loop: block-reason **display** in the task drawer + FAILED-vs-BLOCKED reconciliation (the sibling
   `fail_task` WIP, still uncommitted in the working tree) are bughunt's — do not redo.
 
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-17 — Run #23 (BUILT the LIVE ▦ ACTIVITY feed — run #22's board-wide event drawer now auto-polls every 5s with a ● LIVE/PAUSED toggle and a kind-filter chip row) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green.** Bridge :8767 UP (`/api/ping` ok, **uptime ~15.5h** = 55877s — predates this run; still on run #15 code). `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18 · todo 0 · triage 0`; `/api/mc/kanban/diagnostics` → only the 6 `blocked_no_reason` (severity `info`, the audited web-access research tasks — operator config, no stale/dead/cycle/exhausted/promotable); `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable`=**8** (gridkeeper×2, narratrix×2, claudelink×4 — the 4 claudelink carousels `web_gap:true`). `GET /api/mc/events?limit=3` → **404** on the live bridge (predates run #22; loads on restart — expected). `npm run build` ✅ (157 modules, 647ms); `npx eslint EventFeedDrawer.tsx` → No issues. Sibling logs (BUGHUNT_LOG/LOOP_LOG tails) unchanged — no collision.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18` (unchanged from runs #19–#22). Diagnostics dry → no stale claims, no dead agents. **Did NOT dispatch** (operator absent; side-effecting bypassPermissions turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons.
+
+3. **BUILT: the LIVE ▦ ACTIVITY feed (prior TO-DO #5), fully in-lane — `EventFeedDrawer.tsx` only.** Run #22 shipped the board-wide event drawer but it fetched **once** on open (`getRecentEvents(100)` in the mount effect), so an operator watching the board's pulse had to close+reopen to see new events — a snapshot, not a feed. The narrow `/api/mc/activity` is already polled live by `useActivityStore` (`startPolling`/`stopPolling`); mirrored that pattern for the new full-taxonomy feed. Three additions, all in `src/components/EventFeedDrawer.tsx` (**100% mine, untracked**):
+   - **5s polling loop** — the `open` effect now fetches immediately then `setInterval(fetchOnce, 5000)`; teardown clears the interval + drops in-flight results via the `live` guard (no setState on a dead view). Deps `[open, paused]`. `loading` only flips true on mount → background refreshes don't flicker "loading…"; each refresh clears a stale `error` on success.
+   - **● LIVE / PAUSED toggle** — a header chip (emerald pulsing dot when live, amber when paused) doubles as the pause/resume control; pausing tears the interval down (effect early-returns on `paused`), resuming re-runs the effect → immediate refetch.
+   - **kind-filter chip row** — coarse categories (`all` / `lifecycle` / `dependency` / `orchestration`) layered over the fine `kind` taxonomy via a local `CATEGORY_OF` map (kept local so the drawer stays one self-contained surface; unknown kinds match only `all`). Each chip shows a live per-category count (`useMemo`); the list renders the filtered slice with an honest "No ‹filter› events in the last N" empty state.
+   **Verified:** `npm run build` ✅ (157 modules, 647ms); `npx eslint src/components/EventFeedDrawer.tsx` → **No issues found**. **Vite preview (port 5219, `#/operations`):** opened the **▦ ACTIVITY** drawer → the **LIVE** toggle renders (`button[title*="polling"]` present), all four filter chips render with counts (`all 0 · lifecycle 0 · dependency 0 · orchestration 0` — 0 because the live bridge 404s `/api/mc/events`), clicking the toggle flips **LIVE → PAUSED → LIVE** ✅, and the drawer body shows the honest **"⚠ Request failed with status code 404"** (graceful degradation — endpoint loads on restart). **Zero console errors** (`preview_console_logs level=error` → none). `graphify update .` ✅ (1833 nodes). Screenshot tool timed out (renderer infra — DOM eval confirmed every surface + zero console errors). **Loads fully live on the next bridge restart** (the feed then populates + auto-refreshes against a real `/api/mc/events`).
+
+4. **COMMIT — `.mc/LOOP_STATE.md` only, locally on `auto/loop-reconcile-20260615` (same blocker as runs #12–#22).** `EventFeedDrawer.tsx` is 100% mine but **untracked** and imports `getRecentEvents`/`McEvent` from the uncommitted-in-full `api.ts` (sibling-tangled with `failMcTask`) — committing it standalone references a HEAD-absent export (broken HEAD), so it joins the live-but-uncommitted bucket (TO-DO #2) exactly like run #22's first version. No code-file `git add` this run (no new sibling-tangle introduced — I only edited my own untracked file). Lands cleanly once the api.ts congestion clears.
 
 ### 2026-06-17 — Run #22 (BUILT the BOARD-WIDE RECENT-ACTIVITY FEED — a ▦ ACTIVITY drawer in Operations merges every task's full event timeline newest-first, reusing run #21's icon/label layer) · branch `auto/loop-reconcile-20260615`
 
