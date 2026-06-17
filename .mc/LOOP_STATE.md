@@ -10,22 +10,20 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#18) — BUILT the TASK-AWARE DELIVERABLES BROWSER (GAPS #18 / prior TO-DO #5): each dispatched-agent
-   artifact now carries the `task_id` that produced it.** Since run#16 the dispatcher writes output to
-   `deliverables/tasks/<id>/…`, and the global `GET /api/mc/deliverables` already returned those files with
-   `rel_to_root: tasks/<id>/…` — but it did NOT parse the owning task id out of the path, so the DeliverablesDrawer couldn't
-   show which task produced a file. Built it end-to-end (in-lane — all this loop's files): a pure `_deliverable_task_id(root,
-   rel_to_root)` helper (`mission-control-bridge.py:1506`) derives the id from a `deliverables`-root path of exact shape
-   `tasks/<id>/<file…>` (≥3 segments, first `tasks`, non-empty id, ≥1 file segment), returns None for root-level files / the
-   `research` root / a bare `tasks/<id>` — no store hit; the listing sets `task_id` on each entry; `src/lib/api.ts:394` added
-   `task_id?: string | null` to `DeliverableEntry`; `DeliverablesDrawer.tsx:91` renders an emerald **⬡ ‹task_id›** chip on rows
-   that carry one (tooltip `produced by task …`). **Verified:** in-process unit test of the parse over 7 cases (happy path,
-   nested file, root-level→None, no-file-segment→None, empty-id→None, wrong-root→None) → ALL PASS; `py_compile`
-   `mission-control-bridge.py` ✅; `npm run build` ✅ (157 modules, 637ms); `npx eslint` touched TS (api.ts +
-   DeliverablesDrawer.tsx) → **no issues**; `graphify update .` ✅ (1799 nodes). **Loads on next bridge restart** (live bridge
-   predates the field; no `tasks/<id>/` deliverable exists yet — needs a watched dispatch — so the chip is an honest no-op
-   until then). Board healthy throughout: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED (8 dispatchable).
-   (See DONE Run #18.)
+0. **✅ DONE this run (#19) — BUILT the `link()` dependency-audit symmetry (GAPS #19 / prior TO-DO #5): a new dependency
+   edge now records a `dependency_link` event, matching run#17's `dependency_unlink`.** Before this run
+   `MCStore.link(parent, child)` mutated `kanban-meta.json["links"]` SILENTLY while `unlink()` recorded an event — so the
+   dependency-edge audit trail was asymmetric (you could see an edge removed but not added). Built it (in-lane — this loop's
+   `mc_store.py:410`): `link()` now computes `added` (is the edge genuinely new?), and ONLY on a new edge appends it AND
+   records a `dependency_link` event on the **child** with payload `{parent}`; the already-linked no-op records nothing
+   (idempotent symmetry with `unlink`). Return shape gains `{added}` — additive: the `link_tasks` bridge endpoint returns it
+   verbatim (no caller break), and the cycle/self-link guards are unchanged (still raise→400). **Verified:** in-process
+   throwaway store — new edge → `added:True` + exactly 1 `dependency_link` event `{parent:A}` on the child; re-link →
+   `added:False`, still 1 event (idempotent); self-link still rejected; cycle (A→B→C→A) still rejected; `unlink` still records
+   `dependency_unlink` → **ALL PASS**. `py_compile mc_store.py` ✅; `npm run build` ✅ (157 modules, 634ms — Python-only change,
+   JS unaffected); `graphify update .` ✅. **Loads on next bridge restart** (live bridge predates the new event; honest no-op
+   on the live 0-link board until an edge is created). Board healthy throughout: `ready 8 · blocked 6 · done 18`, dispatcher
+   LIVE-but-OFF + FED (8 dispatchable). (See DONE Run #19.)
 1. **OPERATOR-WATCHED FIRST DISPATCH — the one remaining piece to prove the full autonomy loop.** Board is now
    `ready 8 · blocked 6 · done 18`; dispatcher is **LIVE but OFF** (`enabled:false,running:false`) and FED
    (`dispatchable` = 8). Next operational step (needs operator present — side-effecting bypassPermissions turns):
@@ -59,7 +57,11 @@ below. `## DONE` is append-only history.
    the one-line `task_id` field in the listing (a clean contiguous block near `:1506`, refs only HEAD symbols), and
    `src/lib/api.ts` adds a one-line `task_id?` field to `DeliverableEntry` (L394) — both ride on top of the same sibling
    `failMcTask`/`fail_task`/`get_briefing` WIP, so still blocked from a full-file commit. `DeliverablesDrawer.tsx` (the
-   100%-mine chip edit) is committable only once its api.ts dep lands.
+   100%-mine chip edit) is committable only once its api.ts dep lands. **Run #19 adds one more clean hunk to `mc_store.py`:**
+   the `link()` audit-event change lives in the SAME hunk as run#17's `unlink`/`diagnostics` edits (`:407`), still riding
+   directly above the purely-sibling `fail_task` method (`:319`) — so `mc_store.py` stays uncommittable in full (a full-file
+   commit sweeps in `fail_task`). My link hunk refs only HEAD symbols (`_would_cycle`, `_event`, `_save_meta`) → clean-blob
+   candidate, same per-hunk surgery caveat as the rest.
 3. **Web access — treat as AVAILABLE (do NOT keep asking for a Brave key).** `BRAVE_SEARCH_API_KEY` is ALREADY in
    `MC_HOME/.env`, AND `run_claude` spawns agents with `--permission-mode bypassPermissions` → native WebSearch/WebFetch, no
    third-party key needed. The web-access audit's "missing web" is a narrow heuristic (scans agent `mcps` only). Real follow-
@@ -70,19 +72,19 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#18) — task-aware deliverables browser BUILT** (see item 0 + DONE Run #18). **Next capability to BUILD —
-   give `link()` the same audit symmetry as run#17's `unlink()`: record a `dependency_link` event.** Currently
-   `MCStore.link(parent, child)` mutates `kanban-meta.json["links"]` SILENTLY (no event), while run#17's `unlink()` records a
-   `dependency_unlink` event — so the dependency-edge audit trail is asymmetric (you can see an edge removed but not added).
-   Build it (in-lane, this loop's `mc_store.py`): in `link()`, after a NEW edge is actually appended (skip the no-op
-   already-linked case for idempotent symmetry with `unlink`), record a `dependency_link` event on the child with payload
-   `{parent}`. Pure + testable: in-process seed A, link A→B, assert exactly one `dependency_link` event with `{parent:A}`;
-   re-link the same edge → no second event (idempotent). NOTE: `mc_store.py` is sibling-congested (the `fail_task` WIP) — the
-   edit is a clean isolated region inside `link()` but the file stays in the live-but-uncommitted bucket (TO-DO #2). Runner-up
-   (smaller, frontend): make the run#18 ⬡ task chip in `DeliverablesDrawer.tsx` clickable → open that task's detail drawer (a
-   navigation affordance; needs the task-drawer open hook threaded into the deliverables modal). Second runner-up: have the
-   global browser de-dup/skip nested workspace files if duplication with the per-task workspace browser ever proves noisy
-   (currently fine — each appears once).
+5. **✅ DONE this run (#19) — `link()` dependency-audit symmetry BUILT** (see item 0 + DONE Run #19). **Next capability to
+   BUILD — surface the dependency link/unlink events in the TASK ACTIVITY timeline so the new audit trail is actually
+   reachable in the UI.** Runs #17/#19 now record `dependency_unlink`/`dependency_link` events on the child task, but
+   nothing renders them — check whether `get_task`/`show_task`'s `events` array flows to a timeline component
+   (`TaskDetailDrawer.tsx` activity section or the War Room task log) and that these two `kind`s get a human-readable label +
+   icon (today an unknown kind likely renders raw or is dropped). If the timeline already renders generic kinds, this may be
+   a one-line label-map addition; if not, it's a small render block. Pure + verifiable via the live `events` payload once an
+   edge is created. NOTE: `TaskDetailDrawer.tsx` is sibling-WIP (bughunt's reason-banner) — prefer adding the label-map to a
+   this-loop file (a shared event-label helper, or the War Room log this loop owns) to stay in-lane; coordinate the region if
+   the drawer is the only timeline. Runner-up (frontend): make the run#18 ⬡ task chip in `DeliverablesDrawer.tsx` clickable →
+   open that task's detail drawer (navigation affordance; needs the task-drawer open hook threaded into the deliverables
+   modal). Second runner-up: dedup/skip nested workspace files in the global browser if duplication with the per-task
+   workspace browser ever proves noisy (currently fine — each appears once).
 6. **→ bughunt/evolve: `npm run lint` fails project-wide (~500 errors, NEW finding run #13).** Run #13 ran the FULL project
    lint (prior runs only `npx eslint`'d their 2–3 touched files, masking this). 500 errors / 473 auto-fixable, dominant rules
    `typescript-eslint/ban-ts-comment`, `typescript-eslint/no-unused-vars`, `react-hooks/set-state-in-effect`,
@@ -98,29 +100,29 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-17 (Run #18)** — **BUILT the TASK-AWARE DELIVERABLES BROWSER (GAPS #18 / prior TO-DO #5): each
-dispatched-agent artifact now carries the `task_id` that produced it.** Since run#16 the dispatcher writes to
-`deliverables/tasks/<id>/…`, and `GET /api/mc/deliverables` already returned those files with `rel_to_root: tasks/<id>/…`, but
-did NOT parse the owning task id, so the DeliverablesDrawer couldn't show which task produced a file. Built a pure
-`_deliverable_task_id(root, rel_to_root)` helper (`mission-control-bridge.py:1506`) that derives the id from a
-`deliverables`-root path of shape `tasks/<id>/<file…>` (≥3 segments, first `tasks`, non-empty id, ≥1 file segment; None for
-root-level / `research` / bare `tasks/<id>` — no store hit); the listing now sets `task_id` per entry; `api.ts:394` added
-`task_id?: string | null` to `DeliverableEntry`; `DeliverablesDrawer.tsx:91` renders an emerald ⬡ ‹task_id› chip on rows that
-carry one. In-lane (all this loop's files). Verified: in-process 7-case parse unit test → ALL PASS, `py_compile`
-mission-control-bridge.py ✅, `npm run build` ✅ (157 modules, 637ms), `npx eslint` touched TS → no issues, `graphify update .`
-✅. Loads on next bridge restart (live bridge predates the field; no `tasks/<id>/` deliverable exists yet → honest no-op chip
-until a watched dispatch produces one). Board steady + healthy: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED
-(8 dispatchable). Commit: LOOP_STATE only — run #18's `mission-control-bridge.py`/`api.ts`/`DeliverablesDrawer.tsx` edits join
-the live-but-uncommitted bucket (sibling congestion, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still
-need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6)._
+_Last run: **2026-06-17 (Run #19)** — **BUILT the `link()` dependency-audit symmetry (GAPS #19 / prior TO-DO #5): a new
+dependency edge now records a `dependency_link` event, matching run#17's `dependency_unlink`.** Before this run
+`MCStore.link(parent, child)` mutated `kanban-meta.json["links"]` SILENTLY while `unlink()` recorded an event — an asymmetric
+audit trail (edge removals visible, additions invisible). Built it (in-lane, `mc_store.py:410`): `link()` now computes `added`
+and ONLY on a genuinely-new edge appends it AND records a `dependency_link` event on the child (`{parent}`); the already-linked
+no-op records nothing (idempotent symmetry with `unlink`). Return gains `{added}` — additive, no caller break; cycle/self-link
+guards unchanged (still raise→400). Verified: in-process throwaway store — new edge → `added:True` + exactly 1
+`dependency_link` event on child; re-link → `added:False`, still 1 event (idempotent); self-link + cycle still rejected;
+`unlink` still records `dependency_unlink` → ALL PASS. `py_compile mc_store.py` ✅, `npm run build` ✅ (157 modules, 634ms —
+Python-only change, JS unaffected), `graphify update .` ✅. Loads on next bridge restart (live bridge predates the event;
+honest no-op on the live 0-link board). Board steady + healthy: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED
+(8 dispatchable). Commit: LOOP_STATE only — run #19's `mc_store.py` link hunk joins the live-but-uncommitted bucket (sibling
+`fail_task` congestion, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline
+(~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP + runs #1–#15 LIVE | `GET /api/ping` ok, **uptime ~5.5h** (on run #15 code). **`POST /api/mc/kanban/promote` → 200** (run #12 LIVE), **`GET /api/mc/deliverables` → 200** (run #15 LIVE, returns the 6 artifacts, no `task_id` field yet). Runs #16 (dispatch-workspace) + #17 (cycle-break `cycle_parents` + `unlink` event) + #18 (deliverables `task_id` parse) load on NEXT restart. **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. `/api/mc/kanban/reconcile` → "no stale claims". |
+| Bridge (:8767) | ✅ UP + runs #1–#15 LIVE | `GET /api/ping` ok, **uptime ~7.5h** (27131s — on run #15 code). **`POST /api/mc/kanban/promote` → 200** (run #12 LIVE), **`GET /api/mc/deliverables` → 200** (run #15 LIVE). Runs #16 (dispatch-workspace) + #17 (cycle-break `cycle_parents` + `unlink` event) + #18 (deliverables `task_id` parse) + #19 (`dependency_link` event) load on NEXT restart. **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. `/api/mc/kanban/reconcile` → "no stale claims". |
+| Dependency-edge audit (runs #17/#19) | 🟢 loads on restart | `unlink()` records `dependency_unlink` (run#17); `link()` now records `dependency_link` (run#19) — symmetric, idempotent (no-op edges record nothing). Honest no-op on the live 0-link board until an edge is created. Next gap (TO-DO #5): surface these two event kinds in the task-activity timeline UI. |
 | Deliverables (run #15 LIVE) + workspace seam (run #16) + task_id parse (run #18) | 🟢 #15 LIVE, #16/#18 load on restart | `GET /api/mc/deliverables` → 200, lists all 6 (all root-level/`assets/`/`research/` → `task_id:null`). Run #16: dispatch writes to `deliverables/tasks/<id>/` (task-linked, dual-browser). Run #18: the listing now derives `task_id` from a `tasks/<id>/…` path; UI shows a ⬡ chip. No `tasks/<id>/` file exists yet (needs a dispatch) → chip is an honest no-op until then. |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
-| `npm run build` | ✅ PASS | tsc + vite, exit 0 ~637ms, 157 modules (chunk-size warning only). Run #18 touched `api.ts` + `DeliverablesDrawer.tsx`. |
-| `npm run lint` | 🔴 FAIL (pre-existing, NOT this run) | **Full project `npm run lint` = ~500 errors / 473 auto-fixable** (`ban-ts-comment`, `no-unused-vars`, `set-state-in-effect`, `react-hooks/refs`) across sibling/untouched TS. Run #18's two touched TS files: `npx eslint` → **no issues**. Python (my lane): `py_compile mission-control-bridge.py` ✅. |
+| `npm run build` | ✅ PASS | tsc + vite, exit 0 ~634ms, 157 modules (chunk-size warning only). Run #19 touched **only `mc_store.py`** (Python) → no TS change, JS build unaffected. |
+| `npm run lint` | 🔴 FAIL (pre-existing, NOT this run) | **Full project `npm run lint` = ~500 errors / 473 auto-fixable** (`ban-ts-comment`, `no-unused-vars`, `set-state-in-effect`, `react-hooks/refs`) across sibling/untouched TS. Run #19 touched **0 TS files** (Python-only) so lint is unchanged. Python (my lane): `py_compile mc_store.py` ✅. |
 | Kanban / orchestration | 🟢 FED + healthy | **ready 8 · done 18 · blocked 6 · todo 0 · triage 0** (steady). `reconcile` dry → no stale claims; no `retry_exhausted`/`dep`/`dead_agent`/`cycle`/`promotable`. 6 blocked = `blocked_no_reason` severity `info` (web-access, operator config). `dispatchable` = 8 (4 carousels `web_gap:true`). Did NOT dispatch (operator absent — side-effecting; TO-DO #1). |
 | Cron jobs | 🟡 EMPTY + engine LIVE | store `jobs: []`; scheduler daemon running (32 ticks). Maintenance `*/30` sweep (run#10) now ALSO promotes todo→ready (run #12 sweep step). Seeding needs operator sign-off (TO-DO #4). |
 | Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 27 · drafts 13 (↑ from 5) · calendar 36 (growing; writing `.mc/data/`). |
@@ -424,12 +426,32 @@ need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, stil
     emerald ⬡ ‹task_id› chip on rows that carry one. In-lane (all this loop's files). Verified in-process (7-case parse test →
     ALL PASS) + build + eslint. Loads on next bridge restart; honest no-op chip until a watched dispatch produces a
     `tasks/<id>/` file.
+19. ✅ **`link()` dependency-audit symmetry (BUILT this run — run #19).** run#17 made `unlink()` record a `dependency_unlink`
+    event but `link()` still mutated `kanban-meta.json["links"]` SILENTLY — an asymmetric audit trail (edge removals visible,
+    additions invisible). Built it (in-lane, `mc_store.py:410`): `link()` computes `added` (is the edge genuinely new?) and
+    ONLY on a new edge appends it AND records a `dependency_link` event on the **child** (`{parent}`); the already-linked
+    no-op records nothing (idempotent symmetry with `unlink`). Return shape gains `{added}` (additive — `link_tasks` returns
+    it verbatim, no caller break); cycle/self-link guards unchanged (still raise→400). Pure + testable; honest no-op on the
+    live 0-link board. Loads on next bridge restart. The natural follow-up (TO-DO #5): surface `dependency_link`/`_unlink` in
+    the task-activity timeline UI so the audit trail is reachable.
 - → bughunt / NOT this loop: block-reason **display** in the task drawer + FAILED-vs-BLOCKED reconciliation (the sibling
   `fail_task` WIP, still uncommitted in the working tree) are bughunt's — do not redo.
 
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-17 — Run #19 (BUILT the `link()` DEPENDENCY-AUDIT SYMMETRY — a new edge now records a `dependency_link` event, matching `unlink`) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green.** Bridge :8767 UP (`/api/ping` ok, **uptime ~7.5h** = 27131s — predates this run; still on run #15 code). `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18 · todo 0 · triage 0`; `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = 8; `/api/mc/kanban/reconcile` → "no stale claims found". `npm run build` ✅ (157 modules, 634ms); `py_compile mc_store.py` ✅. Sibling logs (BUGHUNT_LOG / LOOP_LOG) tails unchanged — no collision.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18` (unchanged). Diagnostics: only the 6 `blocked_no_reason` (severity `info`, the audited web-access research tasks — operator config); no stale/dead/cycle/exhausted/promotable. Dispatcher fed (8 dispatchable: gridkeeper×2, narratrix×2, claudelink×4 with `web_gap:true`). **Did NOT dispatch** (operator absent; side-effecting bypassPermissions turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons.
+
+3. **BUILT: the `link()` dependency-audit symmetry (CAPABILITY GAPS #19 / prior TO-DO #5), end-to-end.** The gap: run#17 made `unlink()` record a `dependency_unlink` event on the child, but `MCStore.link(parent, child)` still mutated `kanban-meta.json["links"]` SILENTLY — so the dependency-edge audit trail was asymmetric (an operator could see an edge removed in the child's event timeline but never an edge added). Built the missing event:
+   - `mc_store.py` `link()` (`:410`): now computes `added = pair not in m["links"]`; on a genuinely-new edge it appends the pair AND records a **`dependency_link`** event on the child with payload `{parent}`; the already-linked case records nothing (idempotent symmetry with `unlink`, which no-ops without an event). Return shape gains `{added}` alongside `{message}` — additive: the `/api/mc/tasks/link` `link_tasks` endpoint (`mission-control-bridge.py:1060`) returns the dict verbatim, so the extra key is harmless. The self-link / cycle guards (`_would_cycle`) are untouched and still raise `ValueError` → 400.
+   **Verified:** in-process throwaway `MCStore(tmpdir)` — link A→B → `added:True` + exactly **1** `dependency_link` event on child B (`payload {parent:A}`); re-link A→B → `added:False`, still **1** event (idempotent — no duplicate); self-link A→A still rejected (`ValueError`); a cycle-closing edge (A→B, B→C, then C→A) still rejected; `unlink(A,B)` still records a `dependency_unlink` event → **ALL PASS**. `py_compile mc_store.py` ✅; `npm run build` ✅ (157 modules, 634ms — Python-only change, JS/TS untouched so the build & the ~500-error lint baseline are both unaffected); `graphify update .` ✅. **Loads on next bridge restart** (the live bridge predates the new event; the live board has 0 links, so the event is an honest no-op until an operator creates a dependency edge). **Not verified live/preview:** the event only fires on a real `link` call against the running bridge, which needs the restart; the logic is fully proven by the in-process test + py_compile + build.
+
+4. **COMMIT — ledger only (same blocker as runs #12–#18).** Run #19's edit lands inside the `mc_store.py` link/unlink hunk (`:407`), which sits directly above the purely-sibling `fail_task` method (`:319`) in the same dirty file — committing `mc_store.py` in full would sweep in the sibling `fail_task` WIP (forbidden). My link hunk refs only HEAD symbols (`_would_cycle`, `_event`, `_save_meta`) → a clean-blob candidate, but the same per-hunk surgery caveat applies (TO-DO #2). Committed **only `.mc/LOOP_STATE.md`**; the `dependency_link` event is operationally LIVE on the next bridge restart and joins the live-but-uncommitted bucket. Sibling WIP left fully intact.
 
 ### 2026-06-17 — Run #18 (BUILT the TASK-AWARE DELIVERABLES BROWSER — each artifact now carries the task_id that produced it) · branch `auto/loop-reconcile-20260615`
 
