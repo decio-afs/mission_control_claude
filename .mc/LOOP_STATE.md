@@ -10,8 +10,25 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#24) — made the ▦ ACTIVITY feed actually WORK against the running bridge (graceful coarse-feed
-   fallback).** PRE-SCOUT killed the queued run #24 idea (workspace "⬡ open task") as invalid — the `WorkspaceBrowser`
+0. **✅ DONE this run (#25) — BUILT the board-wide BLOCKED-TASKS triage glance (⊘ BLOCKED drawer).** The 6 research
+   tasks have sat `blocked_no_reason` ~200h and the only place to see WHY (the systemic web-access gap, run #3's audit)
+   was the per-row diagnostics modal, one task at a time. Built `src/components/BlockedTasksDrawer.tsx` (**NEW, 100% mine,
+   no backend change**): reuses three already-in-HEAD endpoints (`getMcTasks` + `getKanbanDiagnostics` +
+   `getWebAccessAudit`), lists every blocked task **oldest-first** with a RESOLVED one-line reason (recorded diagnostic →
+   else amber "needs web access — ‹assignee› has no web-search MCP" if the assignee is in the audit's `gap` set → else
+   honest "blocked without a recorded reason"), assignee, age, a clickable deep-link to the task drawer, a header
+   **"N WEB-GAP"** chip + the audit hint banner, and an honest empty state. Wired into `OperationsCenter.tsx` (4 disjoint
+   in-lane edits: import/state/⊘ BLOCKED toolbar button after ▦ ACTIVITY/mount). **Verified in the LIVE Vite preview**
+   (port 5219, `#/operations`): drawer shows **6 rows**, **"6 WEB-GAP"** chip, hint banner, each row resolved to the
+   web-access reason + narratrix/default + **8d** age, deep-link closes the drawer + opens TaskDetailDrawer (`t_ac3acb98`),
+   **0 console errors**. `npm run build` ✅ (159 modules); `npx eslint` both files → No issues; `graphify update .` ✅
+   (1843 nodes). **Note this run restarted the bridge** (it was DOWN at start) → all uncommitted run #16–#24 backend is now
+   LIVE; `GET /api/mc/events` → 200 now (the ▦ ACTIVITY feed serves the FULL taxonomy, no longer the run #24 BASIC
+   fallback). **Commit: LOOP_STATE only** — `BlockedTasksDrawer.tsx` is clean against HEAD (all api deps in HEAD) but inert
+   without `OperationsCenter.tsx`, which still imports the uncommitted `EventFeedDrawer`/`DeliverablesDrawer` (HEAD-absent
+   `getRecentEvents` + sibling-`failMcTask`-tangled api.ts) → stays in the live-but-uncommitted bucket (TO-DO #2). (See
+   DONE Run #25.) — _Prior run #24 made the ▦ ACTIVITY feed WORK against the running bridge (graceful coarse-feed
+   fallback)._ PRE-SCOUT killed the queued run #24 idea (workspace "⬡ open task") as invalid — the `WorkspaceBrowser`
    lives *inside* `TaskDetailDrawer.tsx` (`:261`), so you're already on the task, nothing to jump to (and that file is
    sibling-congested). Repointed at the real gap: probed the live bridge → `GET /api/mc/events` → **404** (run #22's
    endpoint predates this bridge) while `GET /api/mc/activity` → **200**, so the centerpiece feed of runs #22–#23 was
@@ -104,18 +121,15 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#24) — ▦ ACTIVITY feed now WORKS against the live bridge via coarse-feed fallback** (see item 0 +
-   DONE Run #24). NOTE the run #24 idea queued here last run (workspace "⬡ open task") was found INVALID and dropped — the
-   `WorkspaceBrowser` is already inside `TaskDetailDrawer.tsx`, so there is nothing to navigate to. **Next capability to BUILD
-   (run #25) — a CLICK-TO-EXPAND deliverable preview in the EventFeedDrawer's completed rows, OR (stronger) a board-wide
-   "blocked tasks" triage glance.** Two in-lane, live-backed candidates, pick by impact at run time:
-   (a) **PREFERRED — surface the 6 long-blocked research tasks at a glance.** They've sat `blocked_no_reason` ~200h (info
-   severity) and the only place to see them is the per-row diagnostics modal. A small read-only panel/drawer in
-   OperationsCenter listing each blocked task with its age + assignee + the one-line "why" (web-access, from run #3's audit)
-   + a deep-link to its drawer would make the board's single biggest rot visible without hunting. Pure-frontend on LIVE
-   endpoints (`/api/mc/kanban/diagnostics` + `/api/mc/agents/web-access` if live, else `/api/mc/tasks`), in-lane
-   (OperationsCenter + a new mine component). Confirm `/api/mc/agents/web-access` is live first (run #3 endpoint — may 404
-   pre-restart; if so, derive the reason from the task itself, same fallback discipline as run #24).
+5. **✅ DONE this run (#25) — board-wide ⊘ BLOCKED triage glance** (see item 0 + DONE Run #25); the run #24 PREFERRED
+   candidate (a) is now built. **Next capability to BUILD (run #26)** — two in-lane, live-backed candidates, pick by impact:
+   (a) **PREFERRED — a one-click "open the WEB-ACCESS AUDIT" affordance / cross-link from the ⊘ BLOCKED drawer.** The drawer
+   now NAMES the systemic cause (N WEB-GAP + hint) but the operator still can't see the full per-agent audit
+   (`/api/mc/agents/web-access`: which 9 agents need web, their mcps, blocked_tasks) without opening the ⚠ diagnostics modal.
+   A small read-only WEB-ACCESS panel (its own drawer, OR a button inside ⊘ BLOCKED) listing each gap-agent with its
+   `blocked_tasks` count + the provisioning hint would close the "see the rot → see the systemic fix" loop. Pure-frontend on
+   the LIVE `getWebAccessAudit()` (already in HEAD), in-lane (OperationsCenter + a new mine component). Honest amber, no fake
+   provisioning.
    (b) Runner-up — a reciprocal **↳ child ‹id›** chip in the feed/timeline: only `parent` is surfaced by
    `eventParent(payload)`; needs dependency-edge events to also carry `child` in their payload (a small `mc_store.py` change,
    sibling-congested) before the UI can render it. Lane note: keep clear of the sibling FAIL-action/banner region in
@@ -135,23 +149,27 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-17 (Run #24)** — **made the ▦ ACTIVITY feed actually WORK against the running bridge.** Runs #22–#23
-shipped the board-wide feed + 5s LIVE polling, but it reads `/api/mc/events` which **404s on the current bridge** (predates
-run #22) — so the operator saw a bare "⚠ 404". This run added a graceful coarse-feed fallback in ONE file
-(`src/components/EventFeedDrawer.tsx`, 100% mine, untracked): an `activityToEvents()` adapter maps the always-live
-`/api/mc/activity` coarse feed onto the `McEvent` shape, `fetchOnce` degrades to `getMcActivity()` on any events-endpoint
-failure (clears the error), an honest amber **BASIC** chip marks the degraded mode, and the 5s poll **auto-upgrades** to the
-full taxonomy the instant the bridge restarts. Verified in the **LIVE Vite preview** (port 5219, `#/operations`): ▦ ACTIVITY
-now shows **50 real events** (404 GONE), BASIC chip present, chips `all 50 · lifecycle 50 · dependency 0 · orchestration 0`,
-rows render icon+label+assignee+time, dependency filter → honest "No dependency events in the last 50", **0 console errors**.
-`npm run build` ✅ (159 modules); `npx eslint EventFeedDrawer.tsx` → No issues; `graphify update .` ✅. The queued run #24 idea
-(workspace "⬡ open task") was found INVALID (the WorkspaceBrowser is already inside TaskDetailDrawer) and dropped. Board steady
-+ healthy: `ready 8 · blocked 6 · done 18`, diagnostics → no stale/dead/cycle/exhausted, dispatcher LIVE-but-OFF + FED
-(8 dispatchable). Commit: LOOP_STATE only — HEAD api.ts lacks `getRecentEvents` (grep→0), so committing the untracked feed
-breaks HEAD; stays in the live-but-uncommitted bucket (TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4)
+_Last run: **2026-06-17 (Run #25)** — **BUILT the board-wide BLOCKED-TASKS triage glance (⊘ BLOCKED drawer).** The bridge was
+DOWN at start → restarted it (`python mission-control-bridge.py` on the working-tree files → all uncommitted run #16–#24
+backend is now LIVE; `GET /api/mc/events` → 200 now, so the ▦ ACTIVITY feed serves the FULL taxonomy, no longer the run #24
+BASIC fallback). The 6 research tasks have sat `blocked_no_reason` ~200h with the real cause (the systemic web-access gap)
+visible only one-task-at-a-time in the diagnostics modal. Built `src/components/BlockedTasksDrawer.tsx` (**NEW, 100% mine, no
+backend change**): reuses three already-in-HEAD endpoints (`getMcTasks` + `getKanbanDiagnostics` + `getWebAccessAudit`), lists
+every blocked task **oldest-first** with a RESOLVED one-line reason (recorded diagnostic → else amber "needs web access —
+‹assignee› has no web-search MCP" if the assignee is in the audit's `gap` set → else honest "blocked without a recorded
+reason"), assignee, age, a clickable deep-link to the task drawer, a header **"N WEB-GAP"** chip + the audit hint banner, and
+an honest empty state. Wired into `OperationsCenter.tsx` (4 disjoint in-lane edits: import/state/⊘ BLOCKED toolbar
+button/mount). **Verified in the LIVE Vite preview** (port 5219, `#/operations`): drawer shows **6 rows**, **"6 WEB-GAP"**
+chip, hint banner, each row resolved to the web-access reason + narratrix/default + **8d** age (oldest-first), deep-link
+closes the drawer + opens TaskDetailDrawer (`t_ac3acb98`), **0 console errors**. `npm run build` ✅ (159 modules); `npx eslint`
+both files → No issues; `graphify update .` ✅ (1843 nodes). Board steady + healthy: `ready 8 · blocked 6 · done 18`,
+reconcile → no stale claims, dispatcher LIVE-but-OFF + FED (8 dispatchable). Commit: LOOP_STATE only —
+`BlockedTasksDrawer.tsx` is clean against HEAD (all api deps in HEAD) but inert without `OperationsCenter.tsx`, which still
+imports the uncommitted `EventFeedDrawer`/`DeliverablesDrawer` (HEAD-absent `getRecentEvents` + sibling-`failMcTask`-tangled
+api.ts) → stays in the live-but-uncommitted bucket (TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4)
 still need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run
-#25, TO-DO #5): a board-wide "blocked tasks" triage glance (the 6 ~200h-blocked research tasks), pure-frontend on live
-endpoints. — _Prior run #22 PRE-SCOUT:_
+#26, TO-DO #5a): a WEB-ACCESS AUDIT cross-link/panel from the ⊘ BLOCKED drawer (close the "see the rot → see the systemic
+fix" loop), pure-frontend on the live `getWebAccessAudit()`. — _Prior run #22 PRE-SCOUT:_
 `GET /api/mc/activity` already exists but only synthesizes 3 coarse lifecycle entries (created/claimed/completed) from timestamps
 — it never walks the per-task event log (misses promoted/reconciled/routed/escalated/reassigned/dependency-edge/workspace_ready),
 so built the true full-taxonomy aggregation (branch (b)), leaving `/api/mc/activity` untouched (4 consumers, no regression).
@@ -170,8 +188,9 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP + runs #1–#15 LIVE | `GET /api/ping` ok, **uptime ~9.5h** (34325s — on run #15 code). **`POST /api/mc/kanban/promote` → 200** (run #12 LIVE), **`GET /api/mc/deliverables` → 200** (run #15 LIVE). Runs #16 (dispatch-workspace) + #17 (cycle-break `cycle_parents` + `unlink` event) + #18 (deliverables `task_id` parse) + #19 (`dependency_link` event) load on NEXT restart. **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. `/api/mc/kanban/reconcile` → "no stale claims". |
-| Event-timeline UI (run #21) + board-wide feed (run #22) + LIVE polling (run #23) + **coarse-feed fallback (run #24)** | 🟢 **#24: feed WORKS LIVE NOW** (coarse fallback); #21 per-task LIVE on rebuild; full taxonomy auto-upgrades on restart | **Run #21:** per-task EVENT TIMELINE renders each kind with icon+label + ↳ parent chip (`eventLabels.ts` + `TaskDetailDrawer.tsx:405`). **Run #22: a board-wide ▦ ACTIVITY drawer** (`EventFeedDrawer.tsx`) merges EVERY task's full event timeline newest-first via `GET /api/mc/events` → `MCStore.recent_events`. **Run #23: the feed is now LIVE** — auto-polls `/api/mc/events` every 5s with a ● LIVE/PAUSED toggle + a kind-filter chip row (all/lifecycle/dependency/orchestration, per-category counts). Endpoint 404s until bridge restart (live bridge predates it); UI degrades honestly (shows the 404, no crash, the LIVE toggle + chips still render). Next gap (run #24, TO-DO #5): the WORKSPACE-browser "⬡ open task" affordance. |
+| Bridge (:8767) | ✅ UP + **RESTARTED this run → runs #1–#24 all LIVE** | Was DOWN at start; restarted via `python mission-control-bridge.py` (working-tree files) → fresh (uptime 9→20s), now serving ALL uncommitted backend. Confirmed live: **`GET /api/mc/events?limit=3` → 200 (total 45)** (run #22 — ▦ ACTIVITY now FULL taxonomy, not BASIC fallback), **`GET /api/mc/agents/web-access` → 200** (`blocked_due_to_web=6`, run #3), `POST /api/mc/kanban/reconcile` → "no stale claims". **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. |
+| Event-timeline UI (run #21) + board-wide feed (run #22) + LIVE polling (run #23) + coarse-feed fallback (run #24) | 🟢 **FULL taxonomy LIVE now** (bridge restarted this run → `/api/mc/events` 200) | **Run #21:** per-task EVENT TIMELINE renders each kind with icon+label + ↳ parent chip (`eventLabels.ts` + `TaskDetailDrawer.tsx:405`). **Run #22: a board-wide ▦ ACTIVITY drawer** (`EventFeedDrawer.tsx`) merges EVERY task's full event timeline newest-first via `GET /api/mc/events` → `MCStore.recent_events`. **Run #23: LIVE** — auto-polls every 5s, ● LIVE/PAUSED toggle + kind-filter chips. **Run #24: coarse-feed fallback** (degrades to `/api/mc/activity` when events 404). This run the bridge was restarted so `/api/mc/events` → 200 — the feed serves the full taxonomy (45 events), no BASIC chip. |
+| **Blocked-tasks triage (run #25)** | 🟢 LIVE on rebuild (rebuild needed for the wiring; backend already in HEAD) | **`BlockedTasksDrawer.tsx` (NEW, 100% mine)** — a ⊘ BLOCKED toolbar drawer in OperationsCenter listing every blocked task **oldest-first** with a RESOLVED reason (recorded diagnostic → else amber "needs web access — ‹assignee› has no web MCP" via the audit's `gap` set → else honest "no recorded reason"), assignee, age, deep-link, a header **N WEB-GAP** chip + audit hint banner. Reuses `getMcTasks`/`getKanbanDiagnostics`/`getWebAccessAudit` (all in HEAD). Verified LIVE: 6 rows, "6 WEB-GAP" chip, deep-link → TaskDetailDrawer, 0 console errors. Uncommitted (rides the same OperationsCenter/api.ts congestion, TO-DO #2). |
 | Deliverables (#15 LIVE) + workspace seam (#16) + task_id parse (#18) + clickable chip (#20) | 🟢 #15 LIVE, #16/#18/#20 load on restart+rebuild | `GET /api/mc/deliverables` → 200, lists all 6 (all root-level/`research/` → `task_id:null`). Run #16: dispatch writes to `deliverables/tasks/<id>/` (task-linked, dual-browser). Run #18: listing derives `task_id` from a `tasks/<id>/…` path → UI ⬡ chip. **Run #20: the ⬡ chip is now CLICKABLE → opens the producing task's detail drawer** (DeliverablesDrawer `onOpenTask` prop + OperationsCenter wiring). Verified in Vite preview: drawer opens + lists 6 + 0 console errors. No `tasks/<id>/` file exists yet (needs a dispatch) → chip dormant (honest no-op) until then. |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
 | `npm run build` | ✅ PASS | tsc + vite, exit 0 ~634ms, 157 modules (chunk-size warning only). Run #19 touched **only `mc_store.py`** (Python) → no TS change, JS build unaffected. |
@@ -547,12 +566,41 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
     dependency 0 · orchestration 0`, rows render icon+label+assignee+time, dependency filter → honest empty state, 0 console
     errors. build (159 modules) + eslint clean. Note: the queued run #24 idea (workspace "⬡ open task") was found INVALID (the
     WorkspaceBrowser is already inside TaskDetailDrawer) and dropped. Next gap (TO-DO #5, run #25): a board-wide blocked-tasks glance.
+25. ✅ **Board-wide BLOCKED-TASKS triage glance (BUILT this run — run #25).** The 6 research tasks sat `blocked_no_reason`
+    ~200h with their real cause (the systemic web-access gap, run #3's audit) visible only one-task-at-a-time in the
+    per-row diagnostics modal — the board's single biggest rot was effectively invisible. Built `src/components/
+    BlockedTasksDrawer.tsx` (**NEW file, 100% mine, NO backend change** — reuses three already-in-HEAD endpoints
+    `getMcTasks`+`getKanbanDiagnostics`+`getWebAccessAudit`): on open it fetches tasks+diagnostics (core) and the web-access
+    audit (best-effort, degrades on 404 — run #24 discipline), then for each `status==='blocked'` task RESOLVES a one-line
+    cause — a recorded non-`blocked_no_reason` diagnostic wins; else if the assignee is in the audit's `gap` set → amber
+    "needs web access — ‹assignee› has no web-search MCP"; else honest "blocked without a recorded reason". Rows sort
+    **oldest-first** (biggest rot at top), each with a tone-colored ⊘, clickable title (→`onOpenTask`), reason, assignee,
+    age; header carries a **N WEB-GAP** chip + the audit's provisioning-hint banner; honest empty state when clear. Wired
+    into `OperationsCenter.tsx` (4 disjoint in-lane edits: import/state/⊘ BLOCKED toolbar button after ▦ ACTIVITY/mount).
+    Verified in the **LIVE Vite preview** (DOM eval): 6 rows, "6 WEB-GAP" chip, hint banner, each row resolved to the
+    web-access reason + narratrix/default + 8d age, deep-link closes the drawer + opens TaskDetailDrawer (`t_ac3acb98`),
+    0 console errors. build (159 modules) + eslint both files clean + `graphify update .` ✅. `BlockedTasksDrawer.tsx` is
+    clean against HEAD (all api deps present) but inert without the OperationsCenter wiring → live-but-uncommitted (TO-DO #2).
+    Next gap (TO-DO #5a, run #26): a WEB-ACCESS AUDIT cross-link/panel from the ⊘ BLOCKED drawer.
 - → bughunt / NOT this loop: block-reason **display** in the task drawer + FAILED-vs-BLOCKED reconciliation (the sibling
   `fail_task` WIP, still uncommitted in the working tree) are bughunt's — do not redo.
 
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-17 — Run #25 (BUILT the board-wide BLOCKED-TASKS triage glance — a ⊘ BLOCKED drawer that lists every blocked task oldest-first with its RESOLVED reason + age + a deep-link, making the board's single biggest rot visible without per-row hunting) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green (after bridge restart).** Bridge :8767 was **DOWN** at start (`/api/ping` → connection refused) → started it (`python mission-control-bridge.py`, the working-tree file → **all uncommitted run #16–#24 backend code is now LIVE**). Confirmed: `/api/ping` ok (fresh, uptime 9s→20s); `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18 · todo 0 · triage 0`; `/api/mc/kanban/diagnostics` → only the 6 `blocked_no_reason` (severity `info`, the audited web-access research tasks — operator config; no stale/dead/cycle/exhausted/promotable); `POST /api/mc/kanban/reconcile` → "no stale claims"; `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable`=**8**. **Notable: `GET /api/mc/events?limit=3` → 200 (total 45) now** (run #22 endpoint is LIVE on the restarted bridge — the ▦ ACTIVITY feed now serves the FULL taxonomy, no longer the run #24 BASIC fallback), and `GET /api/mc/agents/web-access` → 200 (`summary.blocked_due_to_web=6`). `npm run build` ✅ (159 modules, 657ms). Sibling logs (BUGHUNT_LOG/LOOP_LOG tails) unchanged — no collision.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18` (unchanged from runs #19–#24). Reconcile dry → no stale claims; no dead agents. **Did NOT dispatch** (operator absent; side-effecting bypassPermissions turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons. The 6 blocked tasks are the long-standing web-access research backlog (5×narratrix, 1×default), all ~8d old — surfaced (not silently sitting) by THIS run's new ⊘ BLOCKED triage drawer.
+
+3. **BUILT (TO-DO #5a / GAPS #25): the board-wide BLOCKED-TASKS triage glance.** The 6 research tasks have sat `blocked_no_reason` ~200h and the ONLY place to learn the real cause (the systemic web-access gap, run #3's audit) was the per-row diagnostics modal, one task at a time. Built a read-only drawer that resolves the true reason and surfaces all blocked tasks at once. **100% mine, no backend change** — reuses three already-committed live endpoints (`getMcTasks` + `getKanbanDiagnostics` + `getWebAccessAudit`, all confirmed present in HEAD `api.ts`):
+   - **`src/components/BlockedTasksDrawer.tsx` (NEW file, 100% mine):** on open, fetches tasks + diagnostics (core) and the web-access audit (best-effort enrichment, degrades on 404 — run #24 discipline). For each `status==='blocked'` task it resolves a one-line cause: a *recorded* non-`blocked_no_reason` diagnostic message wins; else if the assignee has a web-gap (in the audit's `gap` set) → amber **"needs web access — ‹assignee› has no web-search MCP"**; else honest **"blocked without a recorded reason"**. Rows sort **oldest-first** (biggest rot at top), each shows a tone-colored ⊘, clickable title (→ `onOpenTask`), the reason, assignee, and age; header carries a **"N WEB-GAP"** chip + the audit's provisioning hint banner; honest empty state when the board is clear.
+   - **`src/pages/OperationsCenter.tsx` (4 disjoint edits, in-lane — my file):** import (`:18`), `blockedOpen` state (`:118`), a **⊘ BLOCKED** toolbar button after ▦ ACTIVITY (`:269`, amber hover), drawer mount keyed on open (`:324`, `onOpenTask` closes the drawer + opens the task detail).
+   **Verified:** `npm run build` ✅ (159 modules, 804ms); `npx eslint BlockedTasksDrawer.tsx OperationsCenter.tsx` → **No issues found**. **Vite preview (port 5219, `#/operations`) against the LIVE restarted bridge:** ⊘ BLOCKED button renders; opening the drawer → DOM eval confirms **6 rows**, header chip **"6 WEB-GAP"**, hint banner present, every row resolved to **"needs web access — narratrix/default has no web-search MCP"** + assignee + **8d** age (oldest-first); clicking a row's title closed the drawer and opened TaskDetailDrawer for `t_ac3acb98` (`blockedDrawerClosed:true, detailDrawerOpened:true`). **Zero console errors** (`preview_console_logs level=error` → none). `graphify update .` ✅ (1843 nodes). Screenshot tool timed out twice (renderer infra — DOM eval confirmed every surface + zero console errors, same as runs #23–#24).
+
+4. **COMMIT — `.mc/LOOP_STATE.md` only, locally on `auto/loop-reconcile-20260615` (same blocker as runs #12–#24).** `BlockedTasksDrawer.tsx` is **cleaner than the prior drawers** — all its api.ts deps (`getMcTasks`/`getKanbanDiagnostics`/`getWebAccessAudit`/`errMessage`/`McTask`/`BoardDiagnostic`/`WebAccessAudit`/`WebAccessRow`) are confirmed in HEAD (`git show HEAD:src/lib/api.ts | grep` each → ≥1), so committing it standalone would NOT break HEAD. BUT it's inert without the `OperationsCenter.tsx` wiring, and `OperationsCenter.tsx` still imports the uncommitted `EventFeedDrawer` (needs HEAD-absent `getRecentEvents`) + `DeliverablesDrawer` (needs the uncommitted deliverables api.ts block that mixes sibling `failMcTask`) → committing it in full sweeps in sibling WIP / breaks HEAD. So the whole frontend unit stays in the live-but-uncommitted bucket (TO-DO #2). No code-file `git add` this run (only my own untracked new file — no new sibling-tangle). Lands cleanly once the api.ts congestion clears.
 
 ### 2026-06-17 — Run #24 (MADE the ▦ ACTIVITY feed WORK against the running bridge — graceful coarse-feed fallback so the board-wide feed shows real live activity NOW instead of a bare 404, auto-upgrading to the full taxonomy on bridge restart) · branch `auto/loop-reconcile-20260615`
 
