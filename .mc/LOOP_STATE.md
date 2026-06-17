@@ -10,20 +10,21 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#20) — BUILT the artifact→producing-task navigation loop (GAPS #20 / prior TO-DO #5 runner-up): the
-   deliverables ⬡ task chip is now CLICKABLE → opens that task's detail drawer.** run#18 gave each deliverable an emerald
-   **⬡ ‹task_id›** chip but it was an inert `<span>` — no way to jump from an artifact to the task that produced it. Built it
-   fully in-lane across two files I own (NO sibling file touched): `DeliverablesDrawer.tsx` (untracked, mine) gained an optional
-   `onOpenTask?` prop, and the ⬡ chip is now an independently-clickable `<span role="button">` with `stopPropagation()` →
-   `onClose()` → `onOpenTask(d.task_id)` (a nested `<button>` would be invalid markup since the row is already a button); it
-   gets cursor/hover styling ONLY when the handler is wired (graceful no-op otherwise). `OperationsCenter.tsx` (this loop's file,
-   already hosts both drawers) wires it in one line at `:317` — `onOpenTask={(id) => { setDeliverablesOpen(false);
-   setOpenTaskId(id); }}`. **Verified:** `npm run build` ✅ (157 modules, 635ms); `npx eslint` BOTH touched files → No issues;
-   **Vite preview** (bridge up, `#/operations` HASH route) → 📄 DELIVERABLES opens, lists all 6 files, **0 console errors**
-   (regression-clean); `chipCount:0` is honest (live deliverables all `task_id:null` + live bridge predates run#18's task_id
-   parse). `graphify update .` ✅. **Operationally LIVE on next bridge restart + frontend rebuild**; dormant honest-no-op until a
-   watched dispatch writes a `deliverables/tasks/<id>/…` file. Board healthy throughout: `ready 8 · blocked 6 · done 18`,
-   dispatcher LIVE-but-OFF + FED (8 dispatchable). (See DONE Run #20.)
+0. **✅ DONE this run (#21) — BUILT the task event-timeline legibility layer (GAPS #21 / prior TO-DO #5): every event kind now
+   renders an icon + human-readable label, and dependency events surface a clickable ↳ parent edge.** The per-task EVENT TIMELINE
+   rendered raw snake_case `{e.kind}` with no icon, and the `parent` payload of `dependency_link`/`dependency_unlink` events was
+   invisible (`eventDetail` never scanned `parent`). Built `src/lib/eventLabels.ts` (**new file, 100% mine**): `labelFor(kind)` →
+   `{label,icon}` for the ~24 kinds Mc emits (Title-cased fallback for unknowns, never blank) + `eventParent(payload)` (surfaces
+   a string `payload.parent`, `''` otherwise). Consumed in `TaskDetailDrawer.tsx` timeline-row region (`:405-426` + import `:14`,
+   DISJOINT from the sibling FAIL-action/banner WIP also live in that file): row now shows `<icon> <label>` with `title={e.kind}`
+   (raw kind on hover) + a NEW emerald **↳ parent ‹id›** button → `onOpenTask(parent)`. **Verified:** `npm run build` ✅ (157
+   modules, 629ms); `npx eslint` BOTH touched files → No issues; **Vite preview** (bridge up, `#/operations` HASH route) → opened
+   a ready task (timeline `▲ promoted`) + DONE task `t_133b08ed` (timeline `✓ completed · ◉ claimed · ▲ promoted`), **0 console
+   errors**. `graphify update .` ✅ (1817 nodes). The ↳ parent chip is a dormant honest-no-op until a `dependency_link`/`_unlink`
+   event exists (live bridge predates run #17/#19's edge-event recording — loads on restart). **Commit: `eventLabels.ts` (mine,
+   new) + LOOP_STATE only** — the `TaskDetailDrawer.tsx` consumer edit is sibling-tangled (FAIL-action WIP), joins the
+   live-but-uncommitted bucket (TO-DO #2). Board healthy throughout: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF +
+   FED (8 dispatchable). (See DONE Run #21.)
 1. **OPERATOR-WATCHED FIRST DISPATCH — the one remaining piece to prove the full autonomy loop.** Board is now
    `ready 8 · blocked 6 · done 18`; dispatcher is **LIVE but OFF** (`enabled:false,running:false`) and FED
    (`dispatchable` = 8). Next operational step (needs operator present — side-effecting bypassPermissions turns):
@@ -72,24 +73,25 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#20) — artifact→task navigation loop BUILT** (see item 0 + DONE Run #20). **Next capability to
-   BUILD — surface the dependency link/unlink events in the TASK EVENT TIMELINE with a human-readable label + icon + the
-   parent edge.** PRE-SCOUTED THIS RUN (no rediscovery needed): the ONLY per-task event timeline is in
-   `TaskDetailDrawer.tsx` (`EVENT TIMELINE` Section at `:403`, renders `[...detail.events].reverse().map(...)` at `:405`).
-   Today line `:411` renders `<span>{e.kind}</span>` **raw** — so `dependency_link`/`dependency_unlink` DO appear but as bare
-   snake_case with no icon, and crucially the `{parent}` payload is NOT shown: `eventDetail(e.payload)` (`:69`) only scans
-   `DETAIL_KEYS = ['reason','message','error','detail','note']` (`:68`) — `parent` isn't in it, so the operator sees
-   "dependency_link" with no indication of WHICH edge. **Build:** a shared `src/lib/eventLabels.ts` helper (100% mine, new
-   file) mapping event `kind` → `{label, icon}` (incl. the two dependency kinds + the existing common kinds for reuse) PLUS a
-   small payload-formatter that surfaces `parent` (e.g. "↳ parent t_xxxx"); consume it at `TaskDetailDrawer.tsx:411` (swap the
-   raw `{e.kind}` for `{labelFor(e.kind)}` + render the parent). **LANE NOTE:** `TaskDetailDrawer.tsx` is sibling-WIP
-   (bughunt's DELIV-2 reason-banner lives at `:158-172` + the `eventDetail`/`DETAIL_KEYS` helpers at `:68-76`) — my edit
-   region (`:411`, the timeline row) is DISJOINT from the sibling region, so a clean-blob/per-hunk commit is feasible, but
-   coordinate or prefer landing the helper file first (it's standalone) then a minimal `:411` swap. Pure + verifiable once an
-   edge is created (link via the drawer's existing link UI, then read the child's timeline). Runner-up: dedup/skip nested
-   workspace files in the global deliverables browser if duplication with the per-task workspace browser ever proves noisy
-   (currently fine — each appears once). Second runner-up: a "⬡ open task" affordance could also be added to the per-task
-   WORKSPACE browser rows for symmetry with run#20's deliverables-chip navigation.
+5. **✅ DONE this run (#21) — task event-timeline legibility layer BUILT** (see item 0 + DONE Run #21): `src/lib/eventLabels.ts`
+   (`labelFor`/`eventParent`, new file, mine) + consumed in `TaskDetailDrawer.tsx:405-426`. **Next capability to BUILD — a
+   board-wide RECENT-ACTIVITY feed in the Operations diagnostics modal, reusing run #21's `labelFor`/`eventParent`.** RATIONALE:
+   the timeline is now legible *per task*, but an operator has NO at-a-glance "what just happened across the whole board" view —
+   to see recent claims/completions/blocks/dependency-edges they must open each task drawer one by one. **PRE-SCOUT NEEDED FIRST
+   (do this before building):** check whether the bridge exposes a cross-task event aggregation endpoint — grep
+   `mission-control-bridge.py` for an events route (`/api/mc/events`, `/api/mc/activity`, or similar) and `mc_store.py` for a
+   `recent_events`/`activity` method. (a) IF one exists → build is pure frontend: `getRecentActivity()` in `api.ts` (note:
+   `api.ts` is sibling-tangled with `failMcTask` — add a clean isolated block) → a **▦ ACTIVITY** panel in `OperationsCenter.tsx`
+   (this loop's owned file, already hosts the diagnostics modal) listing the N most-recent events board-wide, each row reusing
+   `labelFor(kind)` for the icon+label + the task title (clickable → `setOpenTaskId`) + `eventParent` for dependency rows. (b)
+   IF NO endpoint exists → build it end-to-end: `MCStore.recent_events(limit=50)` (walk all tasks' event timelines, merge-sort
+   by `created_at` desc, tag each with its `task_id`/title) → `GET /api/mc/events` (clean contiguous insert) → `api.ts` fetcher →
+   the same panel. Either way it's **fully in-lane** (OperationsCenter.tsx + a clean api.ts block + optionally a pure appended
+   store method) and reuses run #21's helper — high operator value (the board's pulse in one place), honest-empty when no events.
+   **Runner-ups** (smaller, also in-lane): (i) a "⬡ open task" affordance on the per-task WORKSPACE browser rows for symmetry
+   with run #20's deliverables-chip navigation; (ii) a reciprocal **↳ child ‹id›** chip (currently only `parent` is surfaced) if
+   children-edge events ever carry a `child` payload. Lane note for option (a)/(b): if the panel ends up touching
+   `TaskDetailDrawer.tsx` keep clear of the sibling FAIL-action/banner region (`:159-231`, `:293`).
 6. **→ bughunt/evolve: `npm run lint` fails project-wide (~500 errors, NEW finding run #13).** Run #13 ran the FULL project
    lint (prior runs only `npx eslint`'d their 2–3 touched files, masking this). 500 errors / 473 auto-fixable, dominant rules
    `typescript-eslint/ban-ts-comment`, `typescript-eslint/no-unused-vars`, `react-hooks/set-state-in-effect`,
@@ -105,25 +107,26 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-17 (Run #20)** — **BUILT the artifact→producing-task navigation loop (GAPS #20 / prior TO-DO #5
-runner-up): the deliverables ⬡ task chip is now CLICKABLE → opens that task's detail drawer.** run#18 gave each deliverable
-an emerald ⬡ ‹task_id› chip but it was an inert `<span>` — no jump from an artifact to its producing task. Built it fully
-in-lane (NO sibling file): `DeliverablesDrawer.tsx` (untracked, mine) gained an optional `onOpenTask?` prop + made the chip an
-independently-clickable `<span role="button">` (stopPropagation → onClose → onOpenTask; nested `<button>` would be invalid
-markup); `OperationsCenter.tsx` (this loop's file, already hosts both drawers) wired it in one line at `:317`. Verified: `npm
-run build` ✅ (157 modules, 635ms), `npx eslint` both files → No issues, **Vite preview** (bridge up, `#/operations` HASH
-route) → 📄 DELIVERABLES opens + lists all 6 files + **0 console errors** (regression-clean); `chipCount:0` honest (live
-deliverables all `task_id:null` + live bridge predates run#18's task_id parse). `graphify update .` ✅. Operationally LIVE on
-next bridge restart + frontend rebuild; dormant honest-no-op until a watched dispatch writes `deliverables/tasks/<id>/…`. Board
-steady + healthy: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED (8 dispatchable). Commit: LOOP_STATE only —
-run #20's two frontend edits join the live-but-uncommitted bucket (both ride the api.ts `task_id`/deliverables exports tangled
-with sibling `failMcTask`, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint
-baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6)._
+_Last run: **2026-06-17 (Run #21)** — **BUILT the task event-timeline legibility layer (GAPS #21 / prior TO-DO #5): every
+event kind now renders an icon + human-readable label, and dependency events surface a clickable ↳ parent edge.** The per-task
+EVENT TIMELINE rendered raw snake_case `{e.kind}` with no icon, and the `parent` payload of `dependency_link`/`dependency_unlink`
+events was invisible. Built `src/lib/eventLabels.ts` (new file, 100% mine): `labelFor(kind)` → `{label,icon}` for the ~24 kinds
+Mc emits (Title-cased fallback for unknowns) + `eventParent(payload)`. Consumed in `TaskDetailDrawer.tsx` timeline-row region
+(`:405-426` + import `:14`, DISJOINT from the sibling FAIL-action/banner WIP in that file): row now shows `<icon> <label>` with
+`title={e.kind}` (raw kind on hover) + a NEW emerald ↳ parent ‹id› button → `onOpenTask(parent)`. Verified: `npm run build` ✅
+(157 modules, 629ms), `npx eslint` both files → No issues, **Vite preview** (bridge up, `#/operations` HASH route) → ready task
+timeline `▲ promoted`, DONE task `t_133b08ed` timeline `✓ completed · ◉ claimed · ▲ promoted`, **0 console errors**. `graphify
+update .` ✅. The ↳ parent chip is a dormant honest-no-op until a `dependency_link`/`_unlink` event exists (live bridge predates
+run #17/#19's edge-event recording — loads on restart). Board steady + healthy: `ready 8 · blocked 6 · done 18`, dispatcher
+LIVE-but-OFF + FED (8 dispatchable). Commit: `eventLabels.ts` (mine, new) + LOOP_STATE — the `TaskDetailDrawer.tsx` consumer
+edit is sibling-tangled (bughunt FAIL-action WIP), joins the live-but-uncommitted bucket (TO-DO #2). Operator-watched first
+dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still
+bughunt/evolve's (#6)._
 
 | Subsystem | State | Notes |
 |---|---|---|
 | Bridge (:8767) | ✅ UP + runs #1–#15 LIVE | `GET /api/ping` ok, **uptime ~9.5h** (34325s — on run #15 code). **`POST /api/mc/kanban/promote` → 200** (run #12 LIVE), **`GET /api/mc/deliverables` → 200** (run #15 LIVE). Runs #16 (dispatch-workspace) + #17 (cycle-break `cycle_parents` + `unlink` event) + #18 (deliverables `task_id` parse) + #19 (`dependency_link` event) load on NEXT restart. **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. `/api/mc/kanban/reconcile` → "no stale claims". |
-| Dependency-edge audit (runs #17/#19) | 🟢 loads on restart | `unlink()` records `dependency_unlink` (run#17); `link()` now records `dependency_link` (run#19) — symmetric, idempotent (no-op edges record nothing). Honest no-op on the live 0-link board until an edge is created. Next gap (TO-DO #5): surface these two event kinds in the task-activity timeline UI. |
+| Dependency-edge audit (runs #17/#19) + timeline UI (run #21) | 🟢 loads on restart | `unlink()` records `dependency_unlink` (run#17); `link()` records `dependency_link` (run#19) — symmetric, idempotent. **Run #21: the task EVENT TIMELINE now renders both kinds with an icon + readable label (⇄ dep linked / ✂ dep unlinked) + a clickable ↳ parent ‹id› chip** (`eventLabels.ts` + `TaskDetailDrawer.tsx:405`). Honest no-op on the live 0-link board: the chip is dormant until an edge is created AND the bridge restarts (live bridge predates the edge-events). Next gap (TO-DO #5): a board-wide recent-activity feed reusing `labelFor`. |
 | Deliverables (#15 LIVE) + workspace seam (#16) + task_id parse (#18) + clickable chip (#20) | 🟢 #15 LIVE, #16/#18/#20 load on restart+rebuild | `GET /api/mc/deliverables` → 200, lists all 6 (all root-level/`research/` → `task_id:null`). Run #16: dispatch writes to `deliverables/tasks/<id>/` (task-linked, dual-browser). Run #18: listing derives `task_id` from a `tasks/<id>/…` path → UI ⬡ chip. **Run #20: the ⬡ chip is now CLICKABLE → opens the producing task's detail drawer** (DeliverablesDrawer `onOpenTask` prop + OperationsCenter wiring). Verified in Vite preview: drawer opens + lists 6 + 0 console errors. No `tasks/<id>/` file exists yet (needs a dispatch) → chip dormant (honest no-op) until then. |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
 | `npm run build` | ✅ PASS | tsc + vite, exit 0 ~634ms, 157 modules (chunk-size warning only). Run #19 touched **only `mc_store.py`** (Python) → no TS change, JS build unaffected. |
@@ -450,12 +453,37 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
     both files clean + Vite preview (drawer opens, 6 files, 0 console errors, regression-clean). Loads on next bridge restart +
     frontend rebuild; dormant honest-no-op until a watched dispatch writes a `tasks/<id>/` deliverable. The follow-up (TO-DO #5):
     surface the `dependency_link`/`_unlink` events in the `TaskDetailDrawer` event timeline (pre-scouted — see TO-DO #5).
+21. ✅ **Task event-timeline legibility layer (BUILT this run — run #21).** The per-task EVENT TIMELINE rendered each event's
+    raw snake_case `kind` (`<span>{e.kind}</span>`, `TaskDetailDrawer.tsx:411`) with no icon, and `eventDetail()` only scanned
+    `DETAIL_KEYS` — so `dependency_link`/`dependency_unlink` events (run #17/#19) appeared but their `payload.parent` (the WHICH
+    edge) was invisible. Built `src/lib/eventLabels.ts` (new file, 100% mine): `labelFor(kind)` → `{label, icon}` for the ~24
+    kinds Mc emits (Title-cased fallback for unknowns, never blank) + `eventParent(payload)` (surfaces a string `payload.parent`).
+    Consumed in `TaskDetailDrawer.tsx` (timeline-row region `:405-426` + import `:14`, DISJOINT from the sibling FAIL-action/
+    banner WIP): the row now renders `<icon> <label>` with `title={e.kind}` (raw kind on hover) + a NEW emerald **↳ parent ‹id›**
+    button → `onOpenTask(parent)`. Verified: build ✅ + eslint both files clean + Vite preview (ready task `▲ promoted`, DONE task
+    `✓ completed · ◉ claimed · ▲ promoted`, 0 console errors). The ↳ parent chip is dormant until a `dependency_link`/`_unlink`
+    event exists (live bridge predates run #17/#19's edge-event recording — loads on restart). `eventLabels.ts` committed; the
+    `TaskDetailDrawer.tsx` consumer edit is sibling-tangled → live-but-uncommitted (TO-DO #2). The follow-up (TO-DO #5): a
+    board-wide recent-activity feed reusing this helper.
 - → bughunt / NOT this loop: block-reason **display** in the task drawer + FAILED-vs-BLOCKED reconciliation (the sibling
   `fail_task` WIP, still uncommitted in the working tree) are bughunt's — do not redo.
 
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-17 — Run #21 (BUILT the TASK EVENT-TIMELINE LEGIBILITY LAYER — every event kind now renders an icon + human-readable label, and dependency events surface a clickable ↳ parent edge) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green.** Bridge :8767 UP (`/api/ping` ok, **uptime ~11.5h** = 41526s — predates this run; still on run #15 code). `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18 · todo 0 · triage 0`; `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = 8 (gridkeeper×2, narratrix×2, claudelink×4 — the 4 claudelink carousels carry `web_gap:true`); `/api/mc/kanban/diagnostics` → only the 6 `blocked_no_reason` (severity `info`, the audited web-access research tasks — operator config). `npm run build` ✅ (157 modules, 629–633ms).
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18` (unchanged from runs #19/#20). No stale/dead/cycle/exhausted/promotable diagnostics. Dispatcher fed (8 dispatchable). **Did NOT dispatch** (operator absent; side-effecting bypassPermissions turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons.
+
+3. **BUILT: the task event-timeline legibility layer (CAPABILITY GAPS #21 / prior TO-DO #5), end-to-end.** The gap (pre-scouted run #20): the per-task EVENT TIMELINE (`TaskDetailDrawer.tsx`) rendered each event's raw `kind` as bare snake_case (`<span>{e.kind}</span>`, `:411`) with no icon, AND `eventDetail()` (`:69`) only scanned `DETAIL_KEYS=['reason','message','error','detail','note']` — so the `dependency_link`/`dependency_unlink` events (run #19/#17) appeared but their `payload.parent` (the WHICH-edge) was invisible: the operator saw "dependency_link" with no indication of which parent. Built the missing presentation layer:
+   - `src/lib/eventLabels.ts` (**new file, 100% mine**): `labelFor(kind)` → `{label, icon}` mapping for the ~24 kinds Mc emits (create/claim/complete/block/unblock/fail/route/promote/escalate/reassign/reclaim/reconcile/comment/edit/specify/schedule/archive/workspace_ready + the four dependency kinds: `dependency_hold`/`dependency_clear`/`dependency_link`/`dependency_unlink`), with a Title-cased fallback for unknown kinds (never blank → a new verb stays legible without editing this file); plus `eventParent(payload)` which surfaces a string `payload.parent` (the dependency edge id), `''` otherwise.
+   - `src/components/TaskDetailDrawer.tsx` (consumer, **timeline-row region only** `:405-426` + the import `:14`): the timeline row now renders `<icon> <label>` (icon in muted grey, label in the existing pink) with `title={e.kind}` (raw kind on hover, so nothing is lost), and — for any event carrying `payload.parent` — a NEW emerald **↳ parent ‹id›** button that calls `onOpenTask(parent)` (jumps to the parent task's detail). My edit region is **DISJOINT** from the sibling bughunt WIP also live in this file (the FAIL-action + no-reason banner, hunks `@@-44/-80/-155/-207/-276`).
+   **Verified:** `npm run build` ✅ (157 modules, 629ms); `npx eslint src/lib/eventLabels.ts src/components/TaskDetailDrawer.tsx` → **No issues found**. **Vite preview (bridge up, port 5219, `#/operations` HASH route):** opened the ready task "Draft 2-week content calendar" → timeline row rendered **`▲ promoted`** with `title="promoted"`; opened the DONE task `t_133b08ed` → timeline rendered **`✓ completed` · `◉ claimed` · `▲ promoted`** (three kinds, all with icons + labels). **Zero console errors** (`preview_console_logs level=error` → none). `graphify update .` ✅ (1817 nodes). **Not verified live (the ↳ parent chip):** it needs a `dependency_link`/`_unlink` event, which the live (pre-restart) bridge does NOT yet record — run #19's `link()` audit-event + run #17's `unlink()` event load on the next bridge restart; the chip then renders the first time an edge is created/removed via the drawer's link UI. Proven by build + eslint + the trivial `eventParent` extractor + the clean multi-kind render. Honest dormant state until then.
+
+4. **COMMIT — `src/lib/eventLabels.ts` (100% mine, new) + this `LOOP_STATE.md`, locally on `auto/loop-reconcile-20260615`.** The `TaskDetailDrawer.tsx` consumer edit **CANNOT** be committed: the working-tree file intermixes my two disjoint hunks (import `:14` + timeline `:405`) with **sibling bughunt WIP** (the `fail` action — `ALLOW.fail`, `failMcTaskById` destructure, the FAIL button at `:293`, the `isStuck`/no-reason banner at `:159-231`), so a full-file commit sweeps in sibling work (forbidden). A per-hunk clean-blob commit of just my two hunks is feasible (they're disjoint regions) but not forced this run — it joins the live-but-uncommitted bucket (TO-DO #2), exactly like prior runs' sibling-tangled edits. The feature is fully present + verified in the working tree; it lands cleanly once the bughunt FAIL-action lane commits its `TaskDetailDrawer.tsx` hunks. `eventLabels.ts` commits standalone (HEAD just carries an unused helper until the consumer lands — no broken import, since I'm not committing the consumer).
 
 ### 2026-06-17 — Run #20 (BUILT the ARTIFACT→TASK NAVIGATION LOOP — the deliverables ⬡ task chip is now clickable → opens that task's detail drawer) · branch `auto/loop-reconcile-20260615`
 
