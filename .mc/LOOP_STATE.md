@@ -10,22 +10,22 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#17) — BUILT the PER-TASK CYCLE-BREAK AFFORDANCE (GAPS #10): operators can now unlink an on-cycle edge
-   straight from the diagnostics UI.** run#8's `dependency_cycle` diagnostic was read-only; the unlink **backend** chain
-   already existed (sibling-landed `MCStore.unlink` `mc_store.py:415`, `POST /api/mc/tasks/unlink`, `unlinkMcTasks` api,
-   `useTaskStore.unlinkTasks`) but **nothing in the UI consumed it** and the diagnostic carried no edge data, so a button
-   wouldn't know which edge to cut. Built the two missing pieces: `unlink()` now records a `dependency_unlink` event on the
-   child + returns `{removed}` (idempotent); `diagnostics()`'s `dependency_cycle` row now carries a structured
-   **`cycle_parents`** array (the on-cycle parent edges, via the existing `_would_cycle`); `src/lib/api.ts:350` typed the
-   field; `OperationsCenter.tsx` renders an amber **✕ break ‹parent›** button per on-cycle parent →
-   `unlinkTasks(parent, task_id)` then `fetchDiagnostics()`. Stayed **in-lane** (OperationsCenter.tsx, this loop's file — NOT
-   the sibling-WIP TaskDetailDrawer.tsx). **Verified:** in-process throwaway store — seed A→B→C, guard rejects C→A, inject
-   C→A to fake bad data → all 3 flagged with non-empty `cycle_parents`; `unlink(C,A)` → `removed:True` + exactly 1
-   `dependency_unlink` event; 2nd unlink → `removed:False` (idempotent); post-break diagnostics → 0 cycle rows. `py_compile`/
-   `ast.parse` both Python ✅; `npm run build` ✅; `npx eslint` touched TS → no issues; `graphify update .` ✅. **Loads on next
-   bridge restart** (live bridge predates the new `cycle_parents` field; 0-link live board = honest no-op until a cycle
-   exists). Board healthy throughout: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED (8 dispatchable). (See
-   DONE Run #17.)
+0. **✅ DONE this run (#18) — BUILT the TASK-AWARE DELIVERABLES BROWSER (GAPS #18 / prior TO-DO #5): each dispatched-agent
+   artifact now carries the `task_id` that produced it.** Since run#16 the dispatcher writes output to
+   `deliverables/tasks/<id>/…`, and the global `GET /api/mc/deliverables` already returned those files with
+   `rel_to_root: tasks/<id>/…` — but it did NOT parse the owning task id out of the path, so the DeliverablesDrawer couldn't
+   show which task produced a file. Built it end-to-end (in-lane — all this loop's files): a pure `_deliverable_task_id(root,
+   rel_to_root)` helper (`mission-control-bridge.py:1506`) derives the id from a `deliverables`-root path of exact shape
+   `tasks/<id>/<file…>` (≥3 segments, first `tasks`, non-empty id, ≥1 file segment), returns None for root-level files / the
+   `research` root / a bare `tasks/<id>` — no store hit; the listing sets `task_id` on each entry; `src/lib/api.ts:394` added
+   `task_id?: string | null` to `DeliverableEntry`; `DeliverablesDrawer.tsx:91` renders an emerald **⬡ ‹task_id›** chip on rows
+   that carry one (tooltip `produced by task …`). **Verified:** in-process unit test of the parse over 7 cases (happy path,
+   nested file, root-level→None, no-file-segment→None, empty-id→None, wrong-root→None) → ALL PASS; `py_compile`
+   `mission-control-bridge.py` ✅; `npm run build` ✅ (157 modules, 637ms); `npx eslint` touched TS (api.ts +
+   DeliverablesDrawer.tsx) → **no issues**; `graphify update .` ✅ (1799 nodes). **Loads on next bridge restart** (live bridge
+   predates the field; no `tasks/<id>/` deliverable exists yet — needs a watched dispatch — so the chip is an honest no-op
+   until then). Board healthy throughout: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED (8 dispatchable).
+   (See DONE Run #18.)
 1. **OPERATOR-WATCHED FIRST DISPATCH — the one remaining piece to prove the full autonomy loop.** Board is now
    `ready 8 · blocked 6 · done 18`; dispatcher is **LIVE but OFF** (`enabled:false,running:false`) and FED
    (`dispatchable` = 8). Next operational step (needs operator present — side-effecting bypassPermissions turns):
@@ -53,8 +53,13 @@ below. `## DONE` is append-only history.
    `DeliverablesDrawer.tsx` is 100% mine — BUT the frontend unit can't be committed without api.ts's deliverables exports,
    and api.ts can't be committed in full (sibling `failMcTask`). Landing this needs per-hunk clean-blob surgery on
    api.ts+bridge.py excluding sibling hunks — defer to a quiet tree or hand to whichever lane owns `failMcTask` to land it
-   first, then this commits cleanly on top. Did NOT force it (autonomous run, hard rule). New file this run:
-   `src/components/DeliverablesDrawer.tsx` (clean, committable once its api.ts dep lands).
+   first, then this commits cleanly on top. Did NOT force it (autonomous run, hard rule). New file (run #15):
+   `src/components/DeliverablesDrawer.tsx` (clean, committable once its api.ts dep lands). **Run #18 adds two more clean
+   hunks to the same congested files:** `mission-control-bridge.py` now also carries the `_deliverable_task_id` helper +
+   the one-line `task_id` field in the listing (a clean contiguous block near `:1506`, refs only HEAD symbols), and
+   `src/lib/api.ts` adds a one-line `task_id?` field to `DeliverableEntry` (L394) — both ride on top of the same sibling
+   `failMcTask`/`fail_task`/`get_briefing` WIP, so still blocked from a full-file commit. `DeliverablesDrawer.tsx` (the
+   100%-mine chip edit) is committable only once its api.ts dep lands.
 3. **Web access — treat as AVAILABLE (do NOT keep asking for a Brave key).** `BRAVE_SEARCH_API_KEY` is ALREADY in
    `MC_HOME/.env`, AND `run_claude` spawns agents with `--permission-mode bypassPermissions` → native WebSearch/WebFetch, no
    third-party key needed. The web-access audit's "missing web" is a narrow heuristic (scans agent `mcps` only). Real follow-
@@ -65,17 +70,19 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#17) — per-task cycle-break affordance BUILT** (see item 0 + DONE Run #17). **Next capability to BUILD —
-   make the GLOBAL deliverables browser TASK-AWARE.** Since run#16, dispatched output lands at `deliverables/tasks/<id>/…`, so
-   the global `GET /api/mc/deliverables` listing already returns those files with `rel_to_root: tasks/<id>/…` — but it does NOT
-   parse the owning `task_id` out of the path, so the DeliverablesDrawer can't show *which task* produced a file or link back to
-   it. Build it end-to-end (in-lane — all this loop's files): in `GET /api/mc/deliverables` derive an optional `task_id` field
-   when a path matches `tasks/<id>/…` (pure string parse, no store hit), add `task_id?: string` to `DeliverableEntry` in
-   `api.ts`, and in `DeliverablesDrawer.tsx` show a task chip on those rows (optionally click → open the task drawer). Pure +
-   testable (assert the parse extracts the id from a `tasks/<id>/foo.md` path and is null for a root-level file). Runner-up
-   (smaller): give `link()` the same audit symmetry as run#17's `unlink()` — record a `dependency_link` event (currently
-   `link()` mutates silently). Second runner-up: have the global browser de-dup/skip nested workspace files if duplication with
-   the per-task workspace browser ever proves noisy (currently fine — each appears once).
+5. **✅ DONE this run (#18) — task-aware deliverables browser BUILT** (see item 0 + DONE Run #18). **Next capability to BUILD —
+   give `link()` the same audit symmetry as run#17's `unlink()`: record a `dependency_link` event.** Currently
+   `MCStore.link(parent, child)` mutates `kanban-meta.json["links"]` SILENTLY (no event), while run#17's `unlink()` records a
+   `dependency_unlink` event — so the dependency-edge audit trail is asymmetric (you can see an edge removed but not added).
+   Build it (in-lane, this loop's `mc_store.py`): in `link()`, after a NEW edge is actually appended (skip the no-op
+   already-linked case for idempotent symmetry with `unlink`), record a `dependency_link` event on the child with payload
+   `{parent}`. Pure + testable: in-process seed A, link A→B, assert exactly one `dependency_link` event with `{parent:A}`;
+   re-link the same edge → no second event (idempotent). NOTE: `mc_store.py` is sibling-congested (the `fail_task` WIP) — the
+   edit is a clean isolated region inside `link()` but the file stays in the live-but-uncommitted bucket (TO-DO #2). Runner-up
+   (smaller, frontend): make the run#18 ⬡ task chip in `DeliverablesDrawer.tsx` clickable → open that task's detail drawer (a
+   navigation affordance; needs the task-drawer open hook threaded into the deliverables modal). Second runner-up: have the
+   global browser de-dup/skip nested workspace files if duplication with the per-task workspace browser ever proves noisy
+   (currently fine — each appears once).
 6. **→ bughunt/evolve: `npm run lint` fails project-wide (~500 errors, NEW finding run #13).** Run #13 ran the FULL project
    lint (prior runs only `npx eslint`'d their 2–3 touched files, masking this). 500 errors / 473 auto-fixable, dominant rules
    `typescript-eslint/ban-ts-comment`, `typescript-eslint/no-unused-vars`, `react-hooks/set-state-in-effect`,
@@ -91,29 +98,29 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 (Run #17)** — **BUILT the PER-TASK CYCLE-BREAK AFFORDANCE (GAPS #10): operators can now unlink an
-on-cycle edge straight from the diagnostics UI.** run#8's `dependency_cycle` diagnostic was read-only; the unlink backend chain
-was already sibling-landed (`MCStore.unlink` `mc_store.py:415`, `POST /api/mc/tasks/unlink`, `unlinkMcTasks`,
-`useTaskStore.unlinkTasks`) but NOTHING in the UI consumed it and the diagnostic carried no edge data. Built the two missing
-pieces: `unlink()` now records a `dependency_unlink` event + returns `{removed}` (idempotent); `diagnostics()`'s
-`dependency_cycle` row now carries a structured `cycle_parents` array (on-cycle parent edges, via the existing `_would_cycle`);
-`api.ts:350` typed the field; `OperationsCenter.tsx` renders an amber ✕ break ‹parent› button per on-cycle parent →
-`unlinkTasks(parent, task_id)` + `fetchDiagnostics()`. In-lane (OperationsCenter.tsx, not the sibling TaskDetailDrawer.tsx).
-Verified: in-process throwaway store (seed A→B→C, guard rejects C→A, inject C→A → 3 flagged with `cycle_parents`; `unlink` →
-removed:True + 1 event; idempotent 2nd unlink; post-break 0 cycle rows), `py_compile`/`ast.parse` both Python ✅, `npm run
-build` ✅, `npx eslint` touched TS → no issues, `graphify update .` ✅. Loads on next bridge restart (live bridge predates the
-new field; 0-link live board = honest no-op until a cycle exists). Board steady + healthy: `ready 8 · blocked 6 · done 18`,
-dispatcher LIVE-but-OFF + FED (8 dispatchable). Commit: LOOP_STATE only — run #17's `mc_store.py`/`api.ts`/`OperationsCenter.tsx`
-edits join the live-but-uncommitted bucket (sibling congestion, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding
-(#4) still need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6)._
+_Last run: **2026-06-17 (Run #18)** — **BUILT the TASK-AWARE DELIVERABLES BROWSER (GAPS #18 / prior TO-DO #5): each
+dispatched-agent artifact now carries the `task_id` that produced it.** Since run#16 the dispatcher writes to
+`deliverables/tasks/<id>/…`, and `GET /api/mc/deliverables` already returned those files with `rel_to_root: tasks/<id>/…`, but
+did NOT parse the owning task id, so the DeliverablesDrawer couldn't show which task produced a file. Built a pure
+`_deliverable_task_id(root, rel_to_root)` helper (`mission-control-bridge.py:1506`) that derives the id from a
+`deliverables`-root path of shape `tasks/<id>/<file…>` (≥3 segments, first `tasks`, non-empty id, ≥1 file segment; None for
+root-level / `research` / bare `tasks/<id>` — no store hit); the listing now sets `task_id` per entry; `api.ts:394` added
+`task_id?: string | null` to `DeliverableEntry`; `DeliverablesDrawer.tsx:91` renders an emerald ⬡ ‹task_id› chip on rows that
+carry one. In-lane (all this loop's files). Verified: in-process 7-case parse unit test → ALL PASS, `py_compile`
+mission-control-bridge.py ✅, `npm run build` ✅ (157 modules, 637ms), `npx eslint` touched TS → no issues, `graphify update .`
+✅. Loads on next bridge restart (live bridge predates the field; no `tasks/<id>/` deliverable exists yet → honest no-op chip
+until a watched dispatch produces one). Board steady + healthy: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED
+(8 dispatchable). Commit: LOOP_STATE only — run #18's `mission-control-bridge.py`/`api.ts`/`DeliverablesDrawer.tsx` edits join
+the live-but-uncommitted bucket (sibling congestion, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still
+need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP + runs #1–#15 LIVE | `GET /api/ping` ok, **uptime ~3.5h** (on run #15/#16 code). **`POST /api/mc/kanban/promote` → 200** (run #12 LIVE), **`GET /api/mc/deliverables` → 200** (run #15 LIVE). Runs #16 (dispatch-workspace) + #17 (cycle-break `cycle_parents` field + `unlink` event) load on NEXT restart. **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. `/api/mc/kanban/reconcile` → "no stale claims". |
-| Deliverables (run #15 LIVE) + workspace seam (run #16) | 🟢 #15 LIVE, #16 loads on restart | `GET /api/mc/deliverables` now → 200, lists all 6. Run #16: dispatch now writes to `deliverables/tasks/<id>/` (task-linked, browsable via `GET /api/mc/tasks/{id}/workspace` AND the global deliverables browser). |
+| Bridge (:8767) | ✅ UP + runs #1–#15 LIVE | `GET /api/ping` ok, **uptime ~5.5h** (on run #15 code). **`POST /api/mc/kanban/promote` → 200** (run #12 LIVE), **`GET /api/mc/deliverables` → 200** (run #15 LIVE, returns the 6 artifacts, no `task_id` field yet). Runs #16 (dispatch-workspace) + #17 (cycle-break `cycle_parents` + `unlink` event) + #18 (deliverables `task_id` parse) load on NEXT restart. **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. `/api/mc/kanban/reconcile` → "no stale claims". |
+| Deliverables (run #15 LIVE) + workspace seam (run #16) + task_id parse (run #18) | 🟢 #15 LIVE, #16/#18 load on restart | `GET /api/mc/deliverables` → 200, lists all 6 (all root-level/`assets/`/`research/` → `task_id:null`). Run #16: dispatch writes to `deliverables/tasks/<id>/` (task-linked, dual-browser). Run #18: the listing now derives `task_id` from a `tasks/<id>/…` path; UI shows a ⬡ chip. No `tasks/<id>/` file exists yet (needs a dispatch) → chip is an honest no-op until then. |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
-| `npm run build` | ✅ PASS | tsc + vite, exit 0 ~630ms, 157 modules (chunk-size warning only). Run #17 touched `api.ts` + `OperationsCenter.tsx`. |
-| `npm run lint` | 🔴 FAIL (pre-existing, NOT this run) | **Full project `npm run lint` = ~500 errors / 473 auto-fixable** (`ban-ts-comment`, `no-unused-vars`, `set-state-in-effect`, `react-hooks/refs`) across sibling/untouched TS. Run #17's two touched TS files: `npx eslint` → **no issues**. Python (my lane): `py_compile mc_store.py` + `mission-control-bridge.py` ✅; `ast.parse` both ✅. |
+| `npm run build` | ✅ PASS | tsc + vite, exit 0 ~637ms, 157 modules (chunk-size warning only). Run #18 touched `api.ts` + `DeliverablesDrawer.tsx`. |
+| `npm run lint` | 🔴 FAIL (pre-existing, NOT this run) | **Full project `npm run lint` = ~500 errors / 473 auto-fixable** (`ban-ts-comment`, `no-unused-vars`, `set-state-in-effect`, `react-hooks/refs`) across sibling/untouched TS. Run #18's two touched TS files: `npx eslint` → **no issues**. Python (my lane): `py_compile mission-control-bridge.py` ✅. |
 | Kanban / orchestration | 🟢 FED + healthy | **ready 8 · done 18 · blocked 6 · todo 0 · triage 0** (steady). `reconcile` dry → no stale claims; no `retry_exhausted`/`dep`/`dead_agent`/`cycle`/`promotable`. 6 blocked = `blocked_no_reason` severity `info` (web-access, operator config). `dispatchable` = 8 (4 carousels `web_gap:true`). Did NOT dispatch (operator absent — side-effecting; TO-DO #1). |
 | Cron jobs | 🟡 EMPTY + engine LIVE | store `jobs: []`; scheduler daemon running (32 ticks). Maintenance `*/30` sweep (run#10) now ALSO promotes todo→ready (run #12 sweep step). Seeding needs operator sign-off (TO-DO #4). |
 | Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 27 · drafts 13 (↑ from 5) · calendar 36 (growing; writing `.mc/data/`). |
@@ -408,12 +415,35 @@ edits join the live-but-uncommitted bucket (sibling congestion, TO-DO #2). Opera
     (recursive walk) AND the per-task workspace browser BOTH see the output — no regression, triple payoff (task-linked +
     collision-safe + dual-browser). No new endpoint/TS — flows through the existing dispatch path. Verified in-process +
     py_compile/ast + wiring-order + build. Loads on next bridge restart. Live-but-uncommitted (TO-DO #2).
+18. ✅ **Task-aware deliverables browser (BUILT this run — run #18).** The run#16 seam writes dispatched output to
+    `deliverables/tasks/<id>/…` and the run#15 global browser already listed those files, but the listing never parsed the
+    owning task id, so a file couldn't be tied back to the task that produced it. Built a pure `_deliverable_task_id(root,
+    rel_to_root)` helper (`mission-control-bridge.py:1506`) that derives the id from a `deliverables`-root path of shape
+    `tasks/<id>/<file…>` (None for `research`/root-level/bare-`tasks/<id>`, no store hit); `list_deliverables` sets `task_id`
+    per entry; `api.ts:394` added `task_id?: string | null` to `DeliverableEntry`; `DeliverablesDrawer.tsx:91` renders an
+    emerald ⬡ ‹task_id› chip on rows that carry one. In-lane (all this loop's files). Verified in-process (7-case parse test →
+    ALL PASS) + build + eslint. Loads on next bridge restart; honest no-op chip until a watched dispatch produces a
+    `tasks/<id>/` file.
 - → bughunt / NOT this loop: block-reason **display** in the task drawer + FAILED-vs-BLOCKED reconciliation (the sibling
   `fail_task` WIP, still uncommitted in the working tree) are bughunt's — do not redo.
 
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-17 — Run #18 (BUILT the TASK-AWARE DELIVERABLES BROWSER — each artifact now carries the task_id that produced it) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green.** Bridge :8767 UP (`/api/ping` ok, **uptime ~5.5h** = 19927s — predates this run; still on run #15 code). `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = 8; `/api/mc/kanban/reconcile` dry → "no stale claims found". `GET /api/mc/deliverables` → 200 (6 files). `npm run build` ✅ (157 modules, 637ms); `npx eslint` on the two touched TS files (`api.ts`, `DeliverablesDrawer.tsx`) → **no issues**; `py_compile mission-control-bridge.py` ✅.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18 · todo 0 · triage 0` (unchanged). Diagnostics: only the 6 `blocked_no_reason` (severity `info`, the audited web-access research tasks — operator config); no stale/dead/cycle/exhausted/promotable. Dispatcher fed (8 dispatchable: gridkeeper×2, narratrix×2, claudelink×4 with `web_gap:true`). **Did NOT dispatch** (operator absent; side-effecting bypassPermissions turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons. Sibling logs (BUGHUNT/LOOP) tails unchanged — no collision.
+
+3. **BUILT: the TASK-AWARE DELIVERABLES BROWSER (CAPABILITY GAPS #18 / prior TO-DO #5), end-to-end.** The gap: since run#16 the dispatcher writes a dispatched agent's output to `deliverables/tasks/<id>/…`, and the run#15 global `GET /api/mc/deliverables` already returned those files (recursive walk) with `rel_to_root: tasks/<id>/…` — but it never parsed the owning task id, so the DeliverablesDrawer could not show *which task* produced a file. Built the missing parse + surface:
+   - `mission-control-bridge.py` (NEW helper, `:1506`, just above `list_deliverables`): `_deliverable_task_id(root, rel_to_root)` — returns the id from a `deliverables`-root path of exact shape `tasks/<id>/<file…>` (split on `/`: ≥3 segments, `parts[0]=="tasks"`, non-empty `parts[1]`, ≥1 trailing file segment); returns `None` for the `research` root, root-level files, or a bare `tasks/<id>` with no file under it. Pure string parse, **no store hit**. `list_deliverables` computes `rel_to_root` once and sets `"task_id": _deliverable_task_id(root, rel_to_root)` on each entry.
+   - `src/lib/api.ts` (`:394`): added `task_id?: string | null` to the `DeliverableEntry` interface.
+   - `src/components/DeliverablesDrawer.tsx` (`:91`): each list row that carries a `task_id` now renders an emerald **⬡ ‹task_id›** chip (bordered, `title="produced by task …"`) in the meta line next to the root/size/age.
+   **Verified:** an in-process unit test exec'd the parsed-out helper source over 7 cases — `('deliverables','tasks/t_3d362830/calendar.md')→'t_3d362830'`, nested `tasks/t_abc/sub/dir/file.md→'t_abc'`, `assets/hero.png→None`, root-level→None, `tasks/t_abc` (no file)→None, `tasks//file.md` (empty id)→None, `research` root→None — **ALL PASS**. `py_compile mission-control-bridge.py` ✅; `npm run build` ✅ (157 modules, 637ms); `npx eslint api.ts DeliverablesDrawer.tsx` → **no issues**; `graphify update .` ✅ (1799 nodes / 3510 edges). **Loads on next bridge restart** (live bridge predates the new field — `GET /api/mc/deliverables` currently returns the 6 files with no `task_id` key; once restarted they'll carry `task_id:null` since all are root-level/`assets/`/`research/`). **Not verified live/preview:** the ⬡ chip only renders for a file under `deliverables/tasks/<id>/`, which requires BOTH the restart AND a watched dispatch (none has run — dispatcher is OFF). Logic fully proven by the 7-case parse test + build + type-check; a preview would show zero chips and prove nothing more.
+
+4. **COMMIT — ledger only (same blocker as runs #12–#17).** Run #18's edits land in three sibling-congested files: `mission-control-bridge.py` (my clean `_deliverable_task_id` helper + 1-line `task_id` field, atop the sibling deliverables/promote endpoints + `fail_task`/`get_briefing`), `src/lib/api.ts` (my 1-line type field atop the run#15 deliverables block + sibling `failMcTask`), and `src/components/DeliverablesDrawer.tsx` (100%-mine chip edit, but uncommittable without its api.ts dep). Committing any in full sweeps in sibling/uncommitted WIP. Committed **only `.mc/LOOP_STATE.md`**; the task-aware browser is operationally LIVE on the next bridge restart and joins the live-but-uncommitted bucket (TO-DO #2). Sibling WIP left fully intact.
 
 ### 2026-06-16 — Run #17 (BUILT the PER-TASK CYCLE-BREAK AFFORDANCE — operators can now unlink an on-cycle edge from the diagnostics UI) · branch `auto/loop-reconcile-20260615`
 
