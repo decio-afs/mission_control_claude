@@ -10,26 +10,22 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#16) — BUILT the DISPATCHER WORKSPACE SEAM (dispatched output is now task-linked + collision-safe).**
-   Key state change first: **the operator RESTARTED the bridge** (uptime ~92min) so runs #12 & #15 are **NOW LIVE** —
-   `POST /api/mc/kanban/promote` → 200, `GET /api/mc/deliverables` → 200 returning the 6 real artifacts. The gap built this
-   run: `dispatch_task` ran every turn in `PROJECT_ROOT` (`cwd=None`), so an agent's file output landed orphaned at repo root
-   with no owner, and concurrent dispatch (concurrency>1) would collide. Built end-to-end (orchestration seam — no new
-   endpoint/TS needed; flows through the existing dispatch path): `MCStore.ensure_workspace(task_id)` (pure appended method,
-   `mc_store.py:1154`) creates a per-task dir at **`deliverables/tasks/<id>/`**, records the absolute path on
-   `task['workspace_path']` (+ a `workspace_ready` event), idempotent; `dispatch_task` (`mission-control-bridge.py:464-471`)
-   calls it **before** the claim and passes `cwd=` to `run_claude`; the dispatch-prompt directive (`:436`) now tells the agent
-   to write deliverables into its working directory (its workspace) instead of repo-root `deliverables/`/`research/`.
-   **Deliberate improvement over the TO-DO #5 sketch** (which proposed `.mc/workspaces/<id>/`): placing the workspace UNDER the
-   `deliverables/` root means the run #15 GLOBAL deliverables browser (recursive walk) keeps seeing the output AND the per-task
-   workspace browser (`GET /api/mc/tasks/{id}/workspace`, which reads the same `workspace_path`) now shows real task-linked
-   files — **no regression, triple payoff** (task-linked + collision-safe + both browsers work). **Verified:** in-process
-   against a throwaway store — dir created under `deliverables/tasks/`, path recorded on the task, idempotent (2nd call = same
-   path, exactly 1 `workspace_ready` event), unknown id → KeyError; `py_compile` both files ✅; `ast.parse` both ✅; wiring-order
-   assert (ensure_workspace precedes claim, `cwd=cwd` passed) ✅; `npm run build` ✅ (157 modules, TS untouched). **Loads on
-   next bridge restart** (the LIVE bridge still runs the old `cwd=None` dispatch; the dispatcher is OFF so no live dispatch
-   happened with old code this run). Board healthy throughout: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED
-   (8 dispatchable). (See DONE Run #16.)
+0. **✅ DONE this run (#17) — BUILT the PER-TASK CYCLE-BREAK AFFORDANCE (GAPS #10): operators can now unlink an on-cycle edge
+   straight from the diagnostics UI.** run#8's `dependency_cycle` diagnostic was read-only; the unlink **backend** chain
+   already existed (sibling-landed `MCStore.unlink` `mc_store.py:415`, `POST /api/mc/tasks/unlink`, `unlinkMcTasks` api,
+   `useTaskStore.unlinkTasks`) but **nothing in the UI consumed it** and the diagnostic carried no edge data, so a button
+   wouldn't know which edge to cut. Built the two missing pieces: `unlink()` now records a `dependency_unlink` event on the
+   child + returns `{removed}` (idempotent); `diagnostics()`'s `dependency_cycle` row now carries a structured
+   **`cycle_parents`** array (the on-cycle parent edges, via the existing `_would_cycle`); `src/lib/api.ts:350` typed the
+   field; `OperationsCenter.tsx` renders an amber **✕ break ‹parent›** button per on-cycle parent →
+   `unlinkTasks(parent, task_id)` then `fetchDiagnostics()`. Stayed **in-lane** (OperationsCenter.tsx, this loop's file — NOT
+   the sibling-WIP TaskDetailDrawer.tsx). **Verified:** in-process throwaway store — seed A→B→C, guard rejects C→A, inject
+   C→A to fake bad data → all 3 flagged with non-empty `cycle_parents`; `unlink(C,A)` → `removed:True` + exactly 1
+   `dependency_unlink` event; 2nd unlink → `removed:False` (idempotent); post-break diagnostics → 0 cycle rows. `py_compile`/
+   `ast.parse` both Python ✅; `npm run build` ✅; `npx eslint` touched TS → no issues; `graphify update .` ✅. **Loads on next
+   bridge restart** (live bridge predates the new `cycle_parents` field; 0-link live board = honest no-op until a cycle
+   exists). Board healthy throughout: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED (8 dispatchable). (See
+   DONE Run #17.)
 1. **OPERATOR-WATCHED FIRST DISPATCH — the one remaining piece to prove the full autonomy loop.** Board is now
    `ready 8 · blocked 6 · done 18`; dispatcher is **LIVE but OFF** (`enabled:false,running:false`) and FED
    (`dispatchable` = 8). Next operational step (needs operator present — side-effecting bypassPermissions turns):
@@ -69,15 +65,17 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#16) — dispatcher workspace/isolation seam BUILT** (see item 0 + DONE Run #16). **Next capability to
-   BUILD — per-task `unlink` cycle-break affordance (GAPS #10).** run#8 surfaces a `dependency_cycle` diagnostic read-only,
-   but there's no in-UI way to *break* a cycle. Build it end-to-end: a store `unlink(parent, child)` verb (remove the edge from
-   `kanban-meta.json["links"]`, record an event) → `POST /api/mc/tasks/unlink` → `unlinkTasks()` api fn → a small "✕ unlink"
-   affordance, preferably as a cycle-break action on the `dependency_cycle` diagnostic row in `OperationsCenter.tsx` (this
-   loop's file, to stay in-lane — `TaskDetailDrawer.tsx` is sibling WIP). Pure + testable (seed an X⇄Y cycle, unlink one edge,
-   assert `_cycle_nodes` empty). Runner-up: have the global deliverables browser SKIP the now-nested `deliverables/tasks/<id>/`
-   workspace files from its flat top-level-ish listing if duplication with the per-task browser proves noisy (currently fine —
-   they appear once each with `rel_to_root: tasks/<id>/…`).
+5. **✅ DONE this run (#17) — per-task cycle-break affordance BUILT** (see item 0 + DONE Run #17). **Next capability to BUILD —
+   make the GLOBAL deliverables browser TASK-AWARE.** Since run#16, dispatched output lands at `deliverables/tasks/<id>/…`, so
+   the global `GET /api/mc/deliverables` listing already returns those files with `rel_to_root: tasks/<id>/…` — but it does NOT
+   parse the owning `task_id` out of the path, so the DeliverablesDrawer can't show *which task* produced a file or link back to
+   it. Build it end-to-end (in-lane — all this loop's files): in `GET /api/mc/deliverables` derive an optional `task_id` field
+   when a path matches `tasks/<id>/…` (pure string parse, no store hit), add `task_id?: string` to `DeliverableEntry` in
+   `api.ts`, and in `DeliverablesDrawer.tsx` show a task chip on those rows (optionally click → open the task drawer). Pure +
+   testable (assert the parse extracts the id from a `tasks/<id>/foo.md` path and is null for a root-level file). Runner-up
+   (smaller): give `link()` the same audit symmetry as run#17's `unlink()` — record a `dependency_link` event (currently
+   `link()` mutates silently). Second runner-up: have the global browser de-dup/skip nested workspace files if duplication with
+   the per-task workspace browser ever proves noisy (currently fine — each appears once).
 6. **→ bughunt/evolve: `npm run lint` fails project-wide (~500 errors, NEW finding run #13).** Run #13 ran the FULL project
    lint (prior runs only `npx eslint`'d their 2–3 touched files, masking this). 500 errors / 473 auto-fixable, dominant rules
    `typescript-eslint/ban-ts-comment`, `typescript-eslint/no-unused-vars`, `react-hooks/set-state-in-effect`,
@@ -93,28 +91,29 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-16 (Run #16)** — **BUILT the DISPATCHER WORKSPACE SEAM: dispatched agent output is now task-linked +
-collision-safe.** Decisive state change: **the operator RESTARTED the bridge** (uptime ~92min) so runs #12 & #15 went LIVE —
-`POST /api/mc/kanban/promote` → 200, `GET /api/mc/deliverables` → 200 (returns the 6 real artifacts). The gap built: dispatch
-ran in `PROJECT_ROOT` (`cwd=None`) so agent output landed orphaned at repo root, un-owned, collision-prone at concurrency>1.
-Built `MCStore.ensure_workspace(task_id)` (per-task dir at `deliverables/tasks/<id>/`, records `workspace_path`, idempotent)
-+ wired `dispatch_task` to create it before claiming and pass `cwd=`, + retargeted the dispatch-prompt directive at the
-workspace. Placing the dir UNDER `deliverables/` (not `.mc/workspaces/` as sketched) means BOTH the run #15 global browser
-AND the per-task workspace browser see the output — no regression, triple payoff. Verified: in-process throwaway store (dir
-+ path + idempotent + 1 event + KeyError), `py_compile`/`ast.parse` both files ✅, wiring-order assert ✅, `npm run build` ✅
-(157 modules, TS untouched). Loads on next bridge restart (live bridge still on old `cwd=None`; dispatcher OFF so no live
-dispatch ran old code). Board steady + healthy: `ready 8 · blocked 6 · done 18`, dispatcher LIVE-but-OFF + FED (8
-dispatchable). Commit: LOOP_STATE only — run #16's `mc_store.py`/`bridge.py` edits join the live-but-uncommitted bucket
-(sibling `fail_task`/`get_briefing` congestion, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need
-sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6)._
+_Last run: **2026-06-16 (Run #17)** — **BUILT the PER-TASK CYCLE-BREAK AFFORDANCE (GAPS #10): operators can now unlink an
+on-cycle edge straight from the diagnostics UI.** run#8's `dependency_cycle` diagnostic was read-only; the unlink backend chain
+was already sibling-landed (`MCStore.unlink` `mc_store.py:415`, `POST /api/mc/tasks/unlink`, `unlinkMcTasks`,
+`useTaskStore.unlinkTasks`) but NOTHING in the UI consumed it and the diagnostic carried no edge data. Built the two missing
+pieces: `unlink()` now records a `dependency_unlink` event + returns `{removed}` (idempotent); `diagnostics()`'s
+`dependency_cycle` row now carries a structured `cycle_parents` array (on-cycle parent edges, via the existing `_would_cycle`);
+`api.ts:350` typed the field; `OperationsCenter.tsx` renders an amber ✕ break ‹parent› button per on-cycle parent →
+`unlinkTasks(parent, task_id)` + `fetchDiagnostics()`. In-lane (OperationsCenter.tsx, not the sibling TaskDetailDrawer.tsx).
+Verified: in-process throwaway store (seed A→B→C, guard rejects C→A, inject C→A → 3 flagged with `cycle_parents`; `unlink` →
+removed:True + 1 event; idempotent 2nd unlink; post-break 0 cycle rows), `py_compile`/`ast.parse` both Python ✅, `npm run
+build` ✅, `npx eslint` touched TS → no issues, `graphify update .` ✅. Loads on next bridge restart (live bridge predates the
+new field; 0-link live board = honest no-op until a cycle exists). Board steady + healthy: `ready 8 · blocked 6 · done 18`,
+dispatcher LIVE-but-OFF + FED (8 dispatchable). Commit: LOOP_STATE only — run #17's `mc_store.py`/`api.ts`/`OperationsCenter.tsx`
+edits join the live-but-uncommitted bucket (sibling congestion, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding
+(#4) still need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6)._
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP + runs #1–#15 LIVE (restarted) | `GET /api/ping` ok, **uptime ~92min — operator restarted onto run #15 code**. **`POST /api/mc/kanban/promote` → 200** (run #12 LIVE), **`GET /api/mc/deliverables` → 200** returning the 6 artifacts (run #15 LIVE). Run #16 dispatch-workspace wiring loads on NEXT restart. **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. `/api/mc/kanban/reconcile` → "no stale claims". |
+| Bridge (:8767) | ✅ UP + runs #1–#15 LIVE | `GET /api/ping` ok, **uptime ~3.5h** (on run #15/#16 code). **`POST /api/mc/kanban/promote` → 200** (run #12 LIVE), **`GET /api/mc/deliverables` → 200** (run #15 LIVE). Runs #16 (dispatch-workspace) + #17 (cycle-break `cycle_parents` field + `unlink` event) load on NEXT restart. **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. `/api/mc/kanban/reconcile` → "no stale claims". |
 | Deliverables (run #15 LIVE) + workspace seam (run #16) | 🟢 #15 LIVE, #16 loads on restart | `GET /api/mc/deliverables` now → 200, lists all 6. Run #16: dispatch now writes to `deliverables/tasks/<id>/` (task-linked, browsable via `GET /api/mc/tasks/{id}/workspace` AND the global deliverables browser). |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
-| `npm run build` | ✅ PASS | tsc + vite, exit 0 in 622ms, 157 modules (chunk-size warning only). Run #16 touched 0 TS. |
-| `npm run lint` | 🔴 FAIL (pre-existing, NOT this run) | **Full project `npm run lint` = ~500 errors / 473 auto-fixable** (`ban-ts-comment`, `no-unused-vars`, `set-state-in-effect`, `react-hooks/refs`) across sibling/untouched TS. Run #16 touched **0 TS**. Python (my lane): `py_compile mc_store.py` + `mission-control-bridge.py` ✅; `ast.parse` both ✅. |
+| `npm run build` | ✅ PASS | tsc + vite, exit 0 ~630ms, 157 modules (chunk-size warning only). Run #17 touched `api.ts` + `OperationsCenter.tsx`. |
+| `npm run lint` | 🔴 FAIL (pre-existing, NOT this run) | **Full project `npm run lint` = ~500 errors / 473 auto-fixable** (`ban-ts-comment`, `no-unused-vars`, `set-state-in-effect`, `react-hooks/refs`) across sibling/untouched TS. Run #17's two touched TS files: `npx eslint` → **no issues**. Python (my lane): `py_compile mc_store.py` + `mission-control-bridge.py` ✅; `ast.parse` both ✅. |
 | Kanban / orchestration | 🟢 FED + healthy | **ready 8 · done 18 · blocked 6 · todo 0 · triage 0** (steady). `reconcile` dry → no stale claims; no `retry_exhausted`/`dep`/`dead_agent`/`cycle`/`promotable`. 6 blocked = `blocked_no_reason` severity `info` (web-access, operator config). `dispatchable` = 8 (4 carousels `web_gap:true`). Did NOT dispatch (operator absent — side-effecting; TO-DO #1). |
 | Cron jobs | 🟡 EMPTY + engine LIVE | store `jobs: []`; scheduler daemon running (32 ticks). Maintenance `*/30` sweep (run#10) now ALSO promotes todo→ready (run #12 sweep step). Seeding needs operator sign-off (TO-DO #4). |
 | Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 27 · drafts 13 (↑ from 5) · calendar 36 (growing; writing `.mc/data/`). |
@@ -329,8 +328,15 @@ sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bug
    `sweepBoard()` store action → an emerald **⚙ SWEEP BOARD** button leading the Operations diagnostics toolbar
    (enabled when `staleCount+depCount+deadCount+exhaustedCount > 0`). Idempotent (2nd pass is a no-op), honest no-op
    on the live board. Loads on next bridge restart (TO-DO #1).
-10. 🟡 **No per-task cycle-break remediation.** run#8 surfaces `dependency_cycle` read-only; there's no in-UI
-    "unlink to break cycle" affordance in the task drawer. Bughunt-adjacent UI — runner-up (TO-DO #5).
+10. ✅ **Per-task cycle-break remediation (BUILT this run — run#17).** run#8 surfaced `dependency_cycle` read-only with no
+    in-UI way to break the loop. The unlink backend chain already existed (sibling-landed `MCStore.unlink` `:415`,
+    `POST /api/mc/tasks/unlink`, `unlinkMcTasks`, `useTaskStore.unlinkTasks`) but nothing consumed it and the diagnostic
+    carried no edge data. Built the two missing pieces: `unlink()` now records a `dependency_unlink` event + returns
+    `{removed}` (idempotent); `diagnostics()`'s `dependency_cycle` row now carries a structured `cycle_parents` array
+    (on-cycle parent edges, via `_would_cycle`); `api.ts` typed the field; `OperationsCenter.tsx` renders an amber
+    **✕ break ‹parent›** button per on-cycle parent → `unlinkTasks(parent, task_id)` + `fetchDiagnostics()`. In-lane
+    (OperationsCenter.tsx, not the sibling TaskDetailDrawer.tsx). Verified in-process (seed cycle → flag → break → 0 cycles).
+    Loads on next bridge restart; honest no-op on the live 0-link board.
 11. ✅ **Scheduled / hands-free board self-heal (BUILT this run — run#10).** The sweep macro (run#9) was manual-only
     and the cron scheduler (run#2) could only fire Claude *prompts* (`run_claude`), so the board could not self-heal on
     a timer without a human or a Claude turn. Built the **maintenance cron job kind** end-to-end: `mc_scheduler.is_fireable`
@@ -408,6 +414,21 @@ sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bug
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-16 — Run #17 (BUILT the PER-TASK CYCLE-BREAK AFFORDANCE — operators can now unlink an on-cycle edge from the diagnostics UI) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green.** Bridge :8767 UP (`/api/ping` ok, **uptime ~3.5h** — predates this run; still on run #15/#16 code). `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = 8; `/api/mc/kanban/reconcile` dry → "no stale claims found". `npm run build` ✅ (157 modules, ~630ms); `npx eslint` on the two touched TS files → **no issues**. `py_compile` + `ast.parse` `mc_store.py` + `mission-control-bridge.py` ✅.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18 · todo 0 · triage 0` (unchanged). Diagnostics: only the 6 `blocked_no_reason` (severity `info`, the audited web-access research tasks — operator config); no stale/dead/cycle/exhausted/promotable. Dispatcher fed (8 dispatchable: gridkeeper×2, narratrix×2, claudelink×4 with `web_gap:true`). **Did NOT dispatch** (operator absent; side-effecting bypassPermissions turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons. Sibling logs (BUGHUNT/LOOP) tails unchanged — no collision.
+
+3. **BUILT: the PER-TASK CYCLE-BREAK AFFORDANCE (CAPABILITY GAPS #10), end-to-end.** The gap: run#8's `dependency_cycle` diagnostic surfaced a stuck loop **read-only** — an operator who saw it had no in-UI way to *break* the cycle. **Discovery this run:** the unlink backend chain was ALREADY built (a sibling landed `MCStore.unlink` at `mc_store.py:415`, `POST /api/mc/tasks/unlink` at `mission-control-bridge.py:1019`, `unlinkMcTasks()` at `src/lib/api.ts:337`, and `useTaskStore.unlinkTasks` at `src/stores/useTaskStore.ts:454`) — but **nothing in the UI consumed it**, and the `dependency_cycle` diagnostic carried no structured edge data, so a button wouldn't know which edge to cut. Built the two missing pieces:
+   - `mc_store.py` `unlink()` (`:415`): now records a **`dependency_unlink`** event on the child (`{parent}`) when an edge is actually removed (was a silent mutation; the TO-DO sketch explicitly wanted the audit event) + returns `{message, removed}` (idempotent — `removed:False`, no event, on a no-op unlink).
+   - `mc_store.py` `diagnostics()` (`:520`): the `dependency_cycle` row now carries a structured **`cycle_parents`** array = the parents `p` whose edge `[p→tid]` actually lies on a cycle (computed via the existing `_would_cycle(links, p, tid)` — edge on cycle iff `tid` can already reach `p`, or self-link). The message text now lists those on-cycle parents (was all parents).
+   - `src/lib/api.ts` (`:350`): added `cycle_parents?: string[]` to the `BoardDiagnostic.diagnostics` inline type.
+   - `src/pages/OperationsCenter.tsx`: pulled `unlinkTasks` into the store destructure (`:66`), added a `breakingEdge` state, and in the diagnostics modal each `dependency_cycle` row now renders an amber **✕ break ‹parent›** button per on-cycle parent → `unlinkTasks(parent, task_id)` then `fetchDiagnostics()` to refresh (single-flight via `breakingEdge`, disables siblings while one runs). Stayed **in-lane** (TO-DO #5's directive): the action lives in `OperationsCenter.tsx` (this loop's file), NOT the sibling-WIP `TaskDetailDrawer.tsx`.
+   **Verified:** in-process throwaway `MCStore` — built a 3-node A→B→C DAG, confirmed the cycle guard rejects the closing C→A edge, **injected** the C→A edge directly into meta to simulate pre-existing bad data → `diagnostics()` flags all 3 nodes with non-empty `cycle_parents`; `unlink(C,A)` → `removed:True` + exactly **1** `dependency_unlink` event on child A (`payload {parent:C}`); 2nd unlink → `removed:False`, still 1 event (idempotent); post-break `diagnostics()` → **0** cycle rows. `py_compile`/`ast.parse` both Python files ✅; `npm run build` ✅; `npx eslint` touched TS → no issues; `graphify update .` ✅. **Loads on next bridge restart** (live bridge predates the new `cycle_parents` field; live board has 0 links so the buttons are an honest no-op until a cycle exists). **Not verified in Vite preview** — the break button only renders when a `dependency_cycle` diagnostic exists, which needs BOTH the restart (for the new field) AND a seeded cycle; the live board has 0 links, so a preview would prove nothing the in-process test doesn't. Logic fully proven in-process + type-checked.
+
+4. **COMMIT — ledger only (same blocker as runs #12–#16).** Run #17's edits land in three sibling-congested files: `mc_store.py` (my `unlink`/`diagnostics` edits + run#16 `ensure_workspace` + sibling `fail_task`), `src/lib/api.ts` (my one-line type field + run#15 deliverables block + sibling `failMcTask`), `src/pages/OperationsCenter.tsx` (all this loop's diagnostics UI, but the file is dirty with prior uncommitted loop work). Committing any in full sweeps in sibling/uncommitted WIP. Committed **only `.mc/LOOP_STATE.md`**; the cycle-break feature is operationally LIVE on the next bridge restart and joins the live-but-uncommitted bucket (TO-DO #2). Sibling WIP left fully intact.
 
 ### 2026-06-16 — Run #16 (BUILT the DISPATCHER WORKSPACE SEAM — dispatched output is now task-linked + collision-safe) · branch `auto/loop-reconcile-20260615`
 
