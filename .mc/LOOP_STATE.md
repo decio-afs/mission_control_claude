@@ -10,7 +10,21 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#27) — BUILT the board-wide ⚡ DISPATCHABLE / readiness glance drawer.** The dispatcher is
+0. **✅ DONE this run (#28) — EXTENDED the ⚡ DISPATCHABLE drawer with a ▶ RUN STATE panel.** Run #27's drawer showed
+   the *queue* + the on/off chip, but `DispatcherStatus` also carries `in_flight[]` / `last_dispatched_id` / `last_error` /
+   `ticks` / `dispatched` / `errors` — none had a readout, so after the first watched dispatch (TO-DO #1) there was no glance
+   saying "task X is running now / last fired Y / last error Z". **Pure-frontend, 100% mine** (`DispatcherStatus` already
+   exposes every field in HEAD's api.ts `:179-192`; resolves in-flight/last-dispatched ids → titles via `getMcTasks`, already
+   in HEAD): edited only `src/components/DispatchableDrawer.tsx` (my own untracked file) — fetches `getDispatcher()`+`getMcTasks()`
+   together, renders a **▶ RUN STATE** panel below the OFF banner with a counters line, an **in-flight** section (ids → titles +
+   pulsing ▶ + deep-link, or honest "Nothing in flight"), and a **last-dispatch** line (`last_dispatched_id` → title + red
+   `⚠ last_error`, or honest "No dispatch yet"). **Verified LIVE** (Vite 5219, `#/operations`, bridge UP): panel shows
+   **"0 ticks · dispatched 0 · errors 0"** + **"● Nothing in flight"** + **"◷ No dispatch yet"** (matches the live dispatcher
+   exactly), then the unchanged 8-row queue, **0 console errors**. `npm run build` ✅ (699ms, 159 modules); `npx eslint
+   DispatchableDrawer.tsx` → No issues; `graphify update .` ✅ (1853 nodes). **Commit: LOOP_STATE only** — the edit is wholly in
+   my untracked drawer (its new dep `getMcTasks` is in HEAD) but inert without the sibling-congested `OperationsCenter.tsx`
+   (TO-DO #2). No new sibling tangle (zero api.ts/bridge.py/mc_store.py edits). (See DONE Run #28.) — _Prior run #27 BUILT the
+   board-wide ⚡ DISPATCHABLE / readiness glance drawer._ The dispatcher is
    LIVE-but-OFF and FED (`/api/mc/dispatcher` → `dispatchable`=8) but that readiness list had no UI home — the operator
    couldn't see *what would run next* (and which would hit the web-gap) without curling the endpoint. Built
    `src/components/DispatchableDrawer.tsx` (**NEW, 100% mine, pure-frontend — `getDispatcher()` + its types already in HEAD's
@@ -156,16 +170,16 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#27) — board-wide ⚡ DISPATCHABLE / readiness glance drawer** (see item 0 + DONE Run #27); the run #26
-   PREFERRED candidate (a) is now built (api.ts already exposed `getDispatcher()`, so it was pure-frontend — no sibling
-   hunk). **Next capability to BUILD (run #28)** — in-lane, live-backed candidates, pick by impact:
-   (a) **PREFERRED — surface the dispatcher's live RUN STATE / last-dispatch outcome.** Run #27's ⚡ DISPATCHABLE drawer shows
-   the *queue* and the on/off chip, but `DispatcherStatus` also carries `in_flight[]`, `last_dispatched_id`, `last_error`,
-   `dispatched`/`errors`/`ticks` counters — none of which has a dedicated readout. Once the operator does the first watched
-   dispatch (TO-DO #1), there's no glance that says "task X is running now / last fired Y / last error Z". Extend the
-   DispatchableDrawer (or a sibling readout) to show an **▶ IN-FLIGHT** section (the `in_flight` ids resolved to titles) + a
-   last-dispatch line (`last_dispatched_id` → title + `last_error` if any). Pure-frontend on the same live `/api/mc/dispatcher`
-   (no new endpoint). Honest "nothing in flight" + "no dispatch yet" states. This makes the autonomy loop observable end-to-end.
+5. **✅ DONE this run (#28) — ▶ RUN STATE panel in the ⚡ DISPATCHABLE drawer** (see item 0 + DONE Run #28); the run #27
+   PREFERRED candidate (a) is now built (pure-frontend — `DispatcherStatus` already exposed the fields, `getMcTasks` already
+   in HEAD, no sibling hunk). **Next capability to BUILD (run #29)** — in-lane, live-backed candidates, pick by impact:
+   (a) **PREFERRED — make the ⚡ DISPATCHABLE drawer LIVE-POLL (auto-refresh the RUN STATE while a dispatch runs).** The
+   ▶ RUN STATE panel (run #28) reads the dispatcher ONCE on open, so during a watched dispatch the operator has to close+reopen
+   to see in_flight/last_dispatched change. Add a 5s `setInterval` poll (the run #23 EventFeedDrawer idiom: fetch-on-open then
+   interval, teardown clears it + a `live` guard drops in-flight responses) + a ● LIVE/⏸ PAUSED header toggle so the autonomy
+   loop is watchable in real time. Pure-frontend on the same live `/api/mc/dispatcher` + `getMcTasks` (no new endpoint). This is
+   the natural completion of run #28 — observability becomes *live* observability, exactly what you want during the first
+   watched fire (TO-DO #1). Keep the poll cheap (skip the getMcTasks re-fetch unless an unknown id appears).
    (b) Runner-up — a reciprocal **↳ child ‹id›** chip in the feed/timeline: only `parent` is surfaced by
    `eventParent(payload)`; needs dependency-edge events to also carry `child` in their payload (a small `mc_store.py` change,
    sibling-congested) before the UI can render it. Lane note: keep clear of the sibling FAIL-action/banner region in
@@ -185,22 +199,26 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-17 (Run #27)** — **BUILT the board-wide ⚡ DISPATCHABLE / readiness glance drawer** (lists the
-dispatcher's fire queue best-first, each row with assignee + model + an amber web-gap ⚠ marker + a deep-link to the task,
-plus the dispatcher on/off state in the header — making the autonomy queue legible BEFORE the first watched dispatch).
-Bridge UP at start (uptime ~14385s ≈ 4h, no restart — all run #16–#26 backend LIVE). **Pure-frontend, 100% mine** —
-`getDispatcher()` + its types already existed in HEAD's api.ts (`:179-216`), so NO backend/api.ts edit (zero sibling
-tangle). New file `src/components/DispatchableDrawer.tsx` + 4 disjoint in-lane edits in `OperationsCenter.tsx` (import/state/
-⚡ DISPATCHABLE toolbar button/mount+deep-link). **Verified LIVE** (Vite 5219, `#/operations`): 8 rows best-first (matches the
-endpoint), header ○ OFF + "4 WEB-GAP" + "8 ready to fire", OFF banner, footer "8 ready · 4 blocked on a web MCP · dispatched
-0 · errors 0", deep-link row 3 → TaskDetailDrawer `t_6f880653`, 0 console errors. `npm run build` ✅ (631ms, 159 modules);
-`npx eslint` both files → No issues; `graphify update .` ✅ (1852 nodes). Board steady + healthy: `ready 8 · blocked 6 ·
-done 18`, reconcile → no stale claims, dispatcher LIVE-but-OFF + FED (8 dispatchable, 4 web_gap). Commit: LOOP_STATE only
-(DispatchableDrawer clean vs HEAD but inert without the sibling-congested OperationsCenter → live-but-uncommitted bucket,
-TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline (~500 errors,
-sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #28, TO-DO #5a): surface the dispatcher's live
-RUN STATE / in-flight / last-dispatch outcome — make the autonomy loop observable end-to-end after the first watched fire.
-— Prior run #26 — **BUILT the board-wide WEB-ACCESS AUDIT glance (⚿ WEB-ACCESS drawer) + cross-linked it
+_Last run: **2026-06-17 (Run #28)** — **EXTENDED the ⚡ DISPATCHABLE drawer with a ▶ RUN STATE panel** (surfaces the
+dispatcher's live `in_flight[]` resolved to titles + deep-links, the last-dispatch outcome (`last_dispatched_id` → title +
+`last_error`), and the run counters (`ticks`/`dispatched`/`errors`) — making the autonomy loop observable end-to-end once the
+operator does the first watched dispatch). Bridge UP at start (uptime ~21574s ≈ 6h, no restart — all run #16–#27 backend LIVE).
+**Pure-frontend, 100% mine** — `DispatcherStatus` already exposed every field in HEAD's api.ts (`:179-192`), `getMcTasks`
+already in HEAD; edited ONLY `src/components/DispatchableDrawer.tsx` (my own untracked file — fetches `getDispatcher()`+
+`getMcTasks()` together, adds the ▶ RUN STATE panel with honest in-flight/last-dispatch empty states). **Verified LIVE**
+(Vite 5219, `#/operations`): panel shows "0 ticks · dispatched 0 · errors 0" + "● Nothing in flight" + "◷ No dispatch yet"
+(matches the live dispatcher exactly), then the unchanged 8-row best-first queue, 0 console errors. `npm run build` ✅ (699ms,
+159 modules); `npx eslint DispatchableDrawer.tsx` → No issues; `graphify update .` ✅ (1853 nodes). Board steady + healthy:
+`ready 8 · blocked 6 · done 18`, reconcile → no stale claims, dispatcher LIVE-but-OFF + FED (8 dispatchable, 4 web_gap).
+Commit: LOOP_STATE only (the edit is wholly in my untracked drawer but inert without the sibling-congested OperationsCenter →
+live-but-uncommitted bucket, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint
+baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #29, TO-DO #5a): make the
+⚡ DISPATCHABLE drawer LIVE-POLL the RUN STATE (5s interval + ● LIVE/⏸ PAUSED toggle, the run #23 EventFeedDrawer idiom) so the
+autonomy loop is watchable in real time during the first watched fire.
+— Prior run #27 — **BUILT the board-wide ⚡ DISPATCHABLE / readiness glance drawer** (lists the dispatcher's fire queue
+best-first, each row with assignee + model + an amber web-gap ⚠ marker + a deep-link, plus the dispatcher on/off state in the
+header). New file `DispatchableDrawer.tsx` + 4 in-lane edits in `OperationsCenter.tsx`; verified LIVE (8 rows, ○ OFF, 4 WEB-GAP,
+deep-link, 0 console errors). — Prior run #26 — **BUILT the board-wide WEB-ACCESS AUDIT glance (⚿ WEB-ACCESS drawer) + cross-linked it
 from the ⊘ BLOCKED chip.** Bridge was UP at start (uptime ~2h, no restart needed — all run #16–#24 backend LIVE). Run #25's
 ⊘ BLOCKED drawer NAMES the systemic cause ("N WEB-GAP") but the operator still couldn't see the full per-agent audit without
 opening the ⚠ diagnostics modal. Built `src/components/WebAccessDrawer.tsx` (**NEW, 100% mine, no backend change**): surfaces
@@ -239,8 +257,8 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 
 | Subsystem | State | Notes |
 |---|---|---|
-| **Dispatchable / readiness UI (run #27)** | 🟢 LIVE on rebuild (backend `/api/mc/dispatcher` already LIVE) | **`DispatchableDrawer.tsx` (NEW, 100% mine, pure-frontend)** — a ⚡ DISPATCHABLE toolbar drawer listing the dispatcher's fire queue **best-first** (endpoint order = fire order), each row with a dispatch index, a ⚠/✓ web-gap marker, the task title (deep-link → TaskDetailDrawer), assignee, and agent model; header shows the dispatcher state chip (○ OFF / ● ON·RUNNING/IDLE) + **N WEB-GAP** chip + ready count; honest OFF banner + empty/error states + footer (`N ready · N blocked on a web MCP · dispatched N · errors N`). Read-only — never dispatches (firing is the watched operator action, TO-DO #1). Reuses HEAD's `getDispatcher()`/`DispatcherInfo`/`DispatchablePlan` (api.ts `:179-216`, NO edit). Verified LIVE: 8 rows, ○ OFF, "4 WEB-GAP", deep-link works, 0 console errors. Uncommitted (rides the same OperationsCenter congestion, TO-DO #2). |
-| Bridge (:8767) | ✅ UP (uptime ~4h, no restart needed) → runs #1–#26 all LIVE | UP at start (`/api/ping` ok, uptime ~7182s — restarted by run #25/operator), serving ALL uncommitted backend. Confirmed live this run: **`GET /api/mc/events?limit=2` → 200 (total 45)** (run #22 — ▦ ACTIVITY FULL taxonomy), **`GET /api/mc/agents/web-access` → 200** (`needs_web=9, missing_web=9, blocked_due_to_web=6`, run #3), `POST /api/mc/kanban/reconcile {dry_run}` → "no stale claims". **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. |
+| **Dispatchable / readiness UI (run #27) + ▶ RUN STATE (run #28)** | 🟢 LIVE on rebuild (backend `/api/mc/dispatcher` already LIVE) | **`DispatchableDrawer.tsx` (NEW, 100% mine, pure-frontend)** — a ⚡ DISPATCHABLE toolbar drawer listing the dispatcher's fire queue **best-first** (endpoint order = fire order), each row with a dispatch index, a ⚠/✓ web-gap marker, the task title (deep-link → TaskDetailDrawer), assignee, and agent model; header shows the dispatcher state chip (○ OFF / ● ON·RUNNING/IDLE) + **N WEB-GAP** chip + ready count; honest OFF banner + empty/error states + footer (`N ready · N blocked on a web MCP · dispatched N · errors N`). **Run #28 adds a ▶ RUN STATE panel** (below the OFF banner): the counters line (`N ticks · dispatched N · errors N`), an **in-flight** section (`in_flight` ids resolved to titles via `getMcTasks` + pulsing ▶ + deep-link, or honest "Nothing in flight"), and a **last-dispatch** line (`last_dispatched_id` → title + red `⚠ last_error`, or honest "No dispatch yet"). Read-only — never dispatches (firing is the watched operator action, TO-DO #1). Reuses HEAD's `getDispatcher()`/`DispatcherStatus`/`getMcTasks` (api.ts, NO edit). Verified LIVE: 8 rows, ○ OFF, "4 WEB-GAP", RUN STATE shows "0 ticks · Nothing in flight · No dispatch yet", deep-link works, 0 console errors. Uncommitted (rides the same OperationsCenter congestion, TO-DO #2). |
+| Bridge (:8767) | ✅ UP (uptime ~6h, no restart needed) → runs #1–#27 all LIVE | UP at start (`/api/ping` ok, uptime ~21574s ≈ 6h), serving ALL uncommitted backend. Confirmed live this run: `POST /api/mc/kanban/reconcile {dry_run}` → "no stale claims". **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1,in_flight:[],ticks:0,dispatched:0,errors:0,last_dispatched_id:null,last_error:null}`, `dispatchable` = **8** (4 `web_gap`). |
 | **Web-access audit UI (run #26)** | 🟢 LIVE on rebuild (backend `/api/mc/agents/web-access` already LIVE) | **`WebAccessDrawer.tsx` (NEW, 100% mine)** — a ⚿ WEB-ACCESS toolbar drawer listing every `needs_web` agent **gap-first** (then by blocked-task count) with a ⚠/✓ marker, name, **N blk** (tasks it blocks), MCPs, web-skills count, header **N MISSING + N BLOCKED** chips, provisioning hint + honest `Audited T…` footer. Read-only (never provisions). Cross-linked: the ⊘ BLOCKED **N WEB-GAP** chip is now a button (**↗**, via new `onOpenAudit` prop) that closes blocked + opens the audit. Verified LIVE: 9 MISSING / 6 BLOCKED, narratrix 5 blk + 2 web-skills, cross-link works, 0 console errors. Uncommitted (rides the same OperationsCenter congestion, TO-DO #2). |
 | Event-timeline UI (run #21) + board-wide feed (run #22) + LIVE polling (run #23) + coarse-feed fallback (run #24) | 🟢 **FULL taxonomy LIVE now** (bridge restarted this run → `/api/mc/events` 200) | **Run #21:** per-task EVENT TIMELINE renders each kind with icon+label + ↳ parent chip (`eventLabels.ts` + `TaskDetailDrawer.tsx:405`). **Run #22: a board-wide ▦ ACTIVITY drawer** (`EventFeedDrawer.tsx`) merges EVERY task's full event timeline newest-first via `GET /api/mc/events` → `MCStore.recent_events`. **Run #23: LIVE** — auto-polls every 5s, ● LIVE/PAUSED toggle + kind-filter chips. **Run #24: coarse-feed fallback** (degrades to `/api/mc/activity` when events 404). This run the bridge was restarted so `/api/mc/events` → 200 — the feed serves the full taxonomy (45 events), no BASIC chip. |
 | **Blocked-tasks triage (run #25)** | 🟢 LIVE on rebuild (rebuild needed for the wiring; backend already in HEAD) | **`BlockedTasksDrawer.tsx` (NEW, 100% mine)** — a ⊘ BLOCKED toolbar drawer in OperationsCenter listing every blocked task **oldest-first** with a RESOLVED reason (recorded diagnostic → else amber "needs web access — ‹assignee› has no web MCP" via the audit's `gap` set → else honest "no recorded reason"), assignee, age, deep-link, a header **N WEB-GAP** chip + audit hint banner. Reuses `getMcTasks`/`getKanbanDiagnostics`/`getWebAccessAudit` (all in HEAD). Verified LIVE: 6 rows, "6 WEB-GAP" chip, deep-link → TaskDetailDrawer, 0 console errors. Uncommitted (rides the same OperationsCenter/api.ts congestion, TO-DO #2). |
@@ -665,6 +683,18 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-17 — Run #28 (EXTENDED the ⚡ DISPATCHABLE drawer with a ▶ RUN STATE panel — surfaces the dispatcher's live in_flight[] resolved to titles + deep-links, the last-dispatch outcome (last_dispatched_id → title + last_error), and the run counters (ticks/dispatched/errors) — making the autonomy loop observable end-to-end once the operator does the first watched dispatch) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green (no restart needed).** Bridge :8767 **UP** at start (`/api/ping` ok, uptime ~21574s ≈ 6h — all run #16–#27 backend LIVE). Confirmed: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18` (steady); `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1,in_flight:[],ticks:0,dispatched:0,errors:0,last_dispatched_id:null,last_error:null}`, `dispatchable`=**8** (4 with `web_gap:true`); `POST /api/mc/kanban/reconcile {dry_run}` → "no stale claims found". `npm run build` ✅ (exit 0, 699ms). `git stash list` empty; sibling working tree unchanged — no collision.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18` (unchanged from runs #19–#27). Reconcile → no stale claims; no dead agents. **Did NOT dispatch** (operator absent; side-effecting bypassPermissions turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons.
+
+3. **BUILT (TO-DO #5a / GAPS #28): the ▶ RUN STATE readout in the ⚡ DISPATCHABLE drawer.** Run #27's drawer showed the *queue* + the on/off chip, but `DispatcherStatus` also carries `in_flight[]`, `last_dispatched_id`, `last_error`, and the `ticks`/`dispatched`/`errors` counters — none of which had a dedicated readout, so once the operator does the first watched dispatch (TO-DO #1) there was no glance saying "task X is running now / last fired Y / last error Z". **Pure-frontend, 100% mine, no backend change** — `DispatcherStatus` already exposes every field in HEAD's `api.ts` (`:179-192`, no edit):
+   - **`src/components/DispatchableDrawer.tsx` (my own untracked file, in-lane edit):** on open it now fetches `getDispatcher()` **and** `getMcTasks()` together (`Promise.all`) to build an `id→title` map (an in-flight/last-dispatched task has *left* the dispatchable queue so its title isn't in `plan`); a new **▶ RUN STATE** panel below the OFF banner shows (a) the counters line (`N ticks · dispatched N · errors N`), (b) an **in-flight** section — each `in_flight` id resolved to its title with a pulsing ▶ + a deep-link, or an honest "● Nothing in flight — no task is running right now", and (c) a **last-dispatch** line — `last_dispatched_id` → title (deep-link) + a red `⚠ last_error` if present, or an honest "◷ No dispatch yet — nothing has been fired this session". `getMcTasks` is already in HEAD (used by BlockedTasksDrawer), so no new api.ts dep.
+   - **Verified in the LIVE Vite preview** (port 5219, `#/operations`, bridge UP): opened ⚡ DISPATCHABLE → the ▶ RUN STATE panel renders with **"0 ticks · dispatched 0 · errors 0"**, **"● Nothing in flight — no task is running right now."**, and **"◷ No dispatch yet — nothing has been fired this session."** — matching the live dispatcher exactly (`in_flight:[]`, `last_dispatched_id:null`, all counters 0) — followed by the unchanged 8-row best-first queue; **0 console errors** (`level=error` → none). `npm run build` ✅ (699ms, 159 modules); `npx eslint DispatchableDrawer.tsx` → No issues; `graphify update .` ✅ (1853 nodes). (Screenshot tool timed out twice on the modal overlay — a renderer flake, same as runs #23–#27; the DOM/innerText verification above is the complete, preferred proof, and the empty-state strings only render after a successful live fetch.)
+
+4. **Commit: LOOP_STATE only.** The ▶ RUN STATE edit lives entirely inside `DispatchableDrawer.tsx` (my own untracked file) and its only new dep — `getMcTasks` — is already in HEAD. But the file is still inert without `OperationsCenter.tsx`, which rides the same uncommitted run #22–#27 drawer congestion + the sibling-`failMcTask`-tangled `api.ts` → stays in the live-but-uncommitted bucket (TO-DO #2). No new sibling tangle introduced (zero api.ts/bridge.py/mc_store.py edits this run).
 
 ### 2026-06-17 — Run #27 (BUILT the board-wide ⚡ DISPATCHABLE / readiness glance — a drawer that lists the dispatcher's fire queue best-first, each row with its assignee + model + an amber web-gap ⚠ marker + a deep-link to the task, plus the dispatcher's enabled/running state in the header — making the autonomy queue legible BEFORE the first watched dispatch) · branch `auto/loop-reconcile-20260615`
 
