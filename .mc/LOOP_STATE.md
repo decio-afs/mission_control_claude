@@ -10,8 +10,25 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#26) — BUILT the board-wide WEB-ACCESS AUDIT glance (⚿ WEB-ACCESS drawer) + cross-linked it from
-   the ⊘ BLOCKED chip.** Run #25's ⊘ BLOCKED drawer NAMES the systemic cause ("N WEB-GAP") but the operator still couldn't
+0. **✅ DONE this run (#27) — BUILT the board-wide ⚡ DISPATCHABLE / readiness glance drawer.** The dispatcher is
+   LIVE-but-OFF and FED (`/api/mc/dispatcher` → `dispatchable`=8) but that readiness list had no UI home — the operator
+   couldn't see *what would run next* (and which would hit the web-gap) without curling the endpoint. Built
+   `src/components/DispatchableDrawer.tsx` (**NEW, 100% mine, pure-frontend — `getDispatcher()` + its types already in HEAD's
+   api.ts `:179-216`, NO backend/api.ts edit**): lists the dispatch queue **best-first** (endpoint order = fire order, so
+   row 1 is "next to run"), each row with a dispatch-order index, a ⚠/✓ web-gap marker (run #26's amber idiom), the task
+   title (clickable deep-link → TaskDetailDrawer), assignee, and agent model; header shows the dispatcher state chip
+   (**○ OFF** / **● ON · RUNNING/IDLE**) + a **"N WEB-GAP"** chip + a ready count; honest OFF banner + empty/error states +
+   a footer (`N ready · N blocked on a web MCP · dispatched N · errors N`); read-only (never dispatches). Wired into
+   `OperationsCenter.tsx` (4 disjoint in-lane edits: import `:20` / state `:129` / **⚡ DISPATCHABLE** toolbar button after
+   ⚿ WEB-ACCESS / mount + onOpenTask deep-link). **Verified LIVE** (Vite port 5219, `#/operations`, bridge UP uptime ~4h):
+   **8 rows best-first** (matches the endpoint), header **○ OFF / "4 WEB-GAP" / "8 ready to fire"**, OFF banner, footer
+   **"8 ready to fire · 4 blocked on a web MCP · dispatched 0 · errors 0"**, **deep-link proven** (row 3 closed the drawer +
+   opened TaskDetailDrawer `t_6f880653`), **0 console errors**. `npm run build` ✅ (631ms, 159 modules); `npx eslint` both
+   files → No issues; `graphify update .` ✅ (1852 nodes). **Commit: LOOP_STATE only** — `DispatchableDrawer.tsx` is clean
+   against HEAD but inert without `OperationsCenter.tsx` (still imports the uncommitted run #22–#26 drawers + rides the
+   sibling-`failMcTask`-tangled api.ts) → stays in the live-but-uncommitted bucket (TO-DO #2). No new sibling tangle (zero
+   api.ts/bridge.py/mc_store.py edits). (See DONE Run #27.) — _Prior run #26 BUILT the board-wide WEB-ACCESS AUDIT glance
+   (⚿ WEB-ACCESS drawer) + cross-linked it from the ⊘ BLOCKED chip._ Run #25's ⊘ BLOCKED drawer NAMES the systemic cause ("N WEB-GAP") but the operator still couldn't
    see the full per-agent audit (which agents need web, what MCPs they carry, how many tasks each blocks) without opening
    the ⚠ diagnostics modal. Built `src/components/WebAccessDrawer.tsx` (**NEW, 100% mine, no backend change**): surfaces
    `/api/mc/agents/web-access` directly — lists every `needs_web` agent **gap-first** (then by blocked-task count, then
@@ -139,17 +156,16 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#26) — board-wide ⚿ WEB-ACCESS audit glance + ⊘ BLOCKED cross-link** (see item 0 + DONE Run #26);
-   the run #25 PREFERRED candidate (a) is now built. **Next capability to BUILD (run #27)** — in-lane, live-backed candidates,
-   pick by impact:
-   (a) **PREFERRED — a board-wide ⚡ DISPATCHABLE / READINESS glance drawer.** The dispatcher is LIVE-but-OFF and FED
-   (`/api/mc/dispatcher` → `dispatchable`=8, each row carrying `id/title/assignee/agent_model/agent_mcps/web_gap`), but
-   that readiness list has **no UI home** — the operator can't see *what would run next* (and which of those would hit the
-   web-gap) without curling the endpoint. A read-only ⚡ DISPATCHABLE drawer in OperationsCenter listing the dispatch queue
-   best-first, each row with its assignee + model + a **web-gap ⚠** marker (reusing run #26's amber idiom) + a deep-link to
-   the task, plus a header showing dispatcher `enabled/running` state, would make the autonomy queue legible before the
-   first watched dispatch (TO-DO #1). Pure-frontend; needs a thin `getDispatcher()` type+fn in api.ts (the endpoint exists)
-   — check whether api.ts already exposes it before adding (avoid the sibling-congested hunks). Honest empty/OFF states.
+5. **✅ DONE this run (#27) — board-wide ⚡ DISPATCHABLE / readiness glance drawer** (see item 0 + DONE Run #27); the run #26
+   PREFERRED candidate (a) is now built (api.ts already exposed `getDispatcher()`, so it was pure-frontend — no sibling
+   hunk). **Next capability to BUILD (run #28)** — in-lane, live-backed candidates, pick by impact:
+   (a) **PREFERRED — surface the dispatcher's live RUN STATE / last-dispatch outcome.** Run #27's ⚡ DISPATCHABLE drawer shows
+   the *queue* and the on/off chip, but `DispatcherStatus` also carries `in_flight[]`, `last_dispatched_id`, `last_error`,
+   `dispatched`/`errors`/`ticks` counters — none of which has a dedicated readout. Once the operator does the first watched
+   dispatch (TO-DO #1), there's no glance that says "task X is running now / last fired Y / last error Z". Extend the
+   DispatchableDrawer (or a sibling readout) to show an **▶ IN-FLIGHT** section (the `in_flight` ids resolved to titles) + a
+   last-dispatch line (`last_dispatched_id` → title + `last_error` if any). Pure-frontend on the same live `/api/mc/dispatcher`
+   (no new endpoint). Honest "nothing in flight" + "no dispatch yet" states. This makes the autonomy loop observable end-to-end.
    (b) Runner-up — a reciprocal **↳ child ‹id›** chip in the feed/timeline: only `parent` is surfaced by
    `eventParent(payload)`; needs dependency-edge events to also carry `child` in their payload (a small `mc_store.py` change,
    sibling-congested) before the UI can render it. Lane note: keep clear of the sibling FAIL-action/banner region in
@@ -169,7 +185,22 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-17 (Run #26)** — **BUILT the board-wide WEB-ACCESS AUDIT glance (⚿ WEB-ACCESS drawer) + cross-linked it
+_Last run: **2026-06-17 (Run #27)** — **BUILT the board-wide ⚡ DISPATCHABLE / readiness glance drawer** (lists the
+dispatcher's fire queue best-first, each row with assignee + model + an amber web-gap ⚠ marker + a deep-link to the task,
+plus the dispatcher on/off state in the header — making the autonomy queue legible BEFORE the first watched dispatch).
+Bridge UP at start (uptime ~14385s ≈ 4h, no restart — all run #16–#26 backend LIVE). **Pure-frontend, 100% mine** —
+`getDispatcher()` + its types already existed in HEAD's api.ts (`:179-216`), so NO backend/api.ts edit (zero sibling
+tangle). New file `src/components/DispatchableDrawer.tsx` + 4 disjoint in-lane edits in `OperationsCenter.tsx` (import/state/
+⚡ DISPATCHABLE toolbar button/mount+deep-link). **Verified LIVE** (Vite 5219, `#/operations`): 8 rows best-first (matches the
+endpoint), header ○ OFF + "4 WEB-GAP" + "8 ready to fire", OFF banner, footer "8 ready · 4 blocked on a web MCP · dispatched
+0 · errors 0", deep-link row 3 → TaskDetailDrawer `t_6f880653`, 0 console errors. `npm run build` ✅ (631ms, 159 modules);
+`npx eslint` both files → No issues; `graphify update .` ✅ (1852 nodes). Board steady + healthy: `ready 8 · blocked 6 ·
+done 18`, reconcile → no stale claims, dispatcher LIVE-but-OFF + FED (8 dispatchable, 4 web_gap). Commit: LOOP_STATE only
+(DispatchableDrawer clean vs HEAD but inert without the sibling-congested OperationsCenter → live-but-uncommitted bucket,
+TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline (~500 errors,
+sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #28, TO-DO #5a): surface the dispatcher's live
+RUN STATE / in-flight / last-dispatch outcome — make the autonomy loop observable end-to-end after the first watched fire.
+— Prior run #26 — **BUILT the board-wide WEB-ACCESS AUDIT glance (⚿ WEB-ACCESS drawer) + cross-linked it
 from the ⊘ BLOCKED chip.** Bridge was UP at start (uptime ~2h, no restart needed — all run #16–#24 backend LIVE). Run #25's
 ⊘ BLOCKED drawer NAMES the systemic cause ("N WEB-GAP") but the operator still couldn't see the full per-agent audit without
 opening the ⚠ diagnostics modal. Built `src/components/WebAccessDrawer.tsx` (**NEW, 100% mine, no backend change**): surfaces
@@ -208,7 +239,8 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP (uptime ~2h, no restart needed) → runs #1–#24 all LIVE | UP at start (`/api/ping` ok, uptime ~7182s — restarted by run #25/operator), serving ALL uncommitted backend. Confirmed live this run: **`GET /api/mc/events?limit=2` → 200 (total 45)** (run #22 — ▦ ACTIVITY FULL taxonomy), **`GET /api/mc/agents/web-access` → 200** (`needs_web=9, missing_web=9, blocked_due_to_web=6`, run #3), `POST /api/mc/kanban/reconcile {dry_run}` → "no stale claims". **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. |
+| **Dispatchable / readiness UI (run #27)** | 🟢 LIVE on rebuild (backend `/api/mc/dispatcher` already LIVE) | **`DispatchableDrawer.tsx` (NEW, 100% mine, pure-frontend)** — a ⚡ DISPATCHABLE toolbar drawer listing the dispatcher's fire queue **best-first** (endpoint order = fire order), each row with a dispatch index, a ⚠/✓ web-gap marker, the task title (deep-link → TaskDetailDrawer), assignee, and agent model; header shows the dispatcher state chip (○ OFF / ● ON·RUNNING/IDLE) + **N WEB-GAP** chip + ready count; honest OFF banner + empty/error states + footer (`N ready · N blocked on a web MCP · dispatched N · errors N`). Read-only — never dispatches (firing is the watched operator action, TO-DO #1). Reuses HEAD's `getDispatcher()`/`DispatcherInfo`/`DispatchablePlan` (api.ts `:179-216`, NO edit). Verified LIVE: 8 rows, ○ OFF, "4 WEB-GAP", deep-link works, 0 console errors. Uncommitted (rides the same OperationsCenter congestion, TO-DO #2). |
+| Bridge (:8767) | ✅ UP (uptime ~4h, no restart needed) → runs #1–#26 all LIVE | UP at start (`/api/ping` ok, uptime ~7182s — restarted by run #25/operator), serving ALL uncommitted backend. Confirmed live this run: **`GET /api/mc/events?limit=2` → 200 (total 45)** (run #22 — ▦ ACTIVITY FULL taxonomy), **`GET /api/mc/agents/web-access` → 200** (`needs_web=9, missing_web=9, blocked_due_to_web=6`, run #3), `POST /api/mc/kanban/reconcile {dry_run}` → "no stale claims". **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. |
 | **Web-access audit UI (run #26)** | 🟢 LIVE on rebuild (backend `/api/mc/agents/web-access` already LIVE) | **`WebAccessDrawer.tsx` (NEW, 100% mine)** — a ⚿ WEB-ACCESS toolbar drawer listing every `needs_web` agent **gap-first** (then by blocked-task count) with a ⚠/✓ marker, name, **N blk** (tasks it blocks), MCPs, web-skills count, header **N MISSING + N BLOCKED** chips, provisioning hint + honest `Audited T…` footer. Read-only (never provisions). Cross-linked: the ⊘ BLOCKED **N WEB-GAP** chip is now a button (**↗**, via new `onOpenAudit` prop) that closes blocked + opens the audit. Verified LIVE: 9 MISSING / 6 BLOCKED, narratrix 5 blk + 2 web-skills, cross-link works, 0 console errors. Uncommitted (rides the same OperationsCenter congestion, TO-DO #2). |
 | Event-timeline UI (run #21) + board-wide feed (run #22) + LIVE polling (run #23) + coarse-feed fallback (run #24) | 🟢 **FULL taxonomy LIVE now** (bridge restarted this run → `/api/mc/events` 200) | **Run #21:** per-task EVENT TIMELINE renders each kind with icon+label + ↳ parent chip (`eventLabels.ts` + `TaskDetailDrawer.tsx:405`). **Run #22: a board-wide ▦ ACTIVITY drawer** (`EventFeedDrawer.tsx`) merges EVERY task's full event timeline newest-first via `GET /api/mc/events` → `MCStore.recent_events`. **Run #23: LIVE** — auto-polls every 5s, ● LIVE/PAUSED toggle + kind-filter chips. **Run #24: coarse-feed fallback** (degrades to `/api/mc/activity` when events 404). This run the bridge was restarted so `/api/mc/events` → 200 — the feed serves the full taxonomy (45 events), no BASIC chip. |
 | **Blocked-tasks triage (run #25)** | 🟢 LIVE on rebuild (rebuild needed for the wiring; backend already in HEAD) | **`BlockedTasksDrawer.tsx` (NEW, 100% mine)** — a ⊘ BLOCKED toolbar drawer in OperationsCenter listing every blocked task **oldest-first** with a RESOLVED reason (recorded diagnostic → else amber "needs web access — ‹assignee› has no web MCP" via the audit's `gap` set → else honest "no recorded reason"), assignee, age, deep-link, a header **N WEB-GAP** chip + audit hint banner. Reuses `getMcTasks`/`getKanbanDiagnostics`/`getWebAccessAudit` (all in HEAD). Verified LIVE: 6 rows, "6 WEB-GAP" chip, deep-link → TaskDetailDrawer, 0 console errors. Uncommitted (rides the same OperationsCenter/api.ts congestion, TO-DO #2). |
@@ -351,6 +383,12 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 
 ## CAPABILITY GAPS  _(ranked by operator impact; ✅=built, →bughunt=broken-not-missing)_
 
+0. ✅ **Dispatch-queue legibility (BUILT run #27).** The dispatcher was LIVE-but-OFF and FED (`dispatchable`=8) but the
+   readiness queue had no UI home — the operator couldn't see what would fire next without curling `/api/mc/dispatcher`.
+   Built `DispatchableDrawer.tsx` (⚡ DISPATCHABLE), pure-frontend (`getDispatcher()` already in HEAD), listing the queue
+   best-first with web-gap markers, the dispatcher on/off state, and per-row deep-links. **Next (run #28):** surface the
+   dispatcher's live RUN STATE — `in_flight`/`last_dispatched_id`/`last_error` — so the autonomy loop is observable after the
+   first watched dispatch (TO-DO #5a). ✅ **(run #26) Web-access audit glance** (⚿ WEB-ACCESS) + ⊘ BLOCKED cross-link.
 1. ✅ **Stale-claim self-heal (BUILT this run).** Diagnostics *detected* `stale_claim` but there was
    no remediation verb — one dead agent could freeze the board forever (it did: a 160h zombie).
    Built `POST /api/mc/kanban/reconcile` → `reconcileKanban()` → `reconcileBoard()` store action →
@@ -627,6 +665,19 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-17 — Run #27 (BUILT the board-wide ⚡ DISPATCHABLE / readiness glance — a drawer that lists the dispatcher's fire queue best-first, each row with its assignee + model + an amber web-gap ⚠ marker + a deep-link to the task, plus the dispatcher's enabled/running state in the header — making the autonomy queue legible BEFORE the first watched dispatch) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green (no restart needed).** Bridge :8767 **UP** at start (`/api/ping` ok, uptime ~14385s ≈ 4h — all run #16–#26 backend LIVE). Confirmed: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18` (steady); `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable`=**8** (4 with `web_gap:true` — the claudelink/Notion carousels); `POST /api/mc/kanban/reconcile {dry_run}` → "no stale claims found". `npm run build` ✅ (exit 0, 631ms). Sibling working tree unchanged — no collision.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18` (unchanged from runs #19–#26). Reconcile → no stale claims; no dead agents. **Did NOT dispatch** (operator absent; side-effecting bypassPermissions turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons.
+
+3. **BUILT (TO-DO #5a / GAPS #27): the board-wide ⚡ DISPATCHABLE / readiness glance.** The dispatcher is LIVE-but-OFF and already FED (`/api/mc/dispatcher` → `dispatchable`=8, each row carrying `id/title/assignee/agent_model/agent_mcps/web_gap`), but that readiness list had **no UI home** — the operator couldn't see *what would run next* (and which would hit the web-gap) without curling the endpoint. **Pure-frontend, 100% mine, no backend change** — `getDispatcher()`/`DispatcherStatus`/`DispatchablePlan`/`DispatcherInfo` already exist in HEAD's `api.ts` (`:179-216`, no edit needed):
+   - **`src/components/DispatchableDrawer.tsx` (NEW file, 100% mine):** on open, fetches `getDispatcher()`; lists the dispatch queue **in the endpoint's order** (already best-first → row 1 is literally "next to fire"), each row showing a dispatch-order index, a ⚠/✓ web-gap tone marker (reusing run #26's amber idiom), the task title (clickable → deep-link), assignee, and the agent model (stripped of the `claude-` prefix); header carries the dispatcher state chip (**○ OFF** / **● ON · RUNNING** / **● ON · IDLE**, emerald when enabled) + a **"N WEB-GAP"** amber chip + a "N ready to fire" count; an honest OFF banner ("nothing runs until a watched manual dispatch … the top row fires first"); honest empty/OFF/error states; footer summarizes `N ready · N blocked on a web MCP · dispatched N · errors N`. Read-only by construction — lists the queue, never dispatches (firing is the watched operator action of TO-DO #1).
+   - **`src/pages/OperationsCenter.tsx` (4 disjoint edits, in-lane — my file):** import (`:20`), `dispatchableOpen` state (`:129`), a **⚡ DISPATCHABLE** toolbar button after ⚿ WEB-ACCESS (emerald hover), drawer mount keyed on open with the `onOpenTask` deep-link wiring (closes the drawer → opens TaskDetailDrawer).
+   - **Verified in the LIVE Vite preview** (port 5219, `#/operations`, bridge UP): the ⚡ DISPATCHABLE button renders; drawer opens showing **8 rows best-first** (matches the endpoint exactly), header **○ OFF** + **"4 WEB-GAP"** + **"8 ready to fire"**, the OFF banner, row 1 = `gridkeeper · sonnet-4-6` (web-gap ✓), footer **"8 ready to fire · 4 blocked on a web MCP · dispatched 0 · errors 0"**; **deep-link proven** — clicking row 3 closed the drawer + opened TaskDetailDrawer for `t_6f880653`; **0 console errors**. `npm run build` ✅ (631ms, 159 modules); `npx eslint DispatchableDrawer.tsx OperationsCenter.tsx` → No issues; `graphify update .` ✅ (1852 nodes). (Screenshot tool timed out twice on the modal overlay — a renderer flake, not a code issue; the page stayed responsive and the DOM/accessibility verification above is the preferred, complete proof.)
+
+4. **Commit: LOOP_STATE only.** `DispatchableDrawer.tsx` is clean against HEAD (its only `api.ts` deps — `getDispatcher`/`DispatcherInfo`/`DispatchablePlan`/`DispatcherStatus`/`errMessage` — are ALL in HEAD) but it's inert without `OperationsCenter.tsx`, which still imports the uncommitted run #22–#26 drawers (`EventFeedDrawer`/`BlockedTasksDrawer`/`WebAccessDrawer` + the HEAD-absent `getRecentEvents`) and rides the sibling-`failMcTask`-tangled `api.ts` → stays in the live-but-uncommitted bucket (TO-DO #2). No new sibling tangle introduced (zero api.ts/bridge.py/mc_store.py edits this run).
 
 ### 2026-06-17 — Run #26 (BUILT the board-wide WEB-ACCESS AUDIT glance — a ⚿ WEB-ACCESS drawer that lists every agent that needs the live web but lacks a web MCP, gap-first, each with its blocked-task count + MCPs + web-skills, cross-linked from the ⊘ BLOCKED "WEB-GAP" chip — closing the "see the rot → see the systemic fix" loop) · branch `auto/loop-reconcile-20260615`
 
