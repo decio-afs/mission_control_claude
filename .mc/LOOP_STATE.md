@@ -257,25 +257,32 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#35) — per-row WEB-GAP deep-link on ⊘ BLOCKED** (the PREFERRED candidate (a) from run #34's list; see
-   item 0 + DONE Run #35). Each blocked-by-web-gap row's assignee is now a `‹assignee› ↗` button → ⚿ WEB-ACCESS focused on that
-   agent (the run #33 focus machinery, reused). Wholly in `BlockedTasksDrawer.tsx` + `AutonomyDrawer.tsx` (my own files), no
-   backend change, no new dep. With this, BOTH the ⚡ DISPATCHABLE and ⊘ BLOCKED web-gap surfaces now per-row deep-link into the
-   audit — the autonomy-observability cross-linking is symmetric and complete. **Next capability to BUILD (run #36)** — in-lane,
-   live-backed candidates, pick by impact:
-   (a) **Persist the operator's last-open AUTONOMY tab ACROSS the cross-link path too / or persist the per-agent web-focus** — run
-   #34 persists the tab, but a per-row focus (run #33/#35) sets a transient `webFocus` that is NOT persisted (deliberately). Low
-   value; skip unless nothing better.
-   (b) **PREFERRED — a reciprocal `↳ child ‹id›` chip in the ▦ ACTIVITY feed / CronTimeline** (was run #34's runner-up (b)): only
-   `parent` is surfaced by `eventParent(payload)`; the feed shows `↳ parent` on a dependency-edge event but not the reverse. Needs
-   dependency-edge events to ALSO carry `child` in their payload — a small `mc_store.py` change in the `link()`/`unlink()` event
-   emit (sibling-congested: the `link()` hunk already rides directly above the purely-sibling `fail_task` method, TO-DO #2). If the
-   payload already carries enough to derive the child (the edge's `task_id`), this could be pure-frontend in `EventFeedDrawer`'s
-   `eventParent`/`labelFor` — **PRE-SCOUT the live `/api/mc/events` payload shape first** before deciding frontend-only vs
-   backend-needed. Lane note: keep clear of the sibling FAIL-action/banner region in `TaskDetailDrawer.tsx` (`:159-231`, `:293`),
-   and the sibling `failMcTask`/`fail_task` hunks in api.ts/bridge.py/mc_store.py.
-   (c) Runner-up — surface the ⚿ WEB-ACCESS audit's per-agent **web-skills detail** (which specific MCPs/skills each gap agent is
-   missing vs has) inline rather than just a count, so the provisioning fix is actionable from the audit row itself.
+5. **✅ DONE this run (#36) — per-agent WEB-SKILLS DETAIL is now inline + actionable in the ⚿ WEB-ACCESS audit** (run #35's
+   candidate (c); runs #35-pick (b) reciprocal-child-chip was KILLED by pre-scout — see below). Each gap agent's row is now
+   click-to-expand: the web-skills *count* opens a detail panel showing the **specific** web-leaning skills that flagged it (chips),
+   the **MCPs it already HAS** (chips), and an explicit **MISSING → add `web-brave-free` to ‹agent›'s `mcps`** fix line — so the
+   provisioning fix is readable from the row itself, not just the `title` tooltip. The focused agent (arriving via the run #33/#35
+   cross-link) auto-expands. Wholly in `WebAccessDrawer.tsx` (my own untracked file), no backend change, no new dep (all data —
+   `web_skills[]`/`mcps[]`/`gap` — already in the live `/api/mc/agents/web-access` payload). (See item 0-equivalent in DONE Run #36.)
+   **PRE-SCOUT THAT KILLED 5b (reciprocal child chip):** probed live `GET /api/mc/events?limit=80` → the feed emits **only**
+   lifecycle kinds (`promoted`/`completed`/`claimed`/`created`/`routed`/`reclaimed`) — **ZERO dependency/link/unlink events**. So a
+   reciprocal `↳ child ‹id›` chip would render UI for events that never appear in the live feed = a stub against live data (forbidden
+   by the no-demo-data rule). 5b is NOT buildable as live-backed work until the bridge actually emits dependency-edge events into
+   `/api/mc/events` (it currently does not — `mc_store.py` `link()`/`unlink()` emit audit events but they don't surface in this
+   feed). **Next capability to BUILD (run #37)** — in-lane, live-backed candidates, pick by impact:
+   (a) **PREFERRED — make the ⚿ WEB-ACCESS detail panel's web-skill chips deep-link to the blocked task(s)** the skill is driving:
+   the audit row knows `blocked_tasks` (count) but not *which* tasks; cross-reference `getMcTasks()` (already in HEAD) filtered by
+   `assignee===agent && status==='blocked'` to list the actual blocked task titles as deep-links inside the expanded detail (reuse
+   the TaskDetailDrawer hand-off the other drawers already wire). Closes "this agent needs web → because of THESE skills → which
+   block THESE specific tasks → open them." Pure-frontend, in-lane (`WebAccessDrawer.tsx`).
+   (b) Runner-up — a ⊙ AUTONOMY tab badge: show the live `MISSING`/`BLOCKED`/`dispatchable` counts as small numeric badges on the
+   ⚿ WEB-ACCESS / ⊘ BLOCKED / ⚡ DISPATCHABLE tab buttons in `AutonomyDrawer.tsx` so the operator sees where the attention is needed
+   before opening each tab. Needs the wrapper to fetch the three summaries once on open (cheap); pure-frontend, in-lane.
+   (c) Skip — persist the transient per-agent web-focus (run #35 noted low value).
+   (d) DEFERRED until the bridge emits dependency events — the reciprocal `↳ child ‹id›` chip (old 5b). Re-scout `/api/mc/events`
+   each run; the day a `link`/`unlink`/`dependency` kind appears in the live feed, this becomes a pure-frontend `EventFeedDrawer`
+   change. Lane note: the `link()`/`unlink()` emit lives directly above the sibling `fail_task` in `mc_store.py` (TO-DO #2) — a
+   backend change there is sibling-congested, so prefer to wait for the emit rather than add it from this lane.
 6. **→ bughunt/evolve: `npm run lint` fails project-wide (~500 errors, NEW finding run #13).** Run #13 ran the FULL project
    lint (prior runs only `npx eslint`'d their 2–3 touched files, masking this). 500 errors / 473 auto-fixable, dominant rules
    `typescript-eslint/ban-ts-comment`, `typescript-eslint/no-unused-vars`, `react-hooks/set-state-in-effect`,
@@ -291,27 +298,32 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-18 (Run #35)** — **PER-ROW WEB-GAP DEEP-LINK ON ⊘ BLOCKED** — each blocked-by-web-gap row's assignee is now a
-`‹assignee› ↗` button that opens the ⚿ WEB-ACCESS tab focused on that exact agent (scrolled-to + ring-amber highlight + `▸ ‹agent›`
-chip), not just the whole-list header chip — symmetric to run #33, which did this for ⚡ DISPATCHABLE. With both surfaces now
-per-row deep-linking, the autonomy-observability cross-linking is symmetric and complete. **Pure-frontend, 100% mine, no backend
-change, no new dep** — TWO of my own untracked files: `BlockedTasksDrawer.tsx` (widened `onOpenAudit?: () => void` →
-`(agent?: string) => void`; per-row assignee `<span>` → `‹assignee› ↗` `<button>` when `tone==='web' && onOpenAudit`; **also fixed
-the header chip `onClick={onOpenAudit}` → `() => onOpenAudit()`** so the widened signature doesn't pass the MouseEvent as `agent`)
-and `AutonomyDrawer.tsx` (blocked mount `onOpenAudit={() => openAudit()}` — which discarded the agent — → `onOpenAudit={openAudit}`
-so the per-row agent reaches the existing `openAudit(agent?)` focus hand-off, same as the ⚡ DISPATCHABLE mount). **HEALTH GREEN:**
-bridge UP at start (`/api/ping` ok, uptime ~2h); board `ready 8 · blocked 6 · done 18`; diagnostics → only the 6 expected
-`blocked_no_reason` web-gap research tasks (no stale/dead/cycle, nothing to reclaim); dispatcher LIVE-but-OFF + FED (8
-dispatchable); cron `jobs:[]` + scheduler LIVE (240 ticks @ 30s, 0 fired). **Verified LIVE** (Vite 5219, `#/operations`, after a
-full reload, DOM/console layer via `preview_eval`): ⊘ BLOCKED tab shows **6 per-row `‹assignee› ↗` buttons** (`narratrix ↗`×5 +
-`default ↗`) + the unchanged header `6 WEB-GAP ↗`; clicking the **`default ↗`** row (a non-narratrix agent) kept the surface OPEN
-and switched to ⚿ WEB-ACCESS with a `▸` focus chip + **exactly 1 ring-amber-highlighted** audit row; **0 console errors**. `npm run
-build` ✅; `npx eslint BlockedTasksDrawer.tsx AutonomyDrawer.tsx` → No issues; `graphify update .` ✅. Commit: LOOP_STATE only
-(both files inert/uncommittable in HEAD — ride the sibling-congested OperationsCenter wiring + uncommitted api.ts exports →
-live-but-uncommitted bucket, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline
-(~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #36, TO-DO #5b): a reciprocal `↳ child
-‹id›` chip in the ▦ ACTIVITY feed — PRE-SCOUT the live `/api/mc/events` payload first to decide frontend-only vs a sibling-congested
-`mc_store.py` change. — Prior run #34 — **PERSIST LAST-OPEN AUTONOMY TAB** — the consolidated ⊙ AUTONOMY surface now reopens on the
+_Last run: **2026-06-18 (Run #36)** — **PER-AGENT WEB-SKILLS DETAIL — INLINE + ACTIONABLE in the ⚿ WEB-ACCESS audit** — each gap
+agent's row is now click-to-expand: the web-skills *count* opens a detail panel listing the **specific** web-leaning skills that
+flagged it (chips), the **MCPs it already HAS** (chips), and an explicit **MISSING → add `web-brave-free` to ‹agent›'s `mcps`** fix
+line — so the provisioning fix is readable from the row itself, not buried in a `title` tooltip. The cross-link-focused agent
+(run #33/#35) auto-expands. **Pure-frontend, 100% mine, no backend change, no new dep** — ONE of my own untracked files:
+`WebAccessDrawer.tsx` (added `expanded:Set<string>` + `toggle()`; the web-skills cell became a clickable expander with a `▸/▾`
+caret; a conditional detail sub-row renders `web_skills[]`/`mcps[]` as chips + the amber MISSING fix line for gap agents; a
+`focusAgent` auto-expand effect). All data was already in the live `/api/mc/agents/web-access` payload. **This run KILLED the
+planned 5b** (reciprocal `↳ child` chip) via PRE-SCOUT: live `GET /api/mc/events?limit=80` emits **only** lifecycle kinds
+(`promoted`/`completed`/`claimed`/`created`/`routed`/`reclaimed`) — **ZERO dependency/link events** — so a child chip would render
+UI for events that never appear = a forbidden stub; deferred until the bridge emits dependency-edge events (new TO-DO #5d).
+**HEALTH: bridge was DOWN at start** (operator's process had exited) → restarted it (`python mission-control-bridge.py`), back up
+in ~3s; all backend LIVE on the fresh process. Board `ready 8 · blocked 6 · done 18`; diagnostics → only the 6 expected
+`blocked_no_reason` web-gap research tasks (no stale/dead/cycle, nothing to reclaim); dispatcher LIVE-but-OFF + FED (8 dispatchable,
+4 web_gap); cron `jobs:[]` + scheduler LIVE. **Verified LIVE** (Vite 5219, `#/operations`, DOM/console layer via `preview_eval` —
+`preview_screenshot` timed out, same renderer hiccup as runs #34/#35, that layer unverified): ⊙ AUTONOMY → ⚿ WEB-ACCESS shows **8
+expandable web-skill rows** + the `MISSING` chip; expanding a row reveals **WEB-LEANING** + **HAS MCPs** + **MISSING → web-search
+MCP / web-brave-free** with exactly **1 `▾`** open marker; **0 console errors**. `npm run build` ✅; `npx eslint WebAccessDrawer.tsx`
+→ No issues; `graphify update .` ✅ (117 files, no topo change). Commit: LOOP_STATE only (the drawer is inert without the
+sibling-congested OperationsCenter wiring + uncommitted api.ts exports → live-but-uncommitted bucket, TO-DO #2). Operator-watched
+first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still
+bughunt/evolve's (#6). Next gap (run #37, TO-DO #5a): deep-link the detail panel's web-skill chips to the agent's actual blocked
+tasks (cross-ref `getMcTasks()` by assignee+blocked). — Prior run #35 — **PER-ROW WEB-GAP DEEP-LINK ON ⊘ BLOCKED** — each
+blocked-by-web-gap row's assignee became a `‹assignee› ↗` button opening the ⚿ WEB-ACCESS tab focused on that exact agent; with
+both ⚡ DISPATCHABLE and ⊘ BLOCKED surfaces per-row deep-linking, the autonomy cross-linking is symmetric. — Prior run #34 —
+**PERSIST LAST-OPEN AUTONOMY TAB** — the consolidated ⊙ AUTONOMY surface now reopens on the
 view the operator was last working in (`localStorage['mc.autonomy.tab']`, validated + try/catch, restored across sessions)
 instead of always snapping back to ▦ ACTIVITY; the PREFERRED candidate (a) from run #33's list. **Pure-frontend, 100% mine, no
 backend change, no new dep** — edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file): `readStoredTab`/`persistTab`
@@ -867,6 +879,23 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-18 — Run #36 (PER-AGENT WEB-SKILLS DETAIL — inline + actionable in the ⚿ WEB-ACCESS audit; run #35's candidate (c). Also PRE-SCOUTED and KILLED the planned 5b reciprocal-child-chip — live `/api/mc/events` carries no dependency events) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green AFTER a bridge restart (DOWN at start).** Bridge :8767 was DOWN at start (`/api/ping` → "Unable to connect"; the operator's process had exited). Restarted it (`python mission-control-bridge.py`, hidden window), back up in ~3s (`/api/ping` → `{ok:true,uptime_seconds:12}`). Confirmed LIVE on the fresh process: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18` (steady since runs #19–#35); `/api/mc/kanban/diagnostics` → only the 6 expected `blocked_no_reason` (web-access config gap, info — no stale/dead/cycle/retry-exhausted); `/api/mc/dispatcher` → `{enabled:false,running:false,...}`, `dispatchable`=**8** (4 `web_gap:true`); `/api/mc/cron` → `jobs:[]`, scheduler LIVE. `npm run build` ✅ before edits.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18`. Diagnostics dry → no stale claims / dead agents / cycles / retry-exhausted; the 6 blocked are the known web-access config gap (`blocked_no_reason`, info — operator config, not code; TO-DO #3). **Did NOT dispatch** (operator absent; side-effecting turns need sign-off — TO-DO #1); did NOT enable the daemon or seed crons (TO-DO #4).
+
+3. **PRE-SCOUT — KILLED the planned run #36 build (5b, reciprocal `↳ child ‹id›` chip).** TO-DO #5b required pre-scouting the live `/api/mc/events` payload first. Probed `GET /api/mc/events?limit=80` → 45 events, **only** lifecycle `kind`s: `promoted`×15 / `completed`×8 / `claimed`×8 / `created`×7 / `routed`×6 / `reclaimed`×1 — **ZERO `dependency`/`link`/`unlink` events**. So `eventParent(payload)` finds no parent here and a reciprocal child chip would render UI for events that never appear in the live feed = a stub against live data (forbidden by the no-demo-data rule). 5b is NOT live-backed until the bridge emits dependency-edge events into this feed (the `mc_store.py` `link()`/`unlink()` audit events don't surface in `/api/mc/events`). Deferred → new TO-DO #5d (re-scout each run; pure-frontend the day a dependency kind appears). Pre-scout did its job: saved a dead feature.
+
+4. **BUILT instead (run #35 candidate (c)): per-agent WEB-SKILLS DETAIL — inline + actionable.** The ⚿ WEB-ACCESS audit row showed web-leaning skills only as a *count* (`N web-skills`), with the actual names buried in a `title` tooltip — so the operator couldn't see *why* each agent needs web or *what to provision* without hovering. Now each gap agent's row is click-to-expand. **Pure-frontend, 100% mine, no backend change, no new dep** (all fields — `web_skills[]`/`mcps[]`/`gap` — already in the live `/api/mc/agents/web-access` payload). Edited ONLY `src/components/WebAccessDrawer.tsx` (my own untracked file):
+   - Added `expanded: Set<string>` state + a `toggle(name)` helper (`:73`), and an effect that **auto-expands the cross-link-focused agent** (`:90`) so arriving via the run #33/#35 deep-link lands directly on the actionable detail.
+   - The agent row became `role=button` + keyboard-toggleable (Enter/Space) when it has anything to show (`canExpand`); the web-skills cell now ends with a `▸/▾` caret (`:160`).
+   - A conditional detail sub-row (`:168`) renders three labelled chip-rows: **WEB-LEANING** (the specific `web_skills` as chips, or an honest "flagged by role/profile" when empty), **HAS MCPs** (the `mcps` it already carries, or "none"), and — for gap agents — **MISSING → web-search MCP** with an inline `→ add web-brave-free to ‹agent›'s mcps` fix line. The collapsed row is unchanged, so the list stays scannable.
+
+5. **VERIFY — build + lint + LIVE preview.** `npm run build` ✅ (chunk-size warning pre-existing, no errors); `npx eslint src/components/WebAccessDrawer.tsx` → **No issues** (exit 0); `graphify update .` ✅ (117 files, no topology change). **LIVE** (Vite 5219, `#/operations`, DOM/console layer via `preview_eval`): opened ⊙ AUTONOMY → ⚿ WEB-ACCESS tab → **8 expandable web-skill rows** + the `MISSING` summary chip present; clicking the first row revealed the detail panel — **WEB-LEANING** ✓, **HAS MCPs** ✓, **MISSING → web-search MCP** ✓, the **web-brave-free** fix hint ✓, with exactly **1 `▾`** open marker; `preview_console_logs(error)` → **No console logs** (0 errors). `preview_screenshot` timed out after 30s — the same renderer hiccup as runs #34/#35, that visual layer unverified; the DOM/console proof is conclusive.
+
+6. **COMMIT — LOOP_STATE only.** The drawer is mine but **inert/uncommittable in HEAD**: it's reachable only through the sibling-congested `OperationsCenter.tsx` wiring (which imports the uncommitted run #22–#35 drawers + rides the sibling-`failMcTask`-tangled api.ts). Stays in the live-but-uncommitted bucket (TO-DO #2). No new sibling tangle introduced (zero api.ts/bridge.py/mc_store.py edits). Staged ONLY `.mc/LOOP_STATE.md`.
 
 ### 2026-06-18 — Run #35 (PER-ROW WEB-GAP DEEP-LINK ON ⊘ BLOCKED — each blocked-by-web-gap row's assignee now opens the ⚿ WEB-ACCESS audit focused on that exact agent, symmetric to run #33's ⚡ DISPATCHABLE; the PREFERRED run #35 candidate (a) from run #34's TO-DO #5 list) · branch `auto/loop-reconcile-20260615`
 
