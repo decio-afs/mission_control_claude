@@ -10,7 +10,25 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#25) — BUILT the board-wide BLOCKED-TASKS triage glance (⊘ BLOCKED drawer).** The 6 research
+0. **✅ DONE this run (#26) — BUILT the board-wide WEB-ACCESS AUDIT glance (⚿ WEB-ACCESS drawer) + cross-linked it from
+   the ⊘ BLOCKED chip.** Run #25's ⊘ BLOCKED drawer NAMES the systemic cause ("N WEB-GAP") but the operator still couldn't
+   see the full per-agent audit (which agents need web, what MCPs they carry, how many tasks each blocks) without opening
+   the ⚠ diagnostics modal. Built `src/components/WebAccessDrawer.tsx` (**NEW, 100% mine, no backend change**): surfaces
+   `/api/mc/agents/web-access` directly — lists every `needs_web` agent **gap-first** (then by blocked-task count, then
+   name) with a ⚠/✓ marker, name, **"N blk"** (tasks it's blocking, red when >0), its MCPs, a web-skills count, header
+   **"N MISSING" + "N BLOCKED"** chips, the provisioning hint banner + an honest `Audited T…` footer; read-only (never
+   provisions). Made the ⊘ BLOCKED **"N WEB-GAP"** chip a clickable button (**"↗"**) via a new optional `onOpenAudit` prop
+   that closes the blocked drawer and opens the audit (the cross-link that closes the "see the rot → see the systemic fix"
+   loop). Wired into `OperationsCenter.tsx` (import/state/⚿ WEB-ACCESS toolbar button after ⊘ BLOCKED/mount + onOpenAudit
+   hand-off). **Verified in the LIVE Vite preview** (port 5219, `#/operations`, bridge UP uptime ~2h): drawer shows
+   **"9 MISSING" + "6 BLOCKED"** chips, **"9 need web · 5 ok"**, narratrix **"5 blk" + "2 web-skills"**, default **"1 blk"**
+   (matches the endpoint exactly); cross-link proven — the ⊘ BLOCKED chip is now a BUTTON **"6 WEB-GAP ↗"** that closes
+   blocked + opens audit; **0 console errors**. `npm run build` ✅ (608ms, 159 modules); `npx eslint` all 3 files → No
+   issues; `graphify update .` ✅. **Commit: LOOP_STATE only** — `WebAccessDrawer.tsx` is clean against HEAD (deps
+   `getWebAccessAudit`/`WebAccessRow` in HEAD, run #3) but inert without `OperationsCenter.tsx`, which still imports the
+   uncommitted `EventFeedDrawer`/`DeliverablesDrawer` (HEAD-absent `getRecentEvents` + sibling-`failMcTask`-tangled api.ts)
+   → stays in the live-but-uncommitted bucket (TO-DO #2). (See DONE Run #26.) — _Prior run #25 BUILT the board-wide
+   BLOCKED-TASKS triage glance (⊘ BLOCKED drawer)._ The 6 research
    tasks have sat `blocked_no_reason` ~200h and the only place to see WHY (the systemic web-access gap, run #3's audit)
    was the per-row diagnostics modal, one task at a time. Built `src/components/BlockedTasksDrawer.tsx` (**NEW, 100% mine,
    no backend change**): reuses three already-in-HEAD endpoints (`getMcTasks` + `getKanbanDiagnostics` +
@@ -121,15 +139,17 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#25) — board-wide ⊘ BLOCKED triage glance** (see item 0 + DONE Run #25); the run #24 PREFERRED
-   candidate (a) is now built. **Next capability to BUILD (run #26)** — two in-lane, live-backed candidates, pick by impact:
-   (a) **PREFERRED — a one-click "open the WEB-ACCESS AUDIT" affordance / cross-link from the ⊘ BLOCKED drawer.** The drawer
-   now NAMES the systemic cause (N WEB-GAP + hint) but the operator still can't see the full per-agent audit
-   (`/api/mc/agents/web-access`: which 9 agents need web, their mcps, blocked_tasks) without opening the ⚠ diagnostics modal.
-   A small read-only WEB-ACCESS panel (its own drawer, OR a button inside ⊘ BLOCKED) listing each gap-agent with its
-   `blocked_tasks` count + the provisioning hint would close the "see the rot → see the systemic fix" loop. Pure-frontend on
-   the LIVE `getWebAccessAudit()` (already in HEAD), in-lane (OperationsCenter + a new mine component). Honest amber, no fake
-   provisioning.
+5. **✅ DONE this run (#26) — board-wide ⚿ WEB-ACCESS audit glance + ⊘ BLOCKED cross-link** (see item 0 + DONE Run #26);
+   the run #25 PREFERRED candidate (a) is now built. **Next capability to BUILD (run #27)** — in-lane, live-backed candidates,
+   pick by impact:
+   (a) **PREFERRED — a board-wide ⚡ DISPATCHABLE / READINESS glance drawer.** The dispatcher is LIVE-but-OFF and FED
+   (`/api/mc/dispatcher` → `dispatchable`=8, each row carrying `id/title/assignee/agent_model/agent_mcps/web_gap`), but
+   that readiness list has **no UI home** — the operator can't see *what would run next* (and which of those would hit the
+   web-gap) without curling the endpoint. A read-only ⚡ DISPATCHABLE drawer in OperationsCenter listing the dispatch queue
+   best-first, each row with its assignee + model + a **web-gap ⚠** marker (reusing run #26's amber idiom) + a deep-link to
+   the task, plus a header showing dispatcher `enabled/running` state, would make the autonomy queue legible before the
+   first watched dispatch (TO-DO #1). Pure-frontend; needs a thin `getDispatcher()` type+fn in api.ts (the endpoint exists)
+   — check whether api.ts already exposes it before adding (avoid the sibling-congested hunks). Honest empty/OFF states.
    (b) Runner-up — a reciprocal **↳ child ‹id›** chip in the feed/timeline: only `parent` is surfaced by
    `eventParent(payload)`; needs dependency-edge events to also carry `child` in their payload (a small `mc_store.py` change,
    sibling-congested) before the UI can render it. Lane note: keep clear of the sibling FAIL-action/banner region in
@@ -149,27 +169,27 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-17 (Run #25)** — **BUILT the board-wide BLOCKED-TASKS triage glance (⊘ BLOCKED drawer).** The bridge was
-DOWN at start → restarted it (`python mission-control-bridge.py` on the working-tree files → all uncommitted run #16–#24
-backend is now LIVE; `GET /api/mc/events` → 200 now, so the ▦ ACTIVITY feed serves the FULL taxonomy, no longer the run #24
-BASIC fallback). The 6 research tasks have sat `blocked_no_reason` ~200h with the real cause (the systemic web-access gap)
-visible only one-task-at-a-time in the diagnostics modal. Built `src/components/BlockedTasksDrawer.tsx` (**NEW, 100% mine, no
-backend change**): reuses three already-in-HEAD endpoints (`getMcTasks` + `getKanbanDiagnostics` + `getWebAccessAudit`), lists
-every blocked task **oldest-first** with a RESOLVED one-line reason (recorded diagnostic → else amber "needs web access —
-‹assignee› has no web-search MCP" if the assignee is in the audit's `gap` set → else honest "blocked without a recorded
-reason"), assignee, age, a clickable deep-link to the task drawer, a header **"N WEB-GAP"** chip + the audit hint banner, and
-an honest empty state. Wired into `OperationsCenter.tsx` (4 disjoint in-lane edits: import/state/⊘ BLOCKED toolbar
-button/mount). **Verified in the LIVE Vite preview** (port 5219, `#/operations`): drawer shows **6 rows**, **"6 WEB-GAP"**
-chip, hint banner, each row resolved to the web-access reason + narratrix/default + **8d** age (oldest-first), deep-link
-closes the drawer + opens TaskDetailDrawer (`t_ac3acb98`), **0 console errors**. `npm run build` ✅ (159 modules); `npx eslint`
-both files → No issues; `graphify update .` ✅ (1843 nodes). Board steady + healthy: `ready 8 · blocked 6 · done 18`,
-reconcile → no stale claims, dispatcher LIVE-but-OFF + FED (8 dispatchable). Commit: LOOP_STATE only —
-`BlockedTasksDrawer.tsx` is clean against HEAD (all api deps in HEAD) but inert without `OperationsCenter.tsx`, which still
-imports the uncommitted `EventFeedDrawer`/`DeliverablesDrawer` (HEAD-absent `getRecentEvents` + sibling-`failMcTask`-tangled
-api.ts) → stays in the live-but-uncommitted bucket (TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4)
-still need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run
-#26, TO-DO #5a): a WEB-ACCESS AUDIT cross-link/panel from the ⊘ BLOCKED drawer (close the "see the rot → see the systemic
-fix" loop), pure-frontend on the live `getWebAccessAudit()`. — _Prior run #22 PRE-SCOUT:_
+_Last run: **2026-06-17 (Run #26)** — **BUILT the board-wide WEB-ACCESS AUDIT glance (⚿ WEB-ACCESS drawer) + cross-linked it
+from the ⊘ BLOCKED chip.** Bridge was UP at start (uptime ~2h, no restart needed — all run #16–#24 backend LIVE). Run #25's
+⊘ BLOCKED drawer NAMES the systemic cause ("N WEB-GAP") but the operator still couldn't see the full per-agent audit without
+opening the ⚠ diagnostics modal. Built `src/components/WebAccessDrawer.tsx` (**NEW, 100% mine, no backend change**): surfaces
+`/api/mc/agents/web-access` directly — lists every `needs_web` agent **gap-first** (then by blocked-task count, then name)
+with a ⚠/✓ marker, name, **"N blk"** (tasks it's blocking, red when >0), MCPs, web-skills count, header **"N MISSING" +
+"N BLOCKED"** chips, the provisioning hint banner + an honest `Audited T…` footer; read-only (never provisions). Made the
+⊘ BLOCKED **"N WEB-GAP"** chip a clickable button (**"↗"**) via a new optional `onOpenAudit` prop that closes blocked +
+opens the audit (the cross-link that closes the "see the rot → see the systemic fix" loop). Wired into `OperationsCenter.tsx`
+(import/state/⚿ WEB-ACCESS toolbar button/mount + onOpenAudit hand-off). **Verified in the LIVE Vite preview** (port 5219,
+`#/operations`): drawer shows **"9 MISSING" + "6 BLOCKED"** chips, **"9 need web · 5 ok"**, narratrix **"5 blk" + "2
+web-skills"**, default **"1 blk"** (matches the endpoint exactly); cross-link proven — the ⊘ BLOCKED chip is now a BUTTON
+**"6 WEB-GAP ↗"** that closes blocked + opens audit; drawer closes cleanly; **0 console errors**. `npm run build` ✅ (608ms,
+159 modules); `npx eslint` all 3 files → No issues; `graphify update .` ✅. Board steady + healthy: `ready 8 · blocked 6 ·
+done 18`, reconcile → no stale claims, dispatcher LIVE-but-OFF + FED (8 dispatchable). Commit: LOOP_STATE only —
+`WebAccessDrawer.tsx` is clean against HEAD (deps in HEAD) but inert without `OperationsCenter.tsx`, which still imports the
+uncommitted `EventFeedDrawer`/`DeliverablesDrawer` (HEAD-absent `getRecentEvents` + sibling-`failMcTask`-tangled api.ts) →
+stays in the live-but-uncommitted bucket (TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need
+sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #27, TO-DO
+#5a): a board-wide ⚡ DISPATCHABLE/readiness glance drawer (make the autonomy queue legible before the first watched
+dispatch), pure-frontend on the live `/api/mc/dispatcher`. — _Prior run #22 PRE-SCOUT:_
 `GET /api/mc/activity` already exists but only synthesizes 3 coarse lifecycle entries (created/claimed/completed) from timestamps
 — it never walks the per-task event log (misses promoted/reconciled/routed/escalated/reassigned/dependency-edge/workspace_ready),
 so built the true full-taxonomy aggregation (branch (b)), leaving `/api/mc/activity` untouched (4 consumers, no regression).
@@ -188,7 +208,8 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 
 | Subsystem | State | Notes |
 |---|---|---|
-| Bridge (:8767) | ✅ UP + **RESTARTED this run → runs #1–#24 all LIVE** | Was DOWN at start; restarted via `python mission-control-bridge.py` (working-tree files) → fresh (uptime 9→20s), now serving ALL uncommitted backend. Confirmed live: **`GET /api/mc/events?limit=3` → 200 (total 45)** (run #22 — ▦ ACTIVITY now FULL taxonomy, not BASIC fallback), **`GET /api/mc/agents/web-access` → 200** (`blocked_due_to_web=6`, run #3), `POST /api/mc/kanban/reconcile` → "no stale claims". **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. |
+| Bridge (:8767) | ✅ UP (uptime ~2h, no restart needed) → runs #1–#24 all LIVE | UP at start (`/api/ping` ok, uptime ~7182s — restarted by run #25/operator), serving ALL uncommitted backend. Confirmed live this run: **`GET /api/mc/events?limit=2` → 200 (total 45)** (run #22 — ▦ ACTIVITY FULL taxonomy), **`GET /api/mc/agents/web-access` → 200** (`needs_web=9, missing_web=9, blocked_due_to_web=6`, run #3), `POST /api/mc/kanban/reconcile {dry_run}` → "no stale claims". **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable` = **8**. |
+| **Web-access audit UI (run #26)** | 🟢 LIVE on rebuild (backend `/api/mc/agents/web-access` already LIVE) | **`WebAccessDrawer.tsx` (NEW, 100% mine)** — a ⚿ WEB-ACCESS toolbar drawer listing every `needs_web` agent **gap-first** (then by blocked-task count) with a ⚠/✓ marker, name, **N blk** (tasks it blocks), MCPs, web-skills count, header **N MISSING + N BLOCKED** chips, provisioning hint + honest `Audited T…` footer. Read-only (never provisions). Cross-linked: the ⊘ BLOCKED **N WEB-GAP** chip is now a button (**↗**, via new `onOpenAudit` prop) that closes blocked + opens the audit. Verified LIVE: 9 MISSING / 6 BLOCKED, narratrix 5 blk + 2 web-skills, cross-link works, 0 console errors. Uncommitted (rides the same OperationsCenter congestion, TO-DO #2). |
 | Event-timeline UI (run #21) + board-wide feed (run #22) + LIVE polling (run #23) + coarse-feed fallback (run #24) | 🟢 **FULL taxonomy LIVE now** (bridge restarted this run → `/api/mc/events` 200) | **Run #21:** per-task EVENT TIMELINE renders each kind with icon+label + ↳ parent chip (`eventLabels.ts` + `TaskDetailDrawer.tsx:405`). **Run #22: a board-wide ▦ ACTIVITY drawer** (`EventFeedDrawer.tsx`) merges EVERY task's full event timeline newest-first via `GET /api/mc/events` → `MCStore.recent_events`. **Run #23: LIVE** — auto-polls every 5s, ● LIVE/PAUSED toggle + kind-filter chips. **Run #24: coarse-feed fallback** (degrades to `/api/mc/activity` when events 404). This run the bridge was restarted so `/api/mc/events` → 200 — the feed serves the full taxonomy (45 events), no BASIC chip. |
 | **Blocked-tasks triage (run #25)** | 🟢 LIVE on rebuild (rebuild needed for the wiring; backend already in HEAD) | **`BlockedTasksDrawer.tsx` (NEW, 100% mine)** — a ⊘ BLOCKED toolbar drawer in OperationsCenter listing every blocked task **oldest-first** with a RESOLVED reason (recorded diagnostic → else amber "needs web access — ‹assignee› has no web MCP" via the audit's `gap` set → else honest "no recorded reason"), assignee, age, deep-link, a header **N WEB-GAP** chip + audit hint banner. Reuses `getMcTasks`/`getKanbanDiagnostics`/`getWebAccessAudit` (all in HEAD). Verified LIVE: 6 rows, "6 WEB-GAP" chip, deep-link → TaskDetailDrawer, 0 console errors. Uncommitted (rides the same OperationsCenter/api.ts congestion, TO-DO #2). |
 | Deliverables (#15 LIVE) + workspace seam (#16) + task_id parse (#18) + clickable chip (#20) | 🟢 #15 LIVE, #16/#18/#20 load on restart+rebuild | `GET /api/mc/deliverables` → 200, lists all 6 (all root-level/`research/` → `task_id:null`). Run #16: dispatch writes to `deliverables/tasks/<id>/` (task-linked, dual-browser). Run #18: listing derives `task_id` from a `tasks/<id>/…` path → UI ⬡ chip. **Run #20: the ⬡ chip is now CLICKABLE → opens the producing task's detail drawer** (DeliverablesDrawer `onOpenTask` prop + OperationsCenter wiring). Verified in Vite preview: drawer opens + lists 6 + 0 console errors. No `tasks/<id>/` file exists yet (needs a dispatch) → chip dormant (honest no-op) until then. |
@@ -582,12 +603,44 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
     0 console errors. build (159 modules) + eslint both files clean + `graphify update .` ✅. `BlockedTasksDrawer.tsx` is
     clean against HEAD (all api deps present) but inert without the OperationsCenter wiring → live-but-uncommitted (TO-DO #2).
     Next gap (TO-DO #5a, run #26): a WEB-ACCESS AUDIT cross-link/panel from the ⊘ BLOCKED drawer.
+26. ✅ **Board-wide WEB-ACCESS AUDIT glance + ⊘ BLOCKED cross-link (BUILT this run — run #26).** Run #25's ⊘ BLOCKED drawer
+    NAMES the systemic cause ("N WEB-GAP") but the full per-agent audit (which agents need web, their MCPs, how many tasks
+    each blocks) was reachable only via the ⚠ diagnostics modal — the "see the rot → see the systemic fix" loop was open.
+    Built `src/components/WebAccessDrawer.tsx` (**NEW file, 100% mine, NO backend change** — reuses the already-in-HEAD
+    `getWebAccessAudit()`/`WebAccessRow`, run #3): on open it fetches `/api/mc/agents/web-access` and lists every `needs_web`
+    agent **gap-first** (then by blocked-task count desc, then name), each row with a ⚠/✓ tone marker, name, **N blk** (board
+    tasks it's blocking, red when >0), its MCPs (or "no MCPs"), and a web-skills count; header carries **N MISSING** +
+    **N BLOCKED** summary chips; the audit's provisioning-hint banner + an honest `Audited T agents · N need web · N missing ·
+    N blocked` footer; honest empty/error states. Read-only by construction (surfaces the gap, never provisions — operator
+    config). Closed the loop: added an optional `onOpenAudit` prop to `BlockedTasksDrawer.tsx` so its **N WEB-GAP** chip
+    becomes a clickable button (**↗**) that closes blocked + opens the audit (backward-compatible — static span when no
+    callback). Wired into `OperationsCenter.tsx` (4 disjoint in-lane edits: import/state/⚿ WEB-ACCESS toolbar button after
+    ⊘ BLOCKED/mount + onOpenAudit hand-off). Verified in the **LIVE Vite preview** (DOM eval): "9 MISSING"+"6 BLOCKED" chips,
+    "9 need web · 5 ok", narratrix "5 blk"+"2 web-skills", default "1 blk" (matches the endpoint exactly), cross-link button
+    "6 WEB-GAP ↗" closes blocked + opens audit, drawer closes cleanly, 0 console errors. build (159 modules, 608ms) + eslint
+    all 3 files clean + `graphify update .` ✅. `WebAccessDrawer.tsx` is clean against HEAD but inert without the
+    OperationsCenter wiring → live-but-uncommitted (TO-DO #2). Next gap (TO-DO #5a, run #27): a board-wide ⚡ DISPATCHABLE
+    readiness glance drawer (make the autonomy queue legible before the first watched dispatch), pure-frontend on `/api/mc/dispatcher`.
 - → bughunt / NOT this loop: block-reason **display** in the task drawer + FAILED-vs-BLOCKED reconciliation (the sibling
   `fail_task` WIP, still uncommitted in the working tree) are bughunt's — do not redo.
 
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-17 — Run #26 (BUILT the board-wide WEB-ACCESS AUDIT glance — a ⚿ WEB-ACCESS drawer that lists every agent that needs the live web but lacks a web MCP, gap-first, each with its blocked-task count + MCPs + web-skills, cross-linked from the ⊘ BLOCKED "WEB-GAP" chip — closing the "see the rot → see the systemic fix" loop) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green (no restart needed).** Bridge :8767 was **UP** at start (`/api/ping` ok, uptime ~7182s ≈ 2h — restarted by run #25 or operator, all run #16–#24 backend LIVE). Confirmed: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18 · todo 0 · triage 0`; `/api/mc/events?limit=2` → 200 (total 45, FULL taxonomy); `/api/mc/agents/web-access` → 200 (`summary.needs_web=9, missing_web=9, blocked_due_to_web=6`); `POST /api/mc/kanban/reconcile {dry_run}` → "no stale claims"; `/api/mc/kanban/diagnostics` → only the 6 `blocked_no_reason` (severity `info`, web-access research tasks; no stale/dead/cycle/exhausted/promotable); `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1}`, `dispatchable`=**8**. `npm run build` ✅ (exit 0, 608ms). Sibling logs unchanged — no collision.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18` (unchanged from runs #19–#25). Reconcile dry → no stale claims; no dead agents. **Did NOT dispatch** (operator absent; side-effecting bypassPermissions turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons. The 6 blocked tasks are the long-standing web-access research backlog (5×narratrix, 1×default).
+
+3. **BUILT (TO-DO #5a / GAPS #26): the board-wide WEB-ACCESS AUDIT glance.** Run #25's ⊘ BLOCKED drawer *names* the systemic cause ("N WEB-GAP") but the operator still couldn't see the *full* per-agent audit (which agents need web, what MCPs they carry, how many tasks each blocks) without opening the ⚠ diagnostics modal. Built a read-only drawer that surfaces `/api/mc/agents/web-access` directly + cross-linked it from the ⊘ BLOCKED chip. **100% mine, no backend change** — reuses the already-in-HEAD `getWebAccessAudit()`/`WebAccessRow` (run #3):
+   - **`src/components/WebAccessDrawer.tsx` (NEW file, 100% mine):** on open, fetches the audit; lists every `needs_web` agent **gap-first** (then by blocked-task count desc, then name), each row showing a ⚠/✓ tone marker, name, **"N blk"** (board tasks it's blocking, red when >0), its MCPs (or "no MCPs"), and a web-skills count; header carries **"N MISSING"** + **"N BLOCKED"** summary chips; the audit's provisioning hint banner + an honest footer (`Audited T agents · N need web · N missing · N blocked`); honest empty/error states. Read-only by construction — surfaces the gap, never provisions (operator config).
+   - **`src/components/BlockedTasksDrawer.tsx` (my file, 1 edit):** added an optional `onOpenAudit` prop; when present the **"N WEB-GAP"** header chip becomes a clickable button (**"N WEB-GAP ↗"**) that closes the blocked drawer and opens the audit — the cross-link that closes the loop. Backward-compatible (falls back to the static span when no callback).
+   - **`src/pages/OperationsCenter.tsx` (4 disjoint edits, in-lane — my file):** import (`:19`), `webAccessOpen` state (`:127`), a **⚿ WEB-ACCESS** toolbar button after ⊘ BLOCKED (amber hover), drawer mount keyed on open + the `onOpenAudit` wiring on BlockedTasksDrawer (blocked→audit hand-off).
+   **Verified:** `npm run build` ✅ (608ms); `npx eslint WebAccessDrawer.tsx BlockedTasksDrawer.tsx OperationsCenter.tsx` → **No issues found**. **Vite preview (port 5219, `#/operations`) against the LIVE bridge:** ⚿ WEB-ACCESS button renders; opening the drawer → DOM eval confirms summary chips **"9 MISSING" + "6 BLOCKED"**, header **"9 need web · 5 ok"**, narratrix row **"5 blk" + "2 web-skills"**, default **"1 blk"** — matching the audit endpoint exactly; **0 console errors** (`level=error` → none). Cross-link proven: opened ⊘ BLOCKED → its chip is now a **BUTTON** reading **"6 WEB-GAP ↗"** → clicking it closed the blocked drawer (`blockedDrawerClosed:true`) and opened the audit (`crossLinkOpenedAudit:true`). Drawer closes cleanly (`modalClosed:true`). `graphify update .` ✅ (graph.json/GRAPH_REPORT.md refreshed). Screenshot tool timed out twice (full-screen modal overlay infra — DOM eval confirmed every surface + zero console errors, same as runs #23–#25).
+
+4. **COMMIT — `.mc/LOOP_STATE.md` only, locally on `auto/loop-reconcile-20260615` (same blocker as runs #12–#25).** `WebAccessDrawer.tsx` is clean against HEAD (its only api.ts deps — `getWebAccessAudit`/`WebAccessRow`/`errMessage` — are all confirmed in HEAD `api.ts`, run #3), so it'd compile standalone. BUT it's inert without the `OperationsCenter.tsx` wiring, and `OperationsCenter.tsx` still imports the uncommitted `EventFeedDrawer` (HEAD-absent `getRecentEvents`) + `DeliverablesDrawer` (uncommitted deliverables api.ts block tangled with sibling `failMcTask`) → committing it in full sweeps in sibling WIP / breaks HEAD. So the whole frontend unit (now `WebAccessDrawer.tsx` + `BlockedTasksDrawer.tsx` + `EventFeedDrawer.tsx` + `DeliverablesDrawer.tsx` + their `OperationsCenter.tsx` wiring) stays in the live-but-uncommitted bucket (TO-DO #2). No code-file `git add` this run (only my own untracked new file — no new sibling-tangle). Lands cleanly once the api.ts congestion clears.
 
 ### 2026-06-17 — Run #25 (BUILT the board-wide BLOCKED-TASKS triage glance — a ⊘ BLOCKED drawer that lists every blocked task oldest-first with its RESOLVED reason + age + a deep-link, making the board's single biggest rot visible without per-row hunting) · branch `auto/loop-reconcile-20260615`
 
