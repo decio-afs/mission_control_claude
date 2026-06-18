@@ -10,7 +10,26 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#34) — PERSIST LAST-OPEN AUTONOMY TAB.** The consolidated ⊙ AUTONOMY surface (run #32) is keyed on `open`
+0. **✅ DONE this run (#35) — PER-ROW WEB-GAP DEEP-LINK ON ⊘ BLOCKED (symmetric to run #33's ⚡ DISPATCHABLE).** Run #33 made each
+   ⚡ DISPATCHABLE web-gap row's assignee a `‹assignee› ↗` button that opens the ⚿ WEB-ACCESS tab focused on that exact agent, but
+   the ⊘ BLOCKED drawer still only had the whole-list header chip (`N WEB-GAP ↗`) — clicking a specific stuck task couldn't take
+   the operator to *that task's assignee's* audit row. Now each blocked row whose cause is the web-gap (`tone==='web'`) renders its
+   assignee as a `‹assignee› ↗` button that opens the ⚿ WEB-ACCESS tab focused on that agent (scrolled-to + ring-amber highlight +
+   `▸ ‹agent›` chip — all the run #33 focus machinery, already in `WebAccessDrawer`/`AutonomyDrawer`). **Pure-frontend, 100% mine,
+   no backend change, no new dep** — edited TWO of my own untracked files: `src/components/BlockedTasksDrawer.tsx` (widened
+   `onOpenAudit?: () => void` → `(agent?: string) => void`; the per-row assignee `<span>` became a `‹assignee› ↗` `<button>` when
+   `tone==='web' && onOpenAudit`, calling `onOpenAudit(r.assignee!)`, else the unchanged static span; **also fixed the header chip's
+   `onClick={onOpenAudit}` → `onClick={() => onOpenAudit()}`** so the widened signature doesn't pass the MouseEvent as `agent`), and
+   `src/components/AutonomyDrawer.tsx` (the blocked mount was `onOpenAudit={() => openAudit()}` which **discarded** the agent arg —
+   changed to `onOpenAudit={openAudit}` so the per-row agent flows through to the existing `openAudit(agent?)` focus hand-off, same
+   as the ⚡ DISPATCHABLE mount). **Verified LIVE** (Vite 5219, `#/operations`, bridge UP, after a full reload, DOM/console layer
+   via `preview_eval`): opened ⊙ AUTONOMY → ⊘ BLOCKED tab shows **6 per-row `‹assignee› ↗` buttons** (`narratrix ↗`×5 + `default
+   ↗`) AND the unchanged header `6 WEB-GAP ↗`; clicking the **`default ↗`** row (a non-narratrix agent) kept the surface OPEN and
+   switched to ⚿ WEB-ACCESS with a `▸` focus chip + **exactly 1 ring-amber-highlighted** audit row; **0 console errors**. `npm run
+   build` ✅ (chunk-size warning pre-existing); `npx eslint BlockedTasksDrawer.tsx AutonomyDrawer.tsx` → No issues; `graphify update
+   .` ✅. **Commit: LOOP_STATE only** — both files are mine but inert/uncommittable in HEAD (they ride the sibling-congested
+   `OperationsCenter.tsx` wiring + the uncommitted api.ts exports → live-but-uncommitted bucket, TO-DO #2). No new sibling tangle.
+   (See DONE Run #35.) — _Prior run #34 PERSIST LAST-OPEN AUTONOMY TAB._ The consolidated ⊙ AUTONOMY surface (run #32) is keyed on `open`
    by its parent, so every open was a fresh mount that snapped the tab back to the `initialTab` default (`'activity'`) — the
    operator who left off on ⚡ DISPATCHABLE / ⊘ BLOCKED always reopened on ▦ ACTIVITY. Now the last-open tab is persisted to
    `localStorage['mc.autonomy.tab']` and restored on next open (across sessions). **Pure-frontend, 100% mine, no backend change, no
@@ -238,20 +257,25 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#34) — persist the operator's last-open AUTONOMY tab** (the PREFERRED candidate (a) from run #33's list;
-   see item 0 + DONE Run #34). The wrapper now restores `localStorage['mc.autonomy.tab']` on open (across sessions, validated +
-   try/catch); wholly inside `AutonomyDrawer.tsx` (my own file), no backend change. Persisted only the tab, NOT the transient
-   per-agent web-focus (left as a deliberate no-op — it's tied to a gap that may not exist next session). **Next capability to
-   BUILD (run #35)** — in-lane, live-backed candidates, pick by impact:
-   (a) **PREFERRED — make the ⊘ BLOCKED drawer's per-row web-gap tasks focus the audit on the blocked task's assignee** (symmetric
-   to run #33, which did this for ⚡ DISPATCHABLE; `BlockedTasksDrawer` currently only has the whole-list `onOpenAudit`). Widen
-   `onOpenAudit?: () => void` → `(agent?: string) => void` in `BlockedTasksDrawer.tsx` (my own file) and pass each blocked row's
-   assignee; the wrapper's `openAudit(agent?)` + `WebAccessDrawer focusAgent` already support the focus hand-off (built run #33),
-   so this is purely the BlockedTasksDrawer side — pure-frontend, all my own files, no new dep.
-   (b) Runner-up — a reciprocal **↳ child ‹id›** chip in the feed/timeline: only `parent` is surfaced by
-   `eventParent(payload)`; needs dependency-edge events to also carry `child` in their payload (a small `mc_store.py` change,
-   sibling-congested) before the UI can render it. Lane note: keep clear of the sibling FAIL-action/banner region in
-   `TaskDetailDrawer.tsx` (`:159-231`, `:293`), and the sibling `failMcTask`/`fail_task` hunks in api.ts/bridge.py/mc_store.py.
+5. **✅ DONE this run (#35) — per-row WEB-GAP deep-link on ⊘ BLOCKED** (the PREFERRED candidate (a) from run #34's list; see
+   item 0 + DONE Run #35). Each blocked-by-web-gap row's assignee is now a `‹assignee› ↗` button → ⚿ WEB-ACCESS focused on that
+   agent (the run #33 focus machinery, reused). Wholly in `BlockedTasksDrawer.tsx` + `AutonomyDrawer.tsx` (my own files), no
+   backend change, no new dep. With this, BOTH the ⚡ DISPATCHABLE and ⊘ BLOCKED web-gap surfaces now per-row deep-link into the
+   audit — the autonomy-observability cross-linking is symmetric and complete. **Next capability to BUILD (run #36)** — in-lane,
+   live-backed candidates, pick by impact:
+   (a) **Persist the operator's last-open AUTONOMY tab ACROSS the cross-link path too / or persist the per-agent web-focus** — run
+   #34 persists the tab, but a per-row focus (run #33/#35) sets a transient `webFocus` that is NOT persisted (deliberately). Low
+   value; skip unless nothing better.
+   (b) **PREFERRED — a reciprocal `↳ child ‹id›` chip in the ▦ ACTIVITY feed / CronTimeline** (was run #34's runner-up (b)): only
+   `parent` is surfaced by `eventParent(payload)`; the feed shows `↳ parent` on a dependency-edge event but not the reverse. Needs
+   dependency-edge events to ALSO carry `child` in their payload — a small `mc_store.py` change in the `link()`/`unlink()` event
+   emit (sibling-congested: the `link()` hunk already rides directly above the purely-sibling `fail_task` method, TO-DO #2). If the
+   payload already carries enough to derive the child (the edge's `task_id`), this could be pure-frontend in `EventFeedDrawer`'s
+   `eventParent`/`labelFor` — **PRE-SCOUT the live `/api/mc/events` payload shape first** before deciding frontend-only vs
+   backend-needed. Lane note: keep clear of the sibling FAIL-action/banner region in `TaskDetailDrawer.tsx` (`:159-231`, `:293`),
+   and the sibling `failMcTask`/`fail_task` hunks in api.ts/bridge.py/mc_store.py.
+   (c) Runner-up — surface the ⚿ WEB-ACCESS audit's per-agent **web-skills detail** (which specific MCPs/skills each gap agent is
+   missing vs has) inline rather than just a count, so the provisioning fix is actionable from the audit row itself.
 6. **→ bughunt/evolve: `npm run lint` fails project-wide (~500 errors, NEW finding run #13).** Run #13 ran the FULL project
    lint (prior runs only `npx eslint`'d their 2–3 touched files, masking this). 500 errors / 473 auto-fixable, dominant rules
    `typescript-eslint/ban-ts-comment`, `typescript-eslint/no-unused-vars`, `react-hooks/set-state-in-effect`,
@@ -267,7 +291,27 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-18 (Run #34)** — **PERSIST LAST-OPEN AUTONOMY TAB** — the consolidated ⊙ AUTONOMY surface now reopens on the
+_Last run: **2026-06-18 (Run #35)** — **PER-ROW WEB-GAP DEEP-LINK ON ⊘ BLOCKED** — each blocked-by-web-gap row's assignee is now a
+`‹assignee› ↗` button that opens the ⚿ WEB-ACCESS tab focused on that exact agent (scrolled-to + ring-amber highlight + `▸ ‹agent›`
+chip), not just the whole-list header chip — symmetric to run #33, which did this for ⚡ DISPATCHABLE. With both surfaces now
+per-row deep-linking, the autonomy-observability cross-linking is symmetric and complete. **Pure-frontend, 100% mine, no backend
+change, no new dep** — TWO of my own untracked files: `BlockedTasksDrawer.tsx` (widened `onOpenAudit?: () => void` →
+`(agent?: string) => void`; per-row assignee `<span>` → `‹assignee› ↗` `<button>` when `tone==='web' && onOpenAudit`; **also fixed
+the header chip `onClick={onOpenAudit}` → `() => onOpenAudit()`** so the widened signature doesn't pass the MouseEvent as `agent`)
+and `AutonomyDrawer.tsx` (blocked mount `onOpenAudit={() => openAudit()}` — which discarded the agent — → `onOpenAudit={openAudit}`
+so the per-row agent reaches the existing `openAudit(agent?)` focus hand-off, same as the ⚡ DISPATCHABLE mount). **HEALTH GREEN:**
+bridge UP at start (`/api/ping` ok, uptime ~2h); board `ready 8 · blocked 6 · done 18`; diagnostics → only the 6 expected
+`blocked_no_reason` web-gap research tasks (no stale/dead/cycle, nothing to reclaim); dispatcher LIVE-but-OFF + FED (8
+dispatchable); cron `jobs:[]` + scheduler LIVE (240 ticks @ 30s, 0 fired). **Verified LIVE** (Vite 5219, `#/operations`, after a
+full reload, DOM/console layer via `preview_eval`): ⊘ BLOCKED tab shows **6 per-row `‹assignee› ↗` buttons** (`narratrix ↗`×5 +
+`default ↗`) + the unchanged header `6 WEB-GAP ↗`; clicking the **`default ↗`** row (a non-narratrix agent) kept the surface OPEN
+and switched to ⚿ WEB-ACCESS with a `▸` focus chip + **exactly 1 ring-amber-highlighted** audit row; **0 console errors**. `npm run
+build` ✅; `npx eslint BlockedTasksDrawer.tsx AutonomyDrawer.tsx` → No issues; `graphify update .` ✅. Commit: LOOP_STATE only
+(both files inert/uncommittable in HEAD — ride the sibling-congested OperationsCenter wiring + uncommitted api.ts exports →
+live-but-uncommitted bucket, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline
+(~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #36, TO-DO #5b): a reciprocal `↳ child
+‹id›` chip in the ▦ ACTIVITY feed — PRE-SCOUT the live `/api/mc/events` payload first to decide frontend-only vs a sibling-congested
+`mc_store.py` change. — Prior run #34 — **PERSIST LAST-OPEN AUTONOMY TAB** — the consolidated ⊙ AUTONOMY surface now reopens on the
 view the operator was last working in (`localStorage['mc.autonomy.tab']`, validated + try/catch, restored across sessions)
 instead of always snapping back to ▦ ACTIVITY; the PREFERRED candidate (a) from run #33's list. **Pure-frontend, 100% mine, no
 backend change, no new dep** — edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file): `readStoredTab`/`persistTab`
@@ -823,6 +867,21 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-18 — Run #35 (PER-ROW WEB-GAP DEEP-LINK ON ⊘ BLOCKED — each blocked-by-web-gap row's assignee now opens the ⚿ WEB-ACCESS audit focused on that exact agent, symmetric to run #33's ⚡ DISPATCHABLE; the PREFERRED run #35 candidate (a) from run #34's TO-DO #5 list) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green (bridge UP at start).** Bridge :8767 UP (`/api/ping` → `{ok:true,uptime_seconds:7155}`, ~2h). Confirmed LIVE: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18` (steady since runs #19–#34); `/api/mc/kanban/diagnostics` → only the 6 expected `blocked_no_reason` (web-access config gap, info — no stale/dead/cycle/retry-exhausted); `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1,tick_seconds:30,in_flight:[],ticks:0,dispatched:0,errors:0}`, `dispatchable`=**8**; `/api/mc/cron` → `jobs:[]`, scheduler `{enabled:true,running:true,tick_seconds:30,ticks:240,fired:0}` (LIVE). `npm run build` ✅ (exit 0; chunk-size warning pre-existing) before edits.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18`. Diagnostics dry → no stale claims / dead agents / cycles / retry-exhausted; the 6 blocked are the known web-access config gap (`blocked_no_reason`, info — operator config, not code; TO-DO #3). **Did NOT dispatch** (operator absent; side-effecting turns need sign-off — TO-DO #1); did NOT enable the daemon or seed crons (TO-DO #4).
+
+3. **BUILT (TO-DO #5 candidate (a), PREFERRED): per-row WEB-GAP deep-link on the ⊘ BLOCKED drawer.** Run #33 made each ⚡ DISPATCHABLE web-gap row's assignee a `‹assignee› ↗` button → ⚿ WEB-ACCESS focused on that agent, but the ⊘ BLOCKED drawer only had the whole-list header chip (`N WEB-GAP ↗`) — clicking a specific stuck task couldn't reach *that task's assignee's* audit row. Now it can. **Pure-frontend, 100% mine, no backend change, no new dep** — TWO of my own untracked files:
+   - `src/components/BlockedTasksDrawer.tsx`: widened the prop type `onOpenAudit?: () => void` → `onOpenAudit?: (agent?: string) => void` (`:49`); the per-row assignee `<span>` (`:195`) now renders a `‹assignee› ↗` `<button>` calling `onOpenAudit(r.assignee!)` when `r.tone === 'web' && onOpenAudit` (else the unchanged static span — non-web-gap rows are untouched, no invalid nesting); **and fixed the header chip's `onClick={onOpenAudit}` → `onClick={() => onOpenAudit()}`** (`:144`) so the widened signature doesn't pass the click's MouseEvent as the `agent` arg (whole-list open is preserved).
+   - `src/components/AutonomyDrawer.tsx`: the blocked mount was `onOpenAudit={() => openAudit()}` (`:132`) which **discarded** any agent arg — changed to `onOpenAudit={openAudit}` so the per-row agent flows straight into the existing `openAudit(agent?)` focus hand-off (`:93`, which sets `webFocus` → switches to the `webaccess` tab), exactly as the ⚡ DISPATCHABLE mount already does (`:139`). The run #33 focus machinery in `WebAccessDrawer` (`focusAgent` → `scrollIntoView` + ring-amber + `▸ ‹agent›` chip) is reused unchanged.
+   - **Net:** both the ⚡ DISPATCHABLE and ⊘ BLOCKED web-gap surfaces now per-row deep-link into the audit — the autonomy-observability cross-linking is symmetric and complete.
+
+4. **VERIFY — build + lint + LIVE preview.** `npm run build` ✅ (chunk-size warning pre-existing, no errors); `npx eslint src/components/BlockedTasksDrawer.tsx src/components/AutonomyDrawer.tsx` → **No issues**; `graphify update .` ✅. **LIVE** (Vite 5219, `#/operations`, after a full reload, DOM/console layer via `preview_eval`): opened ⊙ AUTONOMY → ⊘ BLOCKED tab shows **6 per-row `‹assignee› ↗` buttons** (`narratrix ↗`×5 + `default ↗`) AND the unchanged header `6 WEB-GAP ↗`; clicking the **`default ↗`** row (deliberately a non-narratrix agent, to prove arbitrary-agent focus) kept the surface OPEN and switched to the ⚿ WEB-ACCESS tab with a `▸` focus chip present + **exactly 1 ring-amber-highlighted** audit row; `preview_console_logs(error)` → **No console logs** (0 errors). (`preview_screenshot` not attempted — DOM-level proof was conclusive and the renderer has timed out on screenshots in recent runs.)
+
+5. **COMMIT — LOOP_STATE only.** Both touched files are mine but **inert/uncommittable in HEAD**: they're reachable only through the sibling-congested `OperationsCenter.tsx` wiring and import the uncommitted-in-full api.ts exports (committing them alone would dangle against a HEAD that lacks those exports). Stays in the live-but-uncommitted bucket (TO-DO #2). No new sibling tangle introduced (zero api.ts/bridge.py/mc_store.py edits). Staged ONLY `.mc/LOOP_STATE.md`.
 
 ### 2026-06-18 — Run #34 (PERSIST LAST-OPEN AUTONOMY TAB — the ⊙ AUTONOMY surface now reopens on the view the operator was last working in (localStorage-backed), instead of always snapping back to ▦ ACTIVITY; the PREFERRED run #34 candidate from run #33's TO-DO #5a list) · branch `auto/loop-reconcile-20260615`
 
