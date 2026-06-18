@@ -10,7 +10,21 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#32) — CONSOLIDATED the four Operations autonomy drawers into ONE tabbed ⊙ AUTONOMY surface.** ▦ ACTIVITY /
+0. **✅ DONE this run (#33) — PER-ROW WEB-GAP DEEP-LINK.** Each ⚡ DISPATCHABLE web-gap queue row's assignee is now a button
+   `‹assignee› ↗` that opens the ⚿ WEB-ACCESS tab **focused on that exact agent** (scrolled-to + amber-highlighted + a `▸ ‹agent›`
+   header chip), the natural next-precision after run #32 unified the four views (run #31 only cross-linked the *header* chip = whole
+   list). Pure-frontend, 100% mine, no backend change, no new dep — three of my own untracked files: `DispatchableDrawer.tsx`
+   (widened `onOpenAudit?: (agent?) => void`; row → flex `<div>` with title-button + per-gap-row `‹assignee› ↗` button — no invalid
+   button nesting; fixed the header chip's leaked click event), `WebAccessDrawer.tsx` (optional `focusAgent` prop → `scrollIntoView`
+   + `ring-amber` highlight + focus chip; honest unfocused fallback if the agent isn't in the audit), `AutonomyDrawer.tsx`
+   (`webFocus` state + `openAudit(agent?)` helper; per-row passes the agent, header chips pass none; manual tab clicks clear focus).
+   **Verified LIVE** (Vite 5219, `#/operations`, bridge UP ~16h, clean reload): board renders all 6 columns, no ErrorBoundary;
+   ⚡ DISPATCHABLE shows `4 WEB-GAP ↗` + **4 per-row `claudelink ↗`** buttons; **clicking a per-row button kept the surface OPEN
+   and switched to ⚿ WEB-ACCESS with `▸ claudelink` chip + the `⚠ claudelink — Notion · 1 web-skill` row highlighted**; clicking the
+   ⚿ WEB-ACCESS tab directly cleared the focus (chip gone, 0 highlighted). `npm run build` ✅ (640ms, 159 modules); `npx eslint` all
+   3 files → No issues; `graphify update .` ✅. **Commit: LOOP_STATE only** (inert without the sibling-congested OperationsCenter
+   wiring → live-but-uncommitted bucket, TO-DO #2). (See DONE Run #33.) — _Prior run #32 CONSOLIDATED the four Operations autonomy
+   drawers into ONE tabbed ⊙ AUTONOMY surface._ ▦ ACTIVITY /
    ⊘ BLOCKED / ⚿ WEB-ACCESS / ⚡ DISPATCHABLE (runs #22–#31) told one coherent autonomy-observability story and were already
    cross-linked, but each was a separate toolbar button + full-screen modal, so every pivot meant close+reopen. Built
    `src/components/AutonomyDrawer.tsx` (**NEW, 100% mine**): one shell (backdrop + tab bar + single ✕ CLOSE) owning a 4-value `Tab`
@@ -220,17 +234,17 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#32) — consolidated the four Operations autonomy drawers into ONE tabbed ⊙ AUTONOMY surface** (the PREFERRED
-   candidate from run #31's list; see item 0 + DONE Run #32). The autonomy-observability views are now a single tabbed wrapper
-   (`AutonomyDrawer.tsx`, NEW + 100% mine) over the four `embedded`-mode drawers, one toolbar button, cross-links as in-wrapper tab
-   switches. **Next capability to BUILD (run #33)** — in-lane, live-backed candidates, pick by impact:
-   (a) **PREFERRED — ⚡ DISPATCHABLE web-gap ROWS deep-link to the ⚿ WEB-ACCESS tab focused on that row's assignee.** Now that the
-   four views live in one tabbed surface, the natural next refinement is per-row precision: a web-gap queue row could open the
-   audit tab scrolled/highlighted to exactly that assignee, not just the whole list. Needs an optional focus-agent arg on
-   `WebAccessDrawer.tsx` (also mine, untracked) + the DispatchableDrawer row to call the wrapper's `setTab` with the agent — all
-   pure-frontend, all my own files, no OperationsCenter edit (the wrapper already owns the tab state).
-   (b) Lighter — persist the operator's last-open AUTONOMY tab (the wrapper currently always opens on ▦ ACTIVITY; a
-   localStorage-backed `initialTab` would reopen where they left off). Wholly inside `AutonomyDrawer.tsx`.
+5. **✅ DONE this run (#33) — per-row ⚡ DISPATCHABLE → ⚿ WEB-ACCESS focused deep-link** (the PREFERRED candidate from run #32's
+   list; see item 0 + DONE Run #33). Each web-gap queue row's assignee now opens the audit tab focused on that exact agent
+   (scrolled-to + highlighted + focus chip); three of my own untracked files, no OperationsCenter edit (the wrapper owns tab+focus
+   state). **Next capability to BUILD (run #34)** — in-lane, live-backed candidates, pick by impact:
+   (a) **PREFERRED — persist the operator's last-open AUTONOMY tab + last focus.** The wrapper always opens on ▦ ACTIVITY; a
+   localStorage-backed `initialTab` (and optionally re-focus) would reopen where they left off across sessions. Wholly inside
+   `AutonomyDrawer.tsx` (my own file) — small, pure-frontend, no new dep.
+   (b) Symmetric to (a) just shipped — make the ⊘ BLOCKED drawer's per-row web-gap tasks ALSO focus the audit on the blocked task's
+   assignee (run #33 did this for ⚡ DISPATCHABLE; BlockedTasksDrawer currently only has the whole-list `onOpenAudit`). Needs the
+   same `onOpenAudit?: (agent?) => void` widening in `BlockedTasksDrawer.tsx` (my own file) + the wrapper already supports the focus
+   hand-off — pure-frontend, all my own files.
    (c) Runner-up — a reciprocal **↳ child ‹id›** chip in the feed/timeline: only `parent` is surfaced by
    `eventParent(payload)`; needs dependency-edge events to also carry `child` in their payload (a small `mc_store.py` change,
    sibling-congested) before the UI can render it. Lane note: keep clear of the sibling FAIL-action/banner region in
@@ -250,7 +264,24 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-18 (Run #32)** — **CONSOLIDATED the four Operations autonomy drawers into ONE tabbed ⊙ AUTONOMY surface**
+_Last run: **2026-06-18 (Run #33)** — **PER-ROW WEB-GAP DEEP-LINK** — each ⚡ DISPATCHABLE web-gap queue row's assignee is now a
+button `‹assignee› ↗` that opens the ⚿ WEB-ACCESS tab **focused on that exact agent** (scrolled-to + amber-highlighted + a
+`▸ ‹agent›` header chip), not just the whole list — the next-precision after run #32 unified the four views (run #31 only
+cross-linked the header chip). Pure-frontend, 100% mine, no backend change, no new dep — three of my own untracked files:
+`DispatchableDrawer.tsx` (widened `onOpenAudit?: (agent?) => void`; row → flex `<div>` with title-button + per-gap-row
+`‹assignee› ↗` button, no invalid button nesting), `WebAccessDrawer.tsx` (optional `focusAgent` prop → `scrollIntoView` +
+`ring-amber` highlight + focus chip; honest unfocused fallback), `AutonomyDrawer.tsx` (`webFocus` state + `openAudit(agent?)`;
+per-row passes the agent, header chips pass none, manual tab clicks clear focus). **Verified LIVE** (Vite 5219, `#/operations`,
+bridge UP ~16h, clean reload): board renders all 6 columns, no ErrorBoundary; ⚡ DISPATCHABLE shows `4 WEB-GAP ↗` + **4 per-row
+`claudelink ↗`** buttons; clicking a per-row button kept the surface OPEN and switched to ⚿ WEB-ACCESS with `▸ claudelink` chip +
+the `⚠ claudelink — Notion · 1 web-skill` row highlighted; clicking the ⚿ WEB-ACCESS tab directly cleared the focus. `npm run
+build` ✅ (640ms, 159 modules); `npx eslint` all 3 files → No issues; `graphify update .` ✅. Board steady + healthy: `ready 8 ·
+blocked 6 · done 18`, no stale claims, dispatcher LIVE-but-OFF + FED (8 dispatchable, 4 web_gap, all `claudelink`), cron
+`jobs:[]` + scheduler LIVE (1920 ticks, 0 fired). Commit: LOOP_STATE only (inert without the sibling-congested OperationsCenter
+wiring → live-but-uncommitted bucket, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off.
+Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #34, TO-DO #5): persist
+the operator's last-open AUTONOMY tab+focus (localStorage `initialTab`), or extend the same per-row focus deep-link to the
+⊘ BLOCKED drawer's web-gap tasks. — Prior run #32 — **CONSOLIDATED the four Operations autonomy drawers into ONE tabbed ⊙ AUTONOMY surface**
 (▦ ACTIVITY / ⊘ BLOCKED / ⚿ WEB-ACCESS / ⚡ DISPATCHABLE were four separate toolbar buttons + full-screen modals telling one
 coherent autonomy-observability story and already cross-linked, but every pivot was a close+reopen — now one button opens a
 tabbed wrapper that hops between the four views in place, and the WEB-GAP cross-links became in-wrapper tab switches). Built
@@ -771,6 +802,20 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-18 — Run #33 (PER-ROW WEB-GAP DEEP-LINK — each ⚡ DISPATCHABLE web-gap queue row's assignee now opens the ⚿ WEB-ACCESS tab *focused on that exact agent* (scrolled-to + highlighted), not just the whole list; the natural next-precision after run #32 unified the four views into one tabbed surface) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green (no restart needed).** Bridge :8767 **UP** at start (`/api/ping` ok, uptime ~57588s ≈ 16h — all run #16–#32 backend LIVE). Confirmed: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18` (steady); `/api/mc/kanban/diagnostics` → 6 `blocked_no_reason` (severity info, web-access config); `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1,tick_seconds:30,in_flight:[],ticks:0,dispatched:0,errors:0}`, `dispatchable`=**8** (4 with `web_gap:true`, all assignee `claudelink`); `/api/mc/cron` → `jobs:[]`, scheduler `{running:true,ticks:1920,fired:0}`. `npm run build` ✅ (exit 0, 654ms, 159 modules) before edits.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18` (unchanged from runs #19–#32). No stale claims; no dead agents/cycles/retry-exhausted. The 6 blocked remain the known web-access config gap (`blocked_no_reason`, info — operator config, not code; TO-DO #3). **Did NOT dispatch** (operator absent; side-effecting turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons (TO-DO #4).
+
+3. **BUILT (TO-DO #5a, PREFERRED candidate): per-row ⚡ DISPATCHABLE → ⚿ WEB-ACCESS focused deep-link.** Run #31 cross-linked the *header* WEB-GAP chip (whole audit); run #32 made it an in-wrapper tab switch. But a web-gap queue row already knows *its* assignee — so the precise pivot is "this row → this agent's audit line", not "this row → the full list". **Pure-frontend, 100% mine, no backend change, no new dep** — all three files are my own untracked files:
+   - **`src/components/DispatchableDrawer.tsx`:** widened `onOpenAudit?: () => void` → `onOpenAudit?: (agent?: string) => void`; the header chip now calls `onOpenAudit()` (no arg = whole list, fixed the prior bare `onClick={onOpenAudit}` that leaked the click event). Restructured each queue row from a single `<button>` (whole-row task deep-link) into a flex `<div>` so it can hold TWO actions without invalid button-nesting: the **title** is a `<button>` → `onOpenTask(id)`, and on a `web_gap` row the **assignee** becomes a `<button>` reading **`‹assignee› ↗`** (amber) → `onOpenAudit(p.assignee)`; non-gap rows keep the plain assignee `<span>`.
+   - **`src/components/WebAccessDrawer.tsx`:** added an optional `focusAgent?: string` prop. A `useEffect([loading, focusAgent, needWeb])` scrolls the matching row into view (`scrollIntoView({block:'center'})`) once the audit loads; the matching row gets `ref={focusRef}` + an `bg-amber-400/[0.08] ring-1 ring-amber-400/30` highlight; the header shows a `▸ ‹agent›` focus chip. If the agent isn't in the audit (rare queue/audit drift) the ref stays null → honest unfocused full list.
+   - **`src/components/AutonomyDrawer.tsx`:** added `webFocus` state + an `openAudit(agent?)` helper (`setWebFocus(agent); setTab('webaccess')`); wired `DispatchableDrawer onOpenAudit={openAudit}` (passes the agent), `BlockedTasksDrawer onOpenAudit={() => openAudit()}` (whole list), `WebAccessDrawer focusAgent={webFocus}`; every manual tab-bar click now clears focus (`setWebFocus(undefined)`) so clicking ⚿ WEB-ACCESS directly shows the unfocused list.
+   - **Verified in the LIVE Vite preview** (port 5219, `#/operations`, bridge UP, after a clean full reload): board renders all 6 columns, no ErrorBoundary, exactly one ⊙ AUTONOMY button. Opened ⊙ AUTONOMY → ⚡ DISPATCHABLE tab → DOM shows the header `4 WEB-GAP ↗` chip **plus 4 per-row `claudelink ↗` buttons** (matching the 4 `web_gap` tasks); **clicking a per-row `claudelink ↗` kept the surface OPEN and switched to the ⚿ WEB-ACCESS tab with `▸ claudelink` focus chip + the `⚠ claudelink — Notion · 1 web-skill` row highlighted (`ring-amber`)** — the focused pivot proven; header reads the live `9 MISSING · 6 BLOCKED`. Then **clicking the ⚿ WEB-ACCESS tab directly cleared the focus** (chip gone, 0 highlighted rows) — focus-clear-on-manual-tab proven. Re-proven identically after a second clean reload. `npm run build` ✅ (640ms, 159 modules); `npx eslint` on all 3 touched files → **No issues found**; `graphify update .` ✅ (no topology change). _(Console `level=error` showed only STALE HMR-transition errors — all carry pre-reload `?t=` timestamps from mid-edit when imports were briefly undefined between sequential saves; conclusively stale because the post-reload board renders all columns + the full cross-link flow returned live data through a healthy OperationsCenter, which a live ref error would have crashed into the ErrorBoundary. `preview_screenshot` timed out twice — renderer-capture flake, not a page hang: `preview_eval` stayed instantly responsive throughout; verification via DOM queries, the preview docs' preferred path for text/structure.)_
+
+4. **Commit: LOOP_STATE only.** All three edited files are 100% mine, but the feature is inert without the `OperationsCenter.tsx` wiring (run #32), which still rides the uncommitted run #22–#32 drawer history + the sibling-`failMcTask`-tangled `api.ts` → committing in full sweeps sibling WIP (forbidden). The whole run #22–#33 frontend stays in the live-but-uncommitted bucket (TO-DO #2), to land together once the `failMcTask` tangle clears. No new sibling tangle introduced (zero api.ts/bridge.py/mc_store.py edits this run).
 
 ### 2026-06-18 — Run #32 (CONSOLIDATED the four Operations autonomy drawers into ONE tabbed ⊙ AUTONOMY surface — ▦ ACTIVITY / ⊘ BLOCKED / ⚿ WEB-ACCESS / ⚡ DISPATCHABLE were four separate toolbar buttons + four full-screen modals telling one coherent autonomy-observability story (recent events → why blocked → web gaps → fire queue + run state + gates) and already cross-linked, but every pivot was a close+reopen; now one button opens a tabbed wrapper where the operator hops between the four views without losing the surface, and the WEB-GAP cross-links became in-wrapper tab switches) · branch `auto/loop-reconcile-20260615`
 
