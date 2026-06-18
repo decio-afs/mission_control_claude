@@ -10,20 +10,29 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#31) — CROSS-LINKED the ⚡ DISPATCHABLE "WEB-GAP" chip to the ⚿ WEB-ACCESS audit.** The drawer already
-   counts the queued tasks that would fire into a web-gap ("N WEB-GAP" header chip) but that chip was a dead `<span>` — the
-   operator saw *how many* without being able to pivot to *which agents lack what MCP and how to provision them*. This is the
-   symmetric move to run #26 (which gave the ⊘ BLOCKED drawer's WEB-GAP chip the same jump). Added an optional
-   `onOpenAudit?: () => void` prop to `src/components/DispatchableDrawer.tsx` (my own untracked file): when provided the chip
-   becomes a `<button>` reading **`N WEB-GAP ↗`** that closes the drawer and opens the audit; absent → plain `<span>` fallback
-   so it still renders standalone. Wired with ONE disjoint in-lane line in `OperationsCenter.tsx` (`:344`,
-   `onOpenAudit={() => { setDispatchableOpen(false); setWebAccessOpen(true); }}` — mirrors run #26's `:340`, reuses the existing
-   `webAccessOpen` state). **Pure-frontend, 100% mine, no backend change, no new dep.** **Verified LIVE** (Vite 5219,
-   `#/operations`, bridge UP ~12h): the chip is a `BUTTON` "4 WEB-GAP ↗"; clicking it closed DISPATCHABLE and opened ⚿
-   WEB-ACCESS (`9 MISSING · 6 BLOCKED · 9 need web · 5 ok`) — full path proven; **0 console errors**. `npm run build` ✅ (633ms,
-   159 modules); `npx eslint DispatchableDrawer.tsx OperationsCenter.tsx` → No issues; `graphify update .` ✅. **Commit:
-   LOOP_STATE only** — the chip change is in my untracked drawer but the wiring rides the sibling-congested `OperationsCenter.tsx`
-   (TO-DO #2). (See DONE Run #31.) — _Prior run #30 BUILT a ⚙ AUTONOMY GATES panel in the ⚡ DISPATCHABLE drawer._ The dispatcher being LIVE-but-OFF
+0. **✅ DONE this run (#32) — CONSOLIDATED the four Operations autonomy drawers into ONE tabbed ⊙ AUTONOMY surface.** ▦ ACTIVITY /
+   ⊘ BLOCKED / ⚿ WEB-ACCESS / ⚡ DISPATCHABLE (runs #22–#31) told one coherent autonomy-observability story and were already
+   cross-linked, but each was a separate toolbar button + full-screen modal, so every pivot meant close+reopen. Built
+   `src/components/AutonomyDrawer.tsx` (**NEW, 100% mine**): one shell (backdrop + tab bar + single ✕ CLOSE) owning a 4-value `Tab`
+   state, rendering ONLY the active tab's drawer in a new `embedded` mode (so switching tabs mounts the target fresh = re-fetch /
+   restart poll, and tears down the inactive drawer's poll). Added an optional `embedded?: boolean` to each of the four drawers
+   (all my untracked files): when set, the early return yields just the inner panel (`w-full h-full`, no `fixed inset-0` backdrop /
+   no `max-w`/border) and hides the per-drawer ✕ CLOSE; absent → unchanged standalone modal (fully backward-compatible). The
+   WEB-GAP cross-links became in-wrapper tab switches (`onOpenAudit={() => setTab('webaccess')}`); simplified
+   `BlockedTasksDrawer`'s handler to bare `onClick={onOpenAudit}` so the embedded switch doesn't also close the surface (standalone
+   behavior unchanged). `OperationsCenter.tsx` (in-lane, my wiring region): **4 imports/state-vars/toolbar-buttons/mounts → 1 each**
+   (`AutonomyDrawer` / `autonomyOpen` / `⊙ AUTONOMY` button / one mount). **Pure-frontend, no backend change, no new dep.**
+   **Verified LIVE** (Vite 5219, `#/operations`, bridge UP ~14h, after a clean full reload): toolbar shows exactly **one ⊙ AUTONOMY
+   button**; drawer opens on ▦ ACTIVITY (LIVE, 45 events, filter chips); ⚡ DISPATCHABLE tab shows `○ OFF · 4 WEB-GAP ↗ · 8 ready` +
+   the GATES panel; **clicking `4 WEB-GAP ↗` kept the surface OPEN and switched to the ⚿ WEB-ACCESS tab** (`9 MISSING · 6 BLOCKED`)
+   — the in-wrapper pivot proven; ⊘ BLOCKED tab shows `6 WEB-GAP ↗ · 6 blocked · oldest 9d`; ✕ CLOSE returns to the single button;
+   **no ErrorBoundary, board renders all 6 columns** (console showed only STALE pre-reload HMR errors — conclusively stale because
+   OperationsCenter mounts post-reload, which a live ref error would have crashed). `npm run build` ✅ (696ms, 159 modules); `npx
+   eslint` all 6 touched files → No issues; `graphify update .` ✅ (1865 nodes). **Commit: LOOP_STATE only** — the wrapper is inert
+   without the `OperationsCenter.tsx` wiring, which rides the sibling-`failMcTask`-tangled api.ts + uncommitted run #22–#31 history
+   (TO-DO #2). (See DONE Run #32.) — _Prior run #31 CROSS-LINKED the ⚡ DISPATCHABLE "WEB-GAP" chip to the ⚿ WEB-ACCESS audit (the
+   symmetric move to run #26): the chip became a `<button>` `N WEB-GAP ↗` (optional `onOpenAudit` prop) that opens the per-agent
+   audit; verified LIVE, 0 console errors. (See DONE Run #31.)_ — _Prior run #30 BUILT a ⚙ AUTONOMY GATES panel in the ⚡ DISPATCHABLE drawer._ The dispatcher being LIVE-but-OFF
    and the cron store being empty are the two operator switches that keep ready work from firing on its own, but nothing in the
    UI named them *together* or said how to flip them. Added a panel (between header and OFF banner) reading both LIVE gates:
    **① DISPATCHER** — green `● ON · concurrency N · checks every Ns` or amber `○ OFF — set MC_DISPATCHER_ENABLED=1 on bridge
@@ -211,23 +220,18 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#31) — cross-linked the ⚡ DISPATCHABLE "WEB-GAP" chip to the ⚿ WEB-ACCESS audit** (the lighter
-   alternative from run #30's candidate (a); see item 0 + DONE Run #31). The cross-link story is now complete in BOTH directions
-   that matter: ⊘ BLOCKED → ⚿ WEB-ACCESS (run #26) **and** ⚡ DISPATCHABLE → ⚿ WEB-ACCESS (run #31). **Next capability to BUILD
-   (run #32)** — in-lane, live-backed candidates, pick by impact:
-   (a) **PREFERRED — consolidate the four Operations toolbar drawers (▦ ACTIVITY / ⊘ BLOCKED / ⚿ WEB-ACCESS / ⚡ DISPATCHABLE)
-   into one tabbed "AUTONOMY" surface.** The four drawers now form a coherent autonomy-observability story (recent events →
-   why blocked → web gaps → fire queue + run state + gates) AND are now cross-linked, but each is still a separate toolbar
-   button + modal; a single tabbed drawer would cut toolbar clutter and let the operator pivot between the four views without
-   close+reopen. Pure-frontend (all four components + their HEAD endpoints already exist) — mostly a wrapper + tab state. NOTE:
-   `OperationsCenter.tsx` is sibling-congested (rides the uncommitted run #22–#31 drawer imports + `failMcTask`-tangled api.ts),
-   so the cleanest shape is a NEW `AutonomyDrawer.tsx` wrapper (100% mine) that owns the tab state and renders the four existing
-   drawers' bodies — keeping the bulk of the new code in a fresh untracked file and limiting the OperationsCenter edit to
-   swapping four toolbar buttons + four mounts for one. The cross-link handoffs (run #26/#31) become in-wrapper tab switches.
-   (b) Lighter alternative now that the WEB-ACCESS hub is fully cross-linked — the ⚡ DISPATCHABLE web-gap ROWS (not just the
-   header chip) could each deep-link to the audit scrolled/filtered to that row's assignee; keeps edits in the (mine, untracked)
-   drawer file but needs the audit drawer to accept an optional focus-agent arg (a small WebAccessDrawer.tsx change, also mine).
-   (b) Runner-up — a reciprocal **↳ child ‹id›** chip in the feed/timeline: only `parent` is surfaced by
+5. **✅ DONE this run (#32) — consolidated the four Operations autonomy drawers into ONE tabbed ⊙ AUTONOMY surface** (the PREFERRED
+   candidate from run #31's list; see item 0 + DONE Run #32). The autonomy-observability views are now a single tabbed wrapper
+   (`AutonomyDrawer.tsx`, NEW + 100% mine) over the four `embedded`-mode drawers, one toolbar button, cross-links as in-wrapper tab
+   switches. **Next capability to BUILD (run #33)** — in-lane, live-backed candidates, pick by impact:
+   (a) **PREFERRED — ⚡ DISPATCHABLE web-gap ROWS deep-link to the ⚿ WEB-ACCESS tab focused on that row's assignee.** Now that the
+   four views live in one tabbed surface, the natural next refinement is per-row precision: a web-gap queue row could open the
+   audit tab scrolled/highlighted to exactly that assignee, not just the whole list. Needs an optional focus-agent arg on
+   `WebAccessDrawer.tsx` (also mine, untracked) + the DispatchableDrawer row to call the wrapper's `setTab` with the agent — all
+   pure-frontend, all my own files, no OperationsCenter edit (the wrapper already owns the tab state).
+   (b) Lighter — persist the operator's last-open AUTONOMY tab (the wrapper currently always opens on ▦ ACTIVITY; a
+   localStorage-backed `initialTab` would reopen where they left off). Wholly inside `AutonomyDrawer.tsx`.
+   (c) Runner-up — a reciprocal **↳ child ‹id›** chip in the feed/timeline: only `parent` is surfaced by
    `eventParent(payload)`; needs dependency-edge events to also carry `child` in their payload (a small `mc_store.py` change,
    sibling-congested) before the UI can render it. Lane note: keep clear of the sibling FAIL-action/banner region in
    `TaskDetailDrawer.tsx` (`:159-231`, `:293`), and the sibling `failMcTask`/`fail_task` hunks in api.ts/bridge.py/mc_store.py.
@@ -246,22 +250,27 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-18 (Run #31)** — **CROSS-LINKED the ⚡ DISPATCHABLE "WEB-GAP" chip to the ⚿ WEB-ACCESS audit** (the
-symmetric move to run #26's ⊘ BLOCKED→audit jump: the chip counted *how many* queued tasks would fire into a web-gap but was a
-dead `<span>` — now it's a `<button>` reading `N WEB-GAP ↗` that closes the drawer and opens the per-agent audit, so the
-operator can pivot from *how many* to *which agents lack what MCP*). Added an optional `onOpenAudit?: () => void` prop to
-`src/components/DispatchableDrawer.tsx` (my untracked file; plain-`<span>` fallback when absent) + ONE disjoint in-lane wiring
-line in `OperationsCenter.tsx` (`:344`, mirrors run #26's `:340`, reuses `webAccessOpen` state). **Pure-frontend, 100% mine, no
-backend change, no new dep.** **Verified LIVE** (Vite 5219, `#/operations`, bridge UP ~12h): chip is a `BUTTON` "4 WEB-GAP ↗";
-clicking it closed DISPATCHABLE and opened ⚿ WEB-ACCESS (`9 MISSING · 6 BLOCKED · 9 need web · 5 ok`) — full path proven; **0
-console errors**. `npm run build` ✅ (633ms, 159 modules); `npx eslint DispatchableDrawer.tsx OperationsCenter.tsx` → No issues;
-`graphify update .` ✅. Board steady + healthy: `ready 8 · blocked 6 · done 18`, reconcile → no stale claims, dispatcher
-LIVE-but-OFF + FED (8 dispatchable, 4 web_gap), cron `jobs:[]` + scheduler LIVE (1440 ticks, 0 fired). The autonomy-observability
-cross-link story is now complete: ⊘ BLOCKED → ⚿ WEB-ACCESS (run #26) AND ⚡ DISPATCHABLE → ⚿ WEB-ACCESS (run #31). Commit:
-LOOP_STATE only (the wiring rides the sibling-congested OperationsCenter → live-but-uncommitted bucket, TO-DO #2).
-Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline (~500 errors, sibling/untouched TS)
-unchanged, still bughunt/evolve's (#6). Next gap (run #32, TO-DO #5a): consolidate the four now-cross-linked Operations autonomy
-drawers into one tabbed surface via a NEW `AutonomyDrawer.tsx` wrapper (keeps the bulk in a fresh untracked file).
+_Last run: **2026-06-18 (Run #32)** — **CONSOLIDATED the four Operations autonomy drawers into ONE tabbed ⊙ AUTONOMY surface**
+(▦ ACTIVITY / ⊘ BLOCKED / ⚿ WEB-ACCESS / ⚡ DISPATCHABLE were four separate toolbar buttons + full-screen modals telling one
+coherent autonomy-observability story and already cross-linked, but every pivot was a close+reopen — now one button opens a
+tabbed wrapper that hops between the four views in place, and the WEB-GAP cross-links became in-wrapper tab switches). Built
+`src/components/AutonomyDrawer.tsx` (NEW, 100% mine: one shell + tab bar + single close, owning a 4-value `Tab` state, rendering
+only the active tab's drawer in a new `embedded` mode so each switch mounts fresh / re-polls and tears down the inactive poll);
+added an optional `embedded?: boolean` to all four drawers (my untracked files — drops the backdrop/border/max-w + hides the
+per-drawer close; absent → unchanged standalone modal); wired `OperationsCenter.tsx` 4 imports/state/buttons/mounts → 1 each.
+**Pure-frontend, no backend change, no new dep.** **Verified LIVE** (Vite 5219, `#/operations`, bridge UP ~14h, clean reload):
+exactly one ⊙ AUTONOMY toolbar button; drawer opens on ▦ ACTIVITY (LIVE, 45 events); ⚡ DISPATCHABLE tab `○ OFF · 4 WEB-GAP ↗ ·
+8 ready` + GATES panel; **clicking `4 WEB-GAP ↗` kept the surface OPEN and switched to the ⚿ WEB-ACCESS tab** (`9 MISSING ·
+6 BLOCKED`) — in-wrapper pivot proven; ⊘ BLOCKED tab `6 WEB-GAP ↗ · 6 blocked · oldest 9d`; close returns to the single button;
+no ErrorBoundary, board renders all 6 columns (console showed only STALE pre-reload HMR errors — conclusively stale because
+OperationsCenter mounts post-reload). `npm run build` ✅ (696ms, 159 modules); `npx eslint` all 6 touched files → No issues;
+`graphify update .` ✅ (1865 nodes). Board steady + healthy: `ready 8 · blocked 6 · done 18`, reconcile → no stale claims,
+dispatcher LIVE-but-OFF + FED (8 dispatchable, 4 web_gap), cron `jobs:[]` + scheduler LIVE (1680 ticks, 0 fired). Commit:
+LOOP_STATE only (the wrapper is inert without the sibling-congested OperationsCenter wiring → live-but-uncommitted bucket,
+TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline (~500 errors,
+sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #33, TO-DO #5): with the four views unified, the
+sharpest remaining pure-frontend win is the ⚡ DISPATCHABLE web-gap ROWS each deep-linking to the ⚿ WEB-ACCESS tab focused on
+that row's assignee (needs an optional focus-agent arg on WebAccessDrawer, also mine) — or persist the operator's last-open tab.
 — Prior run #30 — **BUILT a ⚙ AUTONOMY GATES panel in the ⚡ DISPATCHABLE drawer** (surfaces, side by side,
 the two operator switches that keep ready work from firing on its own — ① the dispatcher env flag, with concurrency · tick
 cadence when ON, and ② the cron schedule, with job count + scheduler-daemon liveness — each with a precise one-line remediation
@@ -336,15 +345,15 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 
 | Subsystem | State | Notes |
 |---|---|---|
-| **Dispatchable / readiness UI (run #27) + ▶ RUN STATE (run #28) + LIVE-POLL (run #29) + ⚙ AUTONOMY GATES (run #30) + WEB-GAP→audit cross-link (run #31)** | 🟢 LIVE on rebuild (backend `/api/mc/dispatcher` + `/api/mc/cron` already LIVE) | **Run #31 added the ⚿ WEB-ACCESS cross-link:** the header `N WEB-GAP` chip is now a `<button>` (`N WEB-GAP ↗`, optional `onOpenAudit` prop) that closes this drawer and opens the per-agent audit — symmetric to run #26's ⊘ BLOCKED chip; verified LIVE (clicking "4 WEB-GAP ↗" → ⚿ WEB-ACCESS `9 MISSING · 6 BLOCKED`, 0 console errors). **`DispatchableDrawer.tsx` (NEW, 100% mine, pure-frontend)** — a ⚡ DISPATCHABLE toolbar drawer listing the dispatcher's fire queue **best-first** (endpoint order = fire order), each row with a dispatch index, a ⚠/✓ web-gap marker, the task title (deep-link → TaskDetailDrawer), assignee, and agent model; header shows the dispatcher state chip (○ OFF / ● ON·RUNNING/IDLE) + **N WEB-GAP** chip + ready count; honest OFF banner + empty/error states + footer. **Run #28 added a ▶ RUN STATE panel** (counters + in-flight ids→titles + last-dispatch + last_error). **Run #29 made it LIVE** — re-polls `/api/mc/dispatcher` every 5s with a **● LIVE/⏸ PAUSED** toggle; cheap-poll (`titlesRef`) re-fetches `getMcTasks` only when an unnamed in-flight/last-dispatched id appears. **Run #30 added a ⚙ AUTONOMY GATES panel** (between header and OFF banner): **① DISPATCHER** (green `● ON · concurrency N · checks every Ns`, or amber `○ OFF — set MC_DISPATCHER_ENABLED=1 on bridge start`) and **② SCHEDULE** (green `● N cron jobs · daemon live`, amber `· daemon DOWN` if jobs exist but the scheduler is dead, or amber `○ 0 jobs — seed sentinel/content-engine via the ⏱ CRON modal`); both green → a header `✓ live — ready work fires on its own`. Reads `getMcCron` (HEAD) in parallel with `getDispatcher` (cheap-poll unchanged). Read-only — never dispatches and never flips the gates (firing + enabling are watched operator actions, TO-DO #1/#4). Reuses HEAD's `getDispatcher`/`getMcCron`/`getMcTasks`/`DispatcherStatus`/`CronSchedulerStatus` (api.ts, NO edit). Verified LIVE: 8 rows, ○ OFF, "4 WEB-GAP", both gates amber ○ (matching `enabled:false` + `jobs:[]`), `✓ live` absent, 0 console errors. Uncommitted (rides the same OperationsCenter congestion, TO-DO #2). |
+| **⊙ AUTONOMY consolidated surface (run #32)** — wraps ▦ ACTIVITY (#22–#24) + ⊘ BLOCKED (#25) + ⚿ WEB-ACCESS (#26) + ⚡ DISPATCHABLE (#27–#31) | 🟢 LIVE on rebuild (all four drawers + their HEAD endpoints already LIVE) | **Run #32 consolidated the four autonomy drawers into ONE tabbed surface.** `AutonomyDrawer.tsx` (NEW, 100% mine): one modal shell + tab bar + single ✕ CLOSE, owning a 4-value `Tab` state; renders ONLY the active tab's drawer in a new `embedded` mode (each tab switch mounts fresh = re-fetch / restart poll; the inactive drawer's live poll is torn down). Each of the four drawers gained an optional `embedded?: boolean` (drops the `fixed inset-0` backdrop + border/`max-w`, hides the per-drawer close; absent → unchanged standalone modal — fully backward-compatible). WEB-GAP cross-links became in-wrapper tab switches (`onOpenAudit → setTab('webaccess')`). `OperationsCenter.tsx`: 4 imports/state/buttons/mounts → **1 each** (⊙ AUTONOMY). Verified LIVE: one toolbar button; tabs render ▦ ACTIVITY (45 events) / ⊘ BLOCKED (6 · oldest 9d) / ⚿ WEB-ACCESS (9 MISSING · 6 BLOCKED) / ⚡ DISPATCHABLE (○ OFF · 4 WEB-GAP · 8 ready + GATES); `4 WEB-GAP ↗` switches tab in place (no close+reopen); no ErrorBoundary; build ✅ + eslint clean. Uncommitted (rides the same OperationsCenter congestion, TO-DO #2). **Underlying (run #31) ⚿ WEB-ACCESS cross-link:** the header `N WEB-GAP` chip is now a `<button>` (`N WEB-GAP ↗`, optional `onOpenAudit` prop) that closes this drawer and opens the per-agent audit — symmetric to run #26's ⊘ BLOCKED chip; verified LIVE (clicking "4 WEB-GAP ↗" → ⚿ WEB-ACCESS `9 MISSING · 6 BLOCKED`, 0 console errors). **`DispatchableDrawer.tsx` (NEW, 100% mine, pure-frontend)** — a ⚡ DISPATCHABLE toolbar drawer listing the dispatcher's fire queue **best-first** (endpoint order = fire order), each row with a dispatch index, a ⚠/✓ web-gap marker, the task title (deep-link → TaskDetailDrawer), assignee, and agent model; header shows the dispatcher state chip (○ OFF / ● ON·RUNNING/IDLE) + **N WEB-GAP** chip + ready count; honest OFF banner + empty/error states + footer. **Run #28 added a ▶ RUN STATE panel** (counters + in-flight ids→titles + last-dispatch + last_error). **Run #29 made it LIVE** — re-polls `/api/mc/dispatcher` every 5s with a **● LIVE/⏸ PAUSED** toggle; cheap-poll (`titlesRef`) re-fetches `getMcTasks` only when an unnamed in-flight/last-dispatched id appears. **Run #30 added a ⚙ AUTONOMY GATES panel** (between header and OFF banner): **① DISPATCHER** (green `● ON · concurrency N · checks every Ns`, or amber `○ OFF — set MC_DISPATCHER_ENABLED=1 on bridge start`) and **② SCHEDULE** (green `● N cron jobs · daemon live`, amber `· daemon DOWN` if jobs exist but the scheduler is dead, or amber `○ 0 jobs — seed sentinel/content-engine via the ⏱ CRON modal`); both green → a header `✓ live — ready work fires on its own`. Reads `getMcCron` (HEAD) in parallel with `getDispatcher` (cheap-poll unchanged). Read-only — never dispatches and never flips the gates (firing + enabling are watched operator actions, TO-DO #1/#4). Reuses HEAD's `getDispatcher`/`getMcCron`/`getMcTasks`/`DispatcherStatus`/`CronSchedulerStatus` (api.ts, NO edit). Verified LIVE: 8 rows, ○ OFF, "4 WEB-GAP", both gates amber ○ (matching `enabled:false` + `jobs:[]`), `✓ live` absent, 0 console errors. Uncommitted (rides the same OperationsCenter congestion, TO-DO #2). |
 | Bridge (:8767) | ✅ UP (uptime ~10h, no restart needed) → runs #1–#29 all LIVE | UP at start (`/api/ping` ok, uptime ~35985s ≈ 10h), serving ALL uncommitted backend. Confirmed live this run: `POST /api/mc/kanban/reconcile {dry_run}` → "no stale claims"; `/api/mc/cron` → `jobs:[]`, scheduler `{running:true, ticks:1200, fired:0}`. **Dispatcher LIVE but OFF + FED**: `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1,tick_seconds:30,in_flight:[],ticks:0,dispatched:0,errors:0}`, `dispatchable` = **8** (4 `web_gap`). |
 | **Web-access audit UI (run #26)** | 🟢 LIVE on rebuild (backend `/api/mc/agents/web-access` already LIVE) | **`WebAccessDrawer.tsx` (NEW, 100% mine)** — a ⚿ WEB-ACCESS toolbar drawer listing every `needs_web` agent **gap-first** (then by blocked-task count) with a ⚠/✓ marker, name, **N blk** (tasks it blocks), MCPs, web-skills count, header **N MISSING + N BLOCKED** chips, provisioning hint + honest `Audited T…` footer. Read-only (never provisions). Cross-linked: the ⊘ BLOCKED **N WEB-GAP** chip is now a button (**↗**, via new `onOpenAudit` prop) that closes blocked + opens the audit. Verified LIVE: 9 MISSING / 6 BLOCKED, narratrix 5 blk + 2 web-skills, cross-link works, 0 console errors. Uncommitted (rides the same OperationsCenter congestion, TO-DO #2). |
 | Event-timeline UI (run #21) + board-wide feed (run #22) + LIVE polling (run #23) + coarse-feed fallback (run #24) | 🟢 **FULL taxonomy LIVE now** (bridge restarted this run → `/api/mc/events` 200) | **Run #21:** per-task EVENT TIMELINE renders each kind with icon+label + ↳ parent chip (`eventLabels.ts` + `TaskDetailDrawer.tsx:405`). **Run #22: a board-wide ▦ ACTIVITY drawer** (`EventFeedDrawer.tsx`) merges EVERY task's full event timeline newest-first via `GET /api/mc/events` → `MCStore.recent_events`. **Run #23: LIVE** — auto-polls every 5s, ● LIVE/PAUSED toggle + kind-filter chips. **Run #24: coarse-feed fallback** (degrades to `/api/mc/activity` when events 404). This run the bridge was restarted so `/api/mc/events` → 200 — the feed serves the full taxonomy (45 events), no BASIC chip. |
 | **Blocked-tasks triage (run #25)** | 🟢 LIVE on rebuild (rebuild needed for the wiring; backend already in HEAD) | **`BlockedTasksDrawer.tsx` (NEW, 100% mine)** — a ⊘ BLOCKED toolbar drawer in OperationsCenter listing every blocked task **oldest-first** with a RESOLVED reason (recorded diagnostic → else amber "needs web access — ‹assignee› has no web MCP" via the audit's `gap` set → else honest "no recorded reason"), assignee, age, deep-link, a header **N WEB-GAP** chip + audit hint banner. Reuses `getMcTasks`/`getKanbanDiagnostics`/`getWebAccessAudit` (all in HEAD). Verified LIVE: 6 rows, "6 WEB-GAP" chip, deep-link → TaskDetailDrawer, 0 console errors. Uncommitted (rides the same OperationsCenter/api.ts congestion, TO-DO #2). |
 | Deliverables (#15 LIVE) + workspace seam (#16) + task_id parse (#18) + clickable chip (#20) | 🟢 #15 LIVE, #16/#18/#20 load on restart+rebuild | `GET /api/mc/deliverables` → 200, lists all 6 (all root-level/`research/` → `task_id:null`). Run #16: dispatch writes to `deliverables/tasks/<id>/` (task-linked, dual-browser). Run #18: listing derives `task_id` from a `tasks/<id>/…` path → UI ⬡ chip. **Run #20: the ⬡ chip is now CLICKABLE → opens the producing task's detail drawer** (DeliverablesDrawer `onOpenTask` prop + OperationsCenter wiring). Verified in Vite preview: drawer opens + lists 6 + 0 console errors. No `tasks/<id>/` file exists yet (needs a dispatch) → chip dormant (honest no-op) until then. |
 | Gateway (:8642) | ⚪ N/A by design | Excised with Hermes; `/api/mc/gateway` returns graceful-empty. NOT a blocker. |
-| `npm run build` | ✅ PASS | tsc + vite, exit 0 ~634ms, 157 modules (chunk-size warning only). Run #19 touched **only `mc_store.py`** (Python) → no TS change, JS build unaffected. |
-| `npm run lint` | 🔴 FAIL (pre-existing, NOT this run) | **Full project `npm run lint` = ~500 errors / 473 auto-fixable** (`ban-ts-comment`, `no-unused-vars`, `set-state-in-effect`, `react-hooks/refs`) across sibling/untouched TS. Run #19 touched **0 TS files** (Python-only) so lint is unchanged. Python (my lane): `py_compile mc_store.py` ✅. |
+| `npm run build` | ✅ PASS | tsc + vite, exit 0 ~696ms, 159 modules (chunk-size warning only). Run #32 touched 6 TS files (1 NEW `AutonomyDrawer.tsx` + 4 drawers `embedded` mode + OperationsCenter wiring) — build green. |
+| `npm run lint` | 🔴 FAIL project-wide (pre-existing, NOT this run) | **Full project `npm run lint` = ~500 errors / 473 auto-fixable** (`ban-ts-comment`, `no-unused-vars`, `set-state-in-effect`, `react-hooks/refs`) across sibling/untouched TS. Run #32's 6 touched files: `npx eslint` → **No issues found** (my lane clean). |
 | Kanban / orchestration | 🟢 FED + healthy | **ready 8 · done 18 · blocked 6 · todo 0 · triage 0** (steady). `reconcile` dry → no stale claims; no `retry_exhausted`/`dep`/`dead_agent`/`cycle`/`promotable`. 6 blocked = `blocked_no_reason` severity `info` (web-access, operator config). `dispatchable` = 8 (4 carousels `web_gap:true`). Did NOT dispatch (operator absent — side-effecting; TO-DO #1). |
 | Cron jobs | 🟡 EMPTY + engine LIVE | store `jobs: []`; scheduler daemon running (32 ticks). Maintenance `*/30` sweep (run#10) now ALSO promotes todo→ready (run #12 sweep step). Seeding needs operator sign-off (TO-DO #4). |
 | Content pipeline | ✅ stores live | `/api/content/pipeline` → campaigns 27 · drafts 13 (↑ from 5) · calendar 36 (growing; writing `.mc/data/`). |
@@ -762,6 +771,20 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-18 — Run #32 (CONSOLIDATED the four Operations autonomy drawers into ONE tabbed ⊙ AUTONOMY surface — ▦ ACTIVITY / ⊘ BLOCKED / ⚿ WEB-ACCESS / ⚡ DISPATCHABLE were four separate toolbar buttons + four full-screen modals telling one coherent autonomy-observability story (recent events → why blocked → web gaps → fire queue + run state + gates) and already cross-linked, but every pivot was a close+reopen; now one button opens a tabbed wrapper where the operator hops between the four views without losing the surface, and the WEB-GAP cross-links became in-wrapper tab switches) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green (no restart needed).** Bridge :8767 **UP** at start (`/api/ping` ok, uptime ~50390s ≈ 14h — all run #16–#31 backend LIVE). Confirmed: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18` (steady); `POST /api/mc/kanban/reconcile {dry_run}` → "no stale claims found"; `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1,tick_seconds:30,in_flight:[],ticks:0,dispatched:0,errors:0}`, `dispatchable`=**8** (4 `web_gap:true`); `/api/mc/cron` → `jobs:[]`, scheduler `{running:true,ticks:1680,fired:0}`. `npm run build` ✅ (exit 0, 627ms, 159 modules) before edits.
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18` (unchanged from runs #19–#31). Reconcile → no stale claims; no dead agents/cycles/retry-exhausted. The 6 blocked remain the known web-access config gap (`blocked_no_reason`, info — operator config, not code; TO-DO #3). **Did NOT dispatch** (operator absent; side-effecting turns need sign-off — TO-DO #1), did NOT enable the daemon or seed crons (TO-DO #4).
+
+3. **BUILT (TO-DO #5a, PREFERRED candidate): the consolidated ⊙ AUTONOMY tabbed surface.** Pure-frontend, no backend change, no new dep — all four drawer components + their HEAD endpoints already existed; this is a wrapper + an `embedded` render mode.
+   - **`src/components/AutonomyDrawer.tsx` (NEW, 100% mine):** one modal shell (backdrop + tab bar + single ✕ CLOSE) owning a `Tab` state (`activity`/`blocked`/`webaccess`/`dispatch`, default `activity`). Renders ONLY the active tab's drawer in `embedded` mode, so switching tabs mounts the target fresh (re-fetch / restart poll) and tears down the inactive drawer's live poll. The WEB-GAP cross-links (`onOpenAudit`) are wired to `() => setTab('webaccess')` — the run #26/#31 hand-offs become in-wrapper tab switches instead of close+reopen.
+   - **The four drawers (`EventFeedDrawer.tsx` / `BlockedTasksDrawer.tsx` / `WebAccessDrawer.tsx` / `DispatchableDrawer.tsx`, all my own untracked files):** each gained an optional `embedded?: boolean`. When set, the early return yields just the inner panel (`const panel`, `w-full h-full`, no `fixed inset-0` backdrop / no `max-w`/border) instead of the standalone modal, and the per-drawer `✕ CLOSE` is hidden (`{!embedded && …}`) since the wrapper provides the single close. Absent → unchanged standalone modal (fully backward-compatible). Also simplified `BlockedTasksDrawer`'s cross-link handler from `() => { onClose(); onOpenAudit(); }` to `onClick={onOpenAudit}` so the embedded tab-switch doesn't also close the surface (the standalone `onOpenAudit` in OperationsCenter already closed blocked itself — behavior unchanged; `DispatchableDrawer` already used bare `onClick={onOpenAudit}`).
+   - **`src/pages/OperationsCenter.tsx` (in-lane, my own wiring region):** swapped the **4 drawer imports → 1** (`AutonomyDrawer`), the **4 state vars (`eventsOpen`/`blockedOpen`/`webAccessOpen`/`dispatchableOpen`) → 1** (`autonomyOpen`), the **4 toolbar buttons → 1** (`⊙ AUTONOMY`), and the **4 mounts → 1** (`<AutonomyDrawer … onOpenTask={(id)=>{ setAutonomyOpen(false); setOpenTaskId(id); }} />`).
+   - **Verified in the LIVE Vite preview** (port 5219, `#/operations`, bridge UP, after a clean full reload): toolbar shows exactly **one ⊙ AUTONOMY button** (the four old buttons gone); the drawer opens on **▦ ACTIVITY** (LIVE chip, **45 events**, filter chips `all 45 · lifecycle 23 · dependency 0 · orchestration 22`, rows render); the **⚡ DISPATCHABLE** tab shows `LIVE · ○ OFF · 4 WEB-GAP ↗ · 8 ready to fire` + the ⚙ AUTONOMY GATES panel (both gates amber ○); **clicking `4 WEB-GAP ↗` kept the surface OPEN and switched to the ⚿ WEB-ACCESS tab** (`9 MISSING · 6 BLOCKED · 9 need web · 5 ok` + provisioning hint) — the in-wrapper pivot proven (no close+reopen); the **⊘ BLOCKED** tab shows `6 WEB-GAP ↗ · 6 blocked · oldest 9d`; ✕ CLOSE closes cleanly and the toolbar returns to the single button; **no ErrorBoundary fallback**, board renders all 6 columns. `npm run build` ✅ (696ms, 159 modules); `npx eslint` on all 6 touched files → **No issues found**; `graphify update .` ✅ (1865 nodes). _(Console showed only STALE HMR-transition errors — all carry pre-reload timestamps from mid-edit when the import was removed before the drawer files HMR-refreshed; conclusively stale because OperationsCenter mounts + the full drawer renders post-reload, which a live `EventFeedDrawer is not defined` would have crashed into the ErrorBoundary. `preview_screenshot` timed out twice — a renderer-capture limitation, not a page hang: `preview_eval` stayed instantly responsive throughout; verification done via DOM queries, which the preview docs prefer for text/structure.)_
+
+4. **Commit: LOOP_STATE only.** `AutonomyDrawer.tsx` + the four `embedded` drawer edits are 100% mine, but the wrapper is inert without the `OperationsCenter.tsx` wiring, and that file still rides the uncommitted run #22–#31 drawer history + the sibling-`failMcTask`-tangled `api.ts` → committing it in full sweeps sibling WIP (forbidden). The whole run #22–#32 frontend stays in the live-but-uncommitted bucket (TO-DO #2), to land together once the `failMcTask` tangle clears. No new sibling tangle introduced (zero api.ts/bridge.py/mc_store.py edits this run).
 
 ### 2026-06-18 — Run #31 (CROSS-LINKED the ⚡ DISPATCHABLE "WEB-GAP" chip to the ⚿ WEB-ACCESS audit — the symmetric move to run #26, which made the ⊘ BLOCKED drawer's WEB-GAP chip jump to the same audit; the chip was a dead label so the operator could see *how many* queued tasks would hit the web-gap without being able to pivot to *which agents are missing what*) · branch `auto/loop-reconcile-20260615`
 
