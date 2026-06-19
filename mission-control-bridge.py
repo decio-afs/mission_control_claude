@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -1403,6 +1404,142 @@ def task_workspace(task_id: str, file: Optional[str] = None):
         out["log"] = _git_ro(ws_root, *logargs)
         out["diffstat"] = _git_ro(ws_root, "diff", "--stat")
     return out
+
+
+# Deliverables browser. Dispatched agents are told to write any substantive
+# output to deliverables/ or research/ at the repo root (see _build_dispatch_prompt),
+# but until now those files had no reachable home in the UI — they sat orphaned on
+# disk with no task linkage (the per-task workspace browser above only sees a task's
+# own `workspace_path`, which dispatch does not yet populate). This read-only
+# browser surfaces every produced artifact. SAFETY: listing is confined to the two
+# known roots under the bridge dir; a ?path= read is resolved and strictly
+# re-confined inside those roots (no path-traversal escape); file size is capped
+# and binary files are not inlined.
+_DELIVERABLE_DIR = Path(__file__).parent
+_DELIVERABLE_ROOTS = ("deliverables", "research")
+_DELIVERABLE_MAX_ENTRIES = 500
+
+
+def _deliverable_task_id(root: str, rel_to_root: str) -> str | None:
+    """Derive the owning task id from a deliverable's path, or None.
+
+    The dispatcher workspace seam (run #16) writes a dispatched agent's output to
+    `deliverables/tasks/<id>/…` (see MCStore.ensure_workspace). A path of that exact
+    shape — under the `deliverables` root, first segment `tasks`, a non-empty second
+    segment, and at least one more segment (the file) — yields that `<id>` so the UI
+    can link a file back to the task that produced it. Pure string parse, no store
+    hit. Returns None for anything else (root-level files, the `research` root, a bare
+    `tasks/<id>` with no file under it)."""
+    if root != "deliverables":
+        return None
+    parts = rel_to_root.split("/")
+    if len(parts) >= 3 and parts[0] == "tasks" and parts[1]:
+        return parts[1]
+    return None
+
+
+@app.get("/api/mc/deliverables")
+def list_deliverables():
+    """Flat, newest-first listing of every file under deliverables/ and research/."""
+    items: list[dict[str, Any]] = []
+    for root in _DELIVERABLE_ROOTS:
+        base = _DELIVERABLE_DIR / root
+        if not base.is_dir():
+            continue
+        try:
+            paths = [p for p in base.rglob("*") if p.is_file()]
+        except OSError:
+            continue
+        for p in paths:
+            if p.name.startswith(".") or ".git" in p.parts:
+                continue
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            rel_to_root = p.relative_to(base).as_posix()
+            items.append({
+                "path": p.relative_to(_DELIVERABLE_DIR).as_posix(),
+                "root": root,
+                "name": p.name,
+                "rel_to_root": rel_to_root,
+                "task_id": _deliverable_task_id(root, rel_to_root),
+                "size": st.st_size,
+                "modified": st.st_mtime,
+                "ext": p.suffix.lower().lstrip("."),
+            })
+    # Cap AFTER sorting newest-first, not during the walk. The old in-loop
+    # `break` capped in rglob (arbitrary filesystem) order and only `break`-ed
+    # the INNER loop, so once the artifact count crossed _DELIVERABLE_MAX_ENTRIES
+    # the panel (a) kept an arbitrary subset instead of the NEWEST deliverables —
+    # silently HIDING the operator's most-recent outputs, the exact lost-deliverable
+    # failure this browser exists to prevent — and (b) the second root could still
+    # leak entries past the cap. Collect every entry, sort by mtime desc, then
+    # truncate, so the surviving N are always the freshest (mirrors get_activity's
+    # cap-priority discipline). rglob already materializes the full path list, so
+    # collecting all dicts adds only O(files) work, no extra walk.
+    items.sort(key=lambda x: x["modified"], reverse=True)
+    items = items[:_DELIVERABLE_MAX_ENTRIES]
+    return {"deliverables": items, "count": len(items), "roots": list(_DELIVERABLE_ROOTS)}
+
+
+@app.get("/api/mc/deliverables/file")
+def read_deliverable(path: str):
+    """Return one deliverable file's text, strictly confined to the roots."""
+    try:
+        target = (_DELIVERABLE_DIR / path).resolve(strict=False)
+    except (OSError, ValueError):
+        raise HTTPException(status_code=400, detail="invalid path")
+    inside = False
+    for root in _DELIVERABLE_ROOTS:
+        base = (_DELIVERABLE_DIR / root).resolve(strict=False)
+        if target == base or base in target.parents:
+            inside = True
+            break
+    if not inside:
+        raise HTTPException(status_code=403, detail="path escapes deliverable roots")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="deliverable not found")
+    try:
+        raw = target.read_bytes()[: _MAX_FILE_BYTES + 1]
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"could not read deliverable: {exc}")
+    truncated = len(raw) > _MAX_FILE_BYTES
+    raw = raw[:_MAX_FILE_BYTES]
+    if b"\x00" in raw:
+        return {"path": path, "binary": True, "truncated": False,
+                "content": "", "note": "binary file — not shown"}
+    return {"path": path, "binary": False, "truncated": truncated,
+            "content": raw.decode("utf-8", errors="replace")}
+
+
+@app.get("/api/mc/deliverables/raw")
+def read_deliverable_raw(path: str):
+    """Serve a deliverable's RAW bytes, strictly confined to the roots.
+
+    The JSON `/file` endpoint can only flag a binary deliverable as "not shown",
+    so a generated media deliverable (e.g. an agent-produced hero image) had no
+    viewable home — the operator saw a note where their image should be. This
+    streams the actual bytes (content-type inferred from the extension) so the UI
+    can render an <img>. Same path-confinement as read_deliverable; no inlining
+    into JSON, so the big-file/binary concern that keeps `/file` text-only does
+    not apply here.
+    """
+    try:
+        target = (_DELIVERABLE_DIR / path).resolve(strict=False)
+    except (OSError, ValueError):
+        raise HTTPException(status_code=400, detail="invalid path")
+    inside = False
+    for root in _DELIVERABLE_ROOTS:
+        base = (_DELIVERABLE_DIR / root).resolve(strict=False)
+        if target == base or base in target.parents:
+            inside = True
+            break
+    if not inside:
+        raise HTTPException(status_code=403, detail="path escapes deliverable roots")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="deliverable not found")
+    return FileResponse(target)
 
 
 @app.get("/api/mc/tasks/{task_id}/notify")
