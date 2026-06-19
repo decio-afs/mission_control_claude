@@ -1701,6 +1701,50 @@ class MCStore:
             self._save_cron(jobs)
 
 
+    def recent_events(self, limit: int = 50) -> dict[str, Any]:
+        """Board-wide event feed: merge every task's event timeline newest-first.
+
+        Distinct from /api/mc/activity, which synthesizes only three coarse
+        lifecycle entries (created/claimed/completed) from task timestamps. This
+        walks the FULL per-task event log — claim/complete/block/fail/route/
+        promote/escalate/reassign/reconcile/dependency-edge/workspace/… — so the
+        operator sees the board's real pulse: every recorded state change, not
+        just the three coarse stamps. Each row carries its owning task_id + title
+        (+ assignee + current task_status) so the UI can deep-link to the task and
+        render an icon/label per `kind` (eventLabels.ts) with the dependency-edge
+        parent surfaced from the payload."""
+        with self._lock:
+            tasks = self._tasks()
+            m = self._meta()
+            info = {
+                str(t.get("id", "")): {
+                    "title": t.get("title") or "untitled",
+                    "assignee": t.get("assignee"),
+                    "task_status": t.get("status"),
+                }
+                for t in tasks if isinstance(t, dict)
+            }
+            out: list[dict[str, Any]] = []
+            for tid, evs in (m.get("events") or {}).items():
+                meta = info.get(str(tid), {"title": "untitled", "assignee": None, "task_status": None})
+                for e in evs or []:
+                    if not isinstance(e, dict):
+                        continue
+                    out.append({
+                        "task_id": tid,
+                        "title": meta["title"],
+                        "assignee": meta["assignee"],
+                        "task_status": meta["task_status"],
+                        "kind": e.get("kind", ""),
+                        "payload": e.get("payload"),
+                        "created_at": e.get("created_at"),
+                        "run_id": e.get("run_id"),
+                    })
+            out.sort(key=lambda e: e.get("created_at") or 0, reverse=True)
+            lim = max(1, min(int(limit or 50), 500))
+            return {"events": out[:lim], "total": len(out)}
+
+
 def _next_run(schedule: str) -> Optional[str]:
     """Best-effort next-run display from a simple interval like '30m' / '2h' / '1d'.
     Cron expressions and natural phrases just show the raw schedule."""

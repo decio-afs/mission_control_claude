@@ -10,7 +10,9 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#47) — 📦 LANDED THE DELIVERABLES ENDPOINT ISLAND INTO HEAD (closed the committed frontend↔backend gap, autonomously).**
+0. **✅ DONE this run (#48) — 📡 LANDED THE EVENTS-FEED ENDPOINT ISLAND INTO HEAD (closed the next committed frontend↔backend gap, autonomously).**
+   Discharged run #47's explicit handoff (the run #48 primary candidate). HEAD already shipped the *frontend* half of the board-wide event feed — `src/lib/api.ts` `getRecentEvents` (`:846` → `GET /api/mc/events`) + `McEvent` (`:835`), and `EventFeedDrawer.tsx` is committed AND **mounted/reachable** in HEAD (`AutonomyDrawer.tsx:285` renders it as the ▦ ACTIVITY tab, which run #45 wired into `OperationsCenter` via the ⊙ AUTONOMY button). So committed HEAD had a reachable UI calling **a backend GET its committed bridge does not serve**: open Operations → ⊙ AUTONOMY → ▦ ACTIVITY → `getRecentEvents(100)` → `/api/mc/events` → **404 on a clean checkout/restart**. The serving code lived only in the working tree, split across **two** files: `mc_store.py` `recent_events` (the store method, HEAD-absent) + `mission-control-bridge.py` `get_events` (the endpoint, HEAD-absent). Confirmed both halves missing in HEAD (`git show HEAD:` → NEITHER) and that the endpoint's deps `BlockTaskPayload`/`_task_op` exist in HEAD while `STORE.recent_events` did NOT — so landing the bridge endpoint **without** the store method would 500, not 404; the island therefore HAD to be the two-file pair. **Built the island programmatically against the HEAD blobs** (not the congested working tree): (1) `mc_store.py` — inserted the 44-line `recent_events` method before the module-level `def _next_run` (lands inside `class MCStore`; self-contained — only `self._lock`/`self._tasks()`/`self._meta()`, all existing store internals); (2) `mission-control-bridge.py` — inserted the 13-line `get_events` endpoint between `get_activity` and the `PATCH_NOTES_FILE` block. The sibling `get_activity` rewrite (working tree's critical-event-reservation version) was deliberately NOT pulled in — HEAD's `events[:50]` version stays. Bridge block extracted from the working tree (CRLF) and **normalized to LF**; both islands **AST-parsed** before staging; PEP8 blank-line spacing cleaned (2 blank lines around the inserted store method). **Staged via `git hash-object -w` + `git update-index --cacheinfo`** so the working tree kept ALL sibling WIP untouched; `git diff --cached` = **exactly 57 insertions / 0 deletions in the 2 expected hunks** (`mc_store @@ -1701 class MCStore`, `bridge @@ -878 get_activity`); **both staged blobs re-AST-parsed ✅**. **HEALTH: bridge UP** (`/api/ping` → `uptime 85827s` ≈ 23.8h, no restart); `/api/mc/events` LIVE returns 45 real events (`total:45`); `/api/mc/deliverables` LIVE (run #47's island still serving); dispatcher LIVE-but-OFF (`enabled:false`, `dispatched:0`); cron empty; gateway graceful-empty. **ORCHESTRATION (clean):** board `done 18 · blocked 6 · ready 8`, `reconcile` = "no stale claims found", no FAILED/RUNNING, dispatchable=8 (4 web-gap claudelink carousels), only the 6 known web-gap `blocked` research tasks (competitor/IG-audit/pillars/tactics/hooks/synthesis — not force-unblocked while dispatcher OFF). **VERIFY:** `npm run build` ✅ (819ms); `npm run lint` ✗ (500 errors, ALL pre-existing in committed HEAD `.tsx`/`.ts` — e.g. `GhostOffice.tsx` react-hooks/refs + setState-in-effect, unmodified yet failing → bughunt/sibling lane; my backend-only Python island adds **zero** eslint surface — `git diff --cached --name-only` = exactly the 2 `.py` files). **Commit: `<pending>` (mc_store.py + bridge.py island, 57+) + LOOP_STATE.** **Next (run #49): the events chain is now fully in HEAD. Pick the next committable backend island** — the strongest remaining candidate is **`fail_task`** (the `POST /api/mc/tasks/{id}/fail` endpoint at bridge working-tree `:1055` + `STORE.fail_task` at `mc_store.py:322` — HEAD api.ts already ships `failMcTask` `:252`, same two-file pattern, both halves HEAD-absent: confirm with `git show HEAD:mc_store.py | grep 'def fail_task'`). Use the identical throwaway-AST + hash-object/update-index technique; the store method's deps must be checked self-contained against HEAD first. If the tree is still saturated/congested, do orchestration + health only and surface it. (See DONE Run #48.) —
+   _Prior run #47 — 📦 LANDED THE DELIVERABLES ENDPOINT ISLAND INTO HEAD (closed the committed frontend↔backend gap, autonomously).**
    Discharged run #46's explicit handoff. HEAD already shipped the *frontend* half of the deliverables browser (run #44 landed `src/lib/api.ts`'s `listDeliverables`/`readDeliverable`/`deliverableRawUrl` `:398-412`; `DeliverablesDrawer.tsx` is committed) — so committed HEAD had a UI calling **three backend GETs its committed bridge did not serve** (`/api/mc/deliverables`, `/file`, `/raw`). A clean checkout/restart = a deliverables drawer that 404s. Now that run #46 made HEAD's `mission-control-bridge.py` parse again, the backend was finally landable. **Built the island programmatically against the HEAD blob** (not the congested working tree): two insertions only — (1) the top-level `from fastapi.responses import FileResponse` after the CORS import, and (2) the 136-line deliverables block (`_DELIVERABLE_DIR`/`_DELIVERABLE_ROOTS`/`_DELIVERABLE_MAX_ENTRIES` + `_deliverable_task_id` + `list_deliverables` + `read_deliverable` + `read_deliverable_raw`) inserted before `task_notify_list`. All deps already in HEAD (`_MAX_FILE_BYTES` `:1302`, `Path`/`Any`/`HTTPException`/`app`). Block extracted from the working tree (CRLF) and **normalized to LF** to match HEAD's blob convention; resulting island **AST-parsed** before staging. **Staged via `git hash-object -w` + `git update-index --cacheinfo`** so the working tree kept ALL sibling WIP untouched; `git diff --cached` = **exactly 137 insertions / 0 deletions in the 2 expected hunks** (`@@ -21` import, `@@ -1405` block); **staged blob re-AST-parsed ✅**. The sibling-owned `kanban_promote`/`fail_task`/`get_events`/dispatcher hunks (still uncommitted in the working tree) were deliberately EXCLUDED. **HEALTH: bridge UP** (`/api/ping` → `uptime 78613s` ≈ 21.8h, no restart); `/api/mc/deliverables` LIVE returns 6 real artifacts; dispatcher LIVE-but-OFF (`enabled:false`, `dispatched:0`); cron empty; gateway graceful-empty. **ORCHESTRATION (clean):** board `done 18 · blocked 6 · ready 8`, no FAILED/RUNNING, dispatchable=8 (4 web-gap claudelink carousels), only the 6 known web-gap `blocked` research tasks (not force-unblocked while dispatcher OFF). **VERIFY:** `npm run build` ✅; `npm run lint` ✗ (500 errors, ALL pre-existing in committed HEAD `.tsx`/`.ts` — e.g. `GhostOffice.tsx` `no-var`/setState-in-effect, unmodified yet failing → bughunt/sibling lane; my backend-only Python island adds zero eslint surface, 0 lint refs to bridge.py). **Commit: `4cbbe31` (bridge.py island, 137+) + LOOP_STATE.** **Next (run #48): the deliverables chain is now fully in HEAD — verify it end-to-end on a HEAD restart isn't possible without killing the operator's bridge, so instead pick the next committable backend island** from the working-tree bridge.py surface (candidates, all sibling-owned today so confirm ownership first): the `/api/mc/events` GET (`get_events`, feeds run #23's EventFeedDrawer — check if `getRecentEvents` is in HEAD api.ts yet) or `fail_task` POST. If the tree is still saturated/congested, do orchestration + health only and surface it. (See DONE Run #47.) —
    _Prior run #46 — 🩺 REPAIRED THE HEAD-UNPARSEABLE BRIDGE (a 34-run-old self-inflicted breakage, done autonomously).**
    While island-testing the bridge deliverables endpoint per run #45's handoff, I AST-checked HEAD first (per the HEAD-broken-commit-trap
@@ -362,19 +364,25 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-19 (Run #47)** — **📦 LANDED THE DELIVERABLES ENDPOINT ISLAND INTO HEAD.** HEAD already shipped the deliverables
-*frontend* (run #44's api.ts client `:398-412` + committed `DeliverablesDrawer.tsx`, mounted by run #45) but the three backend GETs it
-calls (`/api/mc/deliverables`, `/file`, `/raw`) lived only in the uncommitted working tree → committed HEAD = a drawer that 404s on a
-clean checkout. Now that run #46 made HEAD's bridge parse, the backend was landable: built the island **against the HEAD blob** (LF) — two
-inserts only (`FileResponse` import + the 136-line deliverables block before `task_notify_list`, all deps in HEAD), `ast.parse`d it, staged
-via `hash-object -w`+`update-index --cacheinfo` (working tree keeps ALL sibling WIP), `git diff --cached` = exactly **137 ins / 0 del** in
-the 2 expected hunks, re-AST-parsed the **staged blob** ✅. Sibling `kanban_promote`/`fail_task`/`get_events`/dispatcher hunks EXCLUDED.
-**HEALTH: bridge UP** (`/api/ping` → `uptime 78613s` ≈ 21.8h); `/api/mc/deliverables` LIVE = 6 real artifacts; dispatcher LIVE-but-OFF;
-cron empty; gateway graceful-empty. **ORCHESTRATION (clean):** board `done 18 · blocked 6 · ready 8`; no FAILED/RUNNING; dispatchable=8
-(4 web-gap); only the 6 known web-gap `blocked` research tasks (not force-unblocked while dispatcher OFF). **VERIFY:** `npm run build` ✅;
-`npm run lint` ✗ (500 errors, ALL pre-existing in committed HEAD `.tsx`/`.ts` — e.g. unmodified `GhostOffice.tsx`; my backend-only island
-adds zero eslint surface). **Next (run #48): pick the next committable backend island** from the working-tree bridge.py surface (confirm
-ownership first — `get_events`/`fail_task` are sibling-owned today), or orchestration + health only if the tree stays saturated._
+_Last run: **2026-06-19 (Run #48)** — **📡 LANDED THE EVENTS-FEED ENDPOINT ISLAND INTO HEAD.** Same class as run #47: HEAD ships a
+*reachable* frontend (`getRecentEvents` api.ts `:846`, `McEvent` `:835`, `EventFeedDrawer.tsx` mounted as the ▦ ACTIVITY tab at
+`AutonomyDrawer.tsx:285` via run #45's ⊙ AUTONOMY button) calling `GET /api/mc/events` — a route committed HEAD's bridge did **not**
+serve (→ 404 on a clean checkout). The serving code spanned **two** HEAD-absent files: `mc_store.py` `recent_events` (store method) +
+`mission-control-bridge.py` `get_events` (endpoint); confirmed the bridge endpoint's deps (`BlockTaskPayload`/`_task_op`) are in HEAD but
+`STORE.recent_events` was not, so the pair had to land together (endpoint alone = 500). Built **against the HEAD blobs** (LF): `recent_events`
+(+44) inserted in `class MCStore` before `def _next_run` (self-contained: `self._lock`/`_tasks()`/`_meta()`); `get_events` (+13) inserted
+after `get_activity` (the sibling `get_activity` rewrite NOT pulled in). Both `ast.parse`d; staged via `hash-object -w`+`update-index
+--cacheinfo` (working tree keeps ALL sibling WIP); `git diff --cached` = exactly **57 ins / 0 del** in the 2 expected hunks; staged blobs
+re-AST-parsed ✅; staged name-only = exactly the 2 `.py` files (zero eslint surface). **HEALTH: bridge UP** (`/api/ping` → `uptime 85827s`
+≈ 23.8h); `/api/mc/events` LIVE = 45 real events; `/api/mc/deliverables` LIVE (run #47 still serving); dispatcher LIVE-but-OFF; cron empty;
+gateway graceful-empty. **ORCHESTRATION (clean):** board `done 18 · blocked 6 · ready 8`; reconcile = "no stale claims found"; no
+FAILED/RUNNING; dispatchable=8 (4 web-gap); only the 6 known web-gap `blocked` research tasks (not force-unblocked while dispatcher OFF).
+**VERIFY:** `npm run build` ✅ (819ms); `npm run lint` ✗ (500 errors, ALL pre-existing in committed HEAD `.tsx`/`.ts`; backend-only island
+adds zero eslint surface). **Next (run #49): land `fail_task`** (`POST /api/mc/tasks/{id}/fail` + `STORE.fail_task`, HEAD api.ts already
+ships `failMcTask` `:252`; both backend halves HEAD-absent — same two-file island), or orchestration + health only if the tree stays saturated._
+— Prior run #47 — **📦 LANDED THE DELIVERABLES ENDPOINT ISLAND INTO HEAD.** HEAD shipped the deliverables frontend (run #44 api.ts
+`:398-412` + `DeliverablesDrawer.tsx`, mounted run #45); landed the 3 backend GETs (`/api/mc/deliverables`+`/file`+`/raw`) + `FileResponse`
+import as a 137-ins HEAD-blob island (`4cbbe31`); `/api/mc/deliverables` LIVE = 6 artifacts. (See DONE Run #47.)
 — Prior run #46 — **🩺 REPAIRED THE HEAD-UNPARSEABLE BRIDGE.** Found HEAD's `mission-control-bridge.py` unparseable since run #11
 (`496fad2` spliced the dispatcher block into the middle of `specify_task`); committed `4784609` reinstating a complete `specify_task` →
 NEW HEAD bridge parses ✅, all 7 tracked `*.py` parse. (See DONE Run #46.)
@@ -733,6 +741,13 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 
 ## CAPABILITY GAPS  _(ranked by operator impact; ✅=built, →bughunt=broken-not-missing)_
 
+A. ✅ **Committed-frontend↔unserved-backend route gaps (BUILDING DOWN, runs #47–#48).** A recurring class: the loop's
+   prior runs landed *frontend* clients into HEAD (api.ts callers + mounted drawers) while the matching bridge/store code
+   stayed in the uncommitted working tree, so a clean checkout 404s. **Run #47** closed deliverables (`/api/mc/deliverables`
+   +`/file`+`/raw`, `4cbbe31`). **Run #48** closed the events feed (`GET /api/mc/events` + `STORE.recent_events`, two-file
+   island, 57+) → `EventFeedDrawer` (▦ ACTIVITY tab) now resolves on a clean HEAD. **Remaining in this class (run #49):**
+   `fail_task` (`POST /api/mc/tasks/{id}/fail` + `STORE.fail_task`; HEAD ships `failMcTask` api.ts `:252`) — both backend
+   halves still HEAD-absent, same two-file island pattern. Audit HEAD api.ts callers for any other unserved routes after that.
 0. ✅ **Dispatch-queue legibility (BUILT run #27).** The dispatcher was LIVE-but-OFF and FED (`dispatchable`=8) but the
    readiness queue had no UI home — the operator couldn't see what would fire next without curling `/api/mc/dispatcher`.
    Built `DispatchableDrawer.tsx` (⚡ DISPATCHABLE), pure-frontend (`getDispatcher()` already in HEAD), listing the queue
@@ -1015,6 +1030,50 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-19 — Run #48 (📡 LANDED THE EVENTS-FEED ENDPOINT ISLAND INTO HEAD — the next committed frontend↔backend gap, autonomously)
+
+**Gap.** Same class run #47 closed for deliverables: committed HEAD ships a *reachable* frontend that calls a
+backend route the committed HEAD bridge does not serve. HEAD has `getRecentEvents` (`src/lib/api.ts:846` →
+`GET /api/mc/events`) + `McEvent` (`:835`), `EventFeedDrawer.tsx` is committed AND mounted as the ▦ ACTIVITY
+tab (`AutonomyDrawer.tsx:285`, reached via run #45's ⊙ AUTONOMY button in `OperationsCenter`). So a clean
+checkout: Operations → ⊙ AUTONOMY → ▦ ACTIVITY → `getRecentEvents(100)` → `/api/mc/events` → **404**. The
+serving code lived only in the working tree, split across **two** files (`git show HEAD:` confirmed BOTH absent):
+`mc_store.py` `recent_events` (store method) + `mission-control-bridge.py` `get_events` (endpoint). Verified the
+endpoint's deps `BlockTaskPayload`/`_task_op` exist in HEAD but `STORE.recent_events` did **not** — so the bridge
+endpoint alone would 500, not 404; the island had to be the two-file pair.
+
+**Built as an island against the HEAD blobs** (not the congested working tree). (1) `mc_store.py`: inserted the
+44-line `recent_events` before module-level `def _next_run` (lands inside `class MCStore`; self-contained — only
+`self._lock`/`self._tasks()`/`self._meta()`). (2) `mission-control-bridge.py`: inserted the 13-line `get_events`
+between `get_activity` and the `PATCH_NOTES_FILE` block — the sibling `get_activity` critical-event-reservation
+rewrite was **NOT** pulled in (HEAD's `events[:50]` version stays). Bridge block normalized CRLF→LF; both islands
+AST-parsed; PEP8 blank-line spacing cleaned. **Staged via `git hash-object -w` + `git update-index --cacheinfo`**
+(working tree kept ALL sibling WIP). `git diff --cached` = **exactly 57 insertions / 0 deletions** in the 2 expected
+hunks (`mc_store @@ -1701 class MCStore`, `bridge @@ -878 get_activity`); both **staged blobs re-AST-parsed ✅**;
+`git diff --cached --name-only` = exactly the 2 `.py` files (zero TS/eslint surface).
+
+**HEALTH (green):** bridge UP (`/api/ping` → `uptime 85827s` ≈ 23.8h, no restart); `/api/mc/events` LIVE returns
+45 real events; `/api/mc/deliverables` LIVE (run #47's island still serving); dispatcher LIVE-but-OFF
+(`enabled:false`, `dispatched:0`); cron empty; gateway graceful-empty (expected post-Hermes).
+**ORCHESTRATION (clean):** board `done 18 · blocked 6 · ready 8`; `POST /api/mc/kanban/reconcile` = "no stale
+claims found"; no FAILED/RUNNING; dispatchable=8 (4 web-gap claudelink Notion carousels); the 6 `blocked` are the
+known web-gap research tasks (`t_ac3acb98` competitor positioning, `t_4b8bab28` IG audit, `t_db3e97f0` content
+pillars, `t_f2f41469` growth tactics, `t_b9005b34` hooks/captions, `t_9b58127d` synthesis) — deliberately NOT
+force-unblocked while the dispatcher is OFF (force-unblocking just bounces them; they need a web MCP that isn't
+provisioned, and nothing would run them anyway).
+**VERIFY:** `npm run build` ✅ (819ms); `npm run lint` ✗ (500 errors, ALL pre-existing in committed HEAD
+`.tsx`/`.ts` — `GhostOffice.tsx` react-hooks/refs + setState-in-effect etc., unmodified yet failing → bughunt/sibling
+lane; my backend-only Python island adds zero eslint surface).
+**Files:** `mc_store.py` (+44, `recent_events` in `class MCStore`), `mission-control-bridge.py` (+13, `get_events`
+after `get_activity`), `.mc/LOOP_STATE.md`. **Commit: `<pending>` (island, 2 files, 57+) + a follow-up docs commit
+backfilling the hash.**
+**Next (run #49):** events chain now fully in HEAD. Strongest remaining island = **`fail_task`**
+(`POST /api/mc/tasks/{id}/fail` at bridge working-tree `:1055` + `STORE.fail_task` at `mc_store.py:322`; HEAD api.ts
+already ships `failMcTask` `:252`; both backend halves HEAD-absent — same two-file pattern). Use the identical
+throwaway-AST + hash-object/update-index technique; check `STORE.fail_task`'s deps are self-contained against HEAD
+first. If the tree is saturated, do orchestration + health only and surface it.
+
 
 ### 2026-06-19 — Run #47 (📦 LANDED THE DELIVERABLES ENDPOINT ISLAND INTO HEAD — committed the 3 read-only backend GETs the already-committed deliverables UI was calling but the committed bridge never served) · branch `auto/loop-reconcile-20260615` · commit `4cbbe31`
 

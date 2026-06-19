@@ -878,6 +878,19 @@ def get_activity():
     return {"activities": events[:50]}
 
 
+@app.get("/api/mc/events")
+def get_events(limit: int = 50):
+    """Board-wide task-event feed (the FULL lifecycle taxonomy).
+
+    Unlike /api/mc/activity (three synthesized lifecycle entries per task), this
+    merges every task's recorded event timeline newest-first — claim/complete/
+    block/fail/route/promote/escalate/reassign/reconcile/dependency-edge/
+    workspace/… — each row tagged with its task_id + title so the Operations
+    event feed can deep-link to the task and render an icon+label per kind. The
+    operator's at-a-glance "what just happened across the whole board" view."""
+    return STORE.recent_events(limit=limit)
+
+
 # Patch notes live next to the bug-hunt handoff (.mc/BUGHUNT_LOG.md); the
 # autonomous routine appends one entry per shipped fix. Read-only here.
 PATCH_NOTES_FILE = Path(__file__).parent / ".mc" / "patch-notes.json"
