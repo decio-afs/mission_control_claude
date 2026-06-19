@@ -13,6 +13,8 @@ import { getMcCron, runMcCron, createMcCron, decomposeTask, getWebAccessAudit, g
 import { parseSchedule, formatCountdown, fireLabel, type ParsedSchedule } from '../lib/cronSchedule';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import CronTimeline from '../components/CronTimeline';
+import DeliverablesDrawer from '../components/DeliverablesDrawer';
+import AutonomyDrawer from '../components/AutonomyDrawer';
 
 const COLUMNS: { key: string; label: string; tone: string }[] = [
   { key: 'triage', label: 'TRIAGE', tone: '#6b7280' },
@@ -112,6 +114,10 @@ export default function OperationsCenter() {
   const [cronAction, setCronAction] = useState('sweep');
   const [cronLoading, setCronLoading] = useState(false);
   const [cronError, setCronError] = useState<string | null>(null);
+  const [deliverablesOpen, setDeliverablesOpen] = useState(false);
+  // Consolidated ⊙ AUTONOMY surface (run #32) — one tabbed drawer over the four
+  // autonomy-observability views (▦ ACTIVITY / ⊘ BLOCKED / ⚿ WEB-ACCESS / ⚡ DISPATCHABLE).
+  const [autonomyOpen, setAutonomyOpen] = useState(false);
   // Live clock for the cron next-fire countdowns — ticks only while the modal
   // is open (seeded once, never read via Date.now() inside render).
   const [cronNow, setCronNow] = useState(0);
@@ -250,6 +256,8 @@ export default function OperationsCenter() {
           <button onClick={() => setCreateOpen(true)} className="border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] px-2 py-1 hover:bg-[#f64e6e]/20">+ TASK</button>
           <button onClick={() => { setDecomposeOpen(true); setDecomposeText(''); setDecomposeResult(null); }} className="border border-white/10 text-[#b8b8b8] px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">⚡ DECOMPOSE</button>
           <button onClick={() => { setCronOpen(true); setCronError(null); loadCron(); }} className="border border-white/10 text-[#b8b8b8] px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">⏱ CRON</button>
+          <button onClick={() => setDeliverablesOpen(true)} title="Browse produced deliverables" className="border border-white/10 text-[#b8b8b8] px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">📄 DELIVERABLES</button>
+          <button onClick={() => setAutonomyOpen(true)} title="Autonomy observability — recent activity, blocked-task triage, the web-access audit, and the dispatch queue in one tabbed surface" className="border border-white/10 text-[#b8b8b8] px-2 py-1 hover:border-emerald-400 hover:text-emerald-400">⊙ AUTONOMY</button>
           <span className="text-[#545454] hidden xl:inline">{lastSync ? `synced ${lastSync.toLocaleTimeString()}` : '—'}</span>
         </div>
       </div>
@@ -300,6 +308,10 @@ export default function OperationsCenter() {
 
       {/* DETAIL DRAWER */}
       <TaskDetailDrawer key={openTaskId ?? 'none'} taskId={openTaskId} profiles={profiles} allTasks={allTasks} onClose={() => setOpenTaskId(null)} onOpenTask={(id) => setOpenTaskId(id)} />
+
+      <DeliverablesDrawer key={deliverablesOpen ? 'open' : 'closed'} open={deliverablesOpen} onClose={() => setDeliverablesOpen(false)} onOpenTask={(id) => { setDeliverablesOpen(false); setOpenTaskId(id); }} />
+
+      <AutonomyDrawer key={autonomyOpen ? 'auto-open' : 'auto-closed'} open={autonomyOpen} onClose={() => setAutonomyOpen(false)} onOpenTask={(id) => { setAutonomyOpen(false); setOpenTaskId(id); }} />
 
       {/* DIAGNOSTICS MODAL */}
       {diagOpen && (
