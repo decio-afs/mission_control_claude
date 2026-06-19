@@ -10,7 +10,18 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#38) — ⊙ AUTONOMY TAB ATTENTION BADGES (run #37's PREFERRED candidate (a)).** Each tab button in the
+0. **✅ DONE this run (#39) — ⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH (run #38's candidate (b)).** The run #38 tab-bar
+   attention badges were a fetch-once-on-open snapshot; they now poll every 5s (the run #29 DispatchableDrawer idiom) with a
+   **● LIVE / ⏸ PAUSED** header toggle, so a count that changes while the surface stays open no longer goes stale until
+   close+reopen. On a later-poll failure each field keeps its last good value (steady badge, no flicker to absent). **Pure-frontend,
+   100% mine, no backend change, no new dep** — edited ONLY `src/components/AutonomyDrawer.tsx`. **Chose (b) over run #38's
+   PREFERRED (a)** because (a)'s in_flight-pulse is empty while the dispatcher is LIVE-but-OFF (`dispatched:0`, TO-DO #1 unrun) —
+   the exact deferral the run #38 ledger flagged. **Verified LIVE** (Vite 5219, `#/operations`): tab bar **⊘ BLOCKED·6 · ⚿
+   WEB-ACCESS·9 · ⚡ DISPATCHABLE·8** matching live endpoints, **● LIVE** toggle flips LIVE→PAUSED→LIVE, `preview_network` shows the
+   web-access+tasks+dispatcher triad repeating every cycle (poll proven), **0 console errors**. `npm run build` ✅ (805ms); `npx
+   eslint AutonomyDrawer.tsx` → No issues; `graphify update .` ✅. **Commit: LOOP_STATE only** (inert without the sibling-congested
+   `OperationsCenter.tsx` + the uncommitted child drawers — live-but-uncommitted bucket, TO-DO #2). (See DONE Run #39.) —
+   _Prior run #38 — ⊙ AUTONOMY TAB ATTENTION BADGES (run #37's PREFERRED candidate (a)). Each tab button in the
    consolidated ⊙ AUTONOMY surface now carries a live numeric badge — ⊘ BLOCKED·blocked-count (amber), ⚿ WEB-ACCESS·MISSING-agent-count
    (amber), ⚡ DISPATCHABLE·ready-count (emerald), ▦ ACTIVITY none — so the operator sees where attention is needed *before* opening a
    tab. Edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file): a `Badges` state + one `useEffect([open])` that
@@ -275,24 +286,25 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#38) — ⊙ AUTONOMY TAB ATTENTION BADGES** (run #37's PREFERRED candidate (a)). Each tab button in the
-   consolidated ⊙ AUTONOMY surface now shows a live numeric badge of where attention is needed *before* opening the tab — ⊘
-   BLOCKED·blocked-count (amber), ⚿ WEB-ACCESS·MISSING-agent-count (amber), ⚡ DISPATCHABLE·ready-count (emerald), ▦ ACTIVITY none.
-   Wholly in `AutonomyDrawer.tsx` (my untracked file): a `useEffect([open])` `Promise`-fetches `getWebAccessAudit`/`getMcTasks`/
-   `getDispatcher` (all HEAD) in parallel with per-field graceful degrade, a `badgeFor(tab)` resolver, pill rendered in each tab
-   `<button>`; no backend change, no new dep, lint `set-state-in-effect`-clean (parent keys on `open` → fresh mount, no synchronous
-   reset). Verified LIVE (tab bar showed 6/9/8 matching live endpoints exactly, correct tones, 0 console errors). (See DONE Run #38.)
-   **Next capability to BUILD (run #39)** — in-lane, live-backed candidates, pick by impact:
-   (a) **PREFERRED (was runner-up (b)) — a live in_flight pulse on the ⚡ DISPATCHABLE tab badge**: when the dispatcher has an active
+5. **✅ DONE this run (#39) — ⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH** (run #38's candidate (b)). The run #38 tab-bar badges
+   were a fetch-once-on-open snapshot; they now poll every 5s with a **● LIVE / ⏸ PAUSED** toggle, so a count that changes while the
+   surface stays open no longer goes stale until close+reopen. On a later-poll failure each field keeps its last good value (no
+   flicker). Wholly in `AutonomyDrawer.tsx` (my untracked file): the run #38 `useEffect([open])` became a `[open,paused]`-keyed poll
+   (immediate `fetchOnce` + `setInterval(5000)`, teardown clears); no backend change, no new dep, lint-clean. Verified LIVE (badges
+   6/9/8 match endpoints, ● LIVE toggle flips, `preview_network` shows the triad repeating every cycle, 0 console errors). (See DONE
+   Run #39.)
+   **Next capability to BUILD (run #40)** — in-lane, live-backed candidates, pick by impact:
+   (a) **PREFERRED (still deferred) — a live in_flight pulse on the ⚡ DISPATCHABLE tab badge**: when the dispatcher has an active
    run, surface `in_flight.length`/`last_dispatched_id` as a tiny pulsing emerald dot or count on the ⚡ DISPATCHABLE badge so an
-   autonomous run is visible from the tab bar without opening the tab. Pure-frontend, in-lane (`getDispatcher` already fetched on
-   open this run — reuse the same `badges` fetch). **Caveat: only meaningful once the dispatcher is ON / TO-DO #1's first watched
-   dispatch has run** — while it's LIVE-but-OFF (`in_flight:[]`) this badge would always be empty, so it's low-value until #1 lands.
-   If #1 hasn't run by next loop, prefer (b).
-   (b) **Alternative (higher near-term value while dispatcher OFF) — make the badges live-refresh** rather than fetch-once-on-open:
-   the children already live-poll, but the tab-bar badges are a one-shot snapshot, so a count that changes while the surface is open
-   (e.g. a task gets unblocked in another view) goes stale until close+reopen. Add a light interval (reuse the children's ~5s
-   cadence) to the wrapper's `badges` fetch with a ● LIVE/⏸ pause affordance. Pure-frontend, in-lane.
+   autonomous run is visible from the tab bar. The badges now live-poll `getDispatcher` (run #39), so the data is already on hand —
+   this is a small `badgeFor('dispatch')` extension. **Caveat (unchanged): only meaningful once the dispatcher is ON / TO-DO #1's
+   first watched dispatch has run.** As of run #39 it's still LIVE-but-OFF (`dispatched:0`, `in_flight:[]`) → the pulse would always
+   be empty, so it stays low-value until #1 lands. **Re-check `/api/mc/dispatcher` at the top of run #40 — if `dispatched>0` or the
+   dispatcher is enabled, BUILD (a); otherwise prefer (b').**
+   (b') **Alternative (near-term value while dispatcher OFF) — a "stale since" / last-refresh affordance on the badge poll**: the
+   badges live-refresh now (run #39) but there's no signal of *when* they last updated or if a poll is mid-flight. A tiny `↻`/age
+   indicator next to ● LIVE (or a subtle pulse on each badge tick) would confirm the data is fresh. Pure-frontend, in-lane (reuse the
+   run #39 poll; stamp a `lastRefresh` on each successful `fetchOnce`). Lower-stakes polish — only do this if (a) is still gated.
    (c) Skip — persist the transient per-agent web-focus (run #35 noted low value).
    (d) DEFERRED until the bridge emits dependency events — the reciprocal `↳ child ‹id›` chip (old 5b). Re-scout `/api/mc/events`
    each run; the day a `link`/`unlink`/`dependency` kind appears in the live feed, this becomes a pure-frontend `EventFeedDrawer`
@@ -313,28 +325,31 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-18 (Run #38)** — **⊙ AUTONOMY TAB ATTENTION BADGES** (run #37's PREFERRED candidate (a)) — each tab button in
-the consolidated ⊙ AUTONOMY surface now carries a live numeric badge so the operator sees *where attention is needed before opening
-a tab*: ⊘ BLOCKED → blocked-task count (amber), ⚿ WEB-ACCESS → "MISSING" agent count (amber), ⚡ DISPATCHABLE → dispatch-ready count
-(emerald); ▦ ACTIVITY carries none (a feed has no single attention number). **Pure-frontend, 100% mine, no backend change, no new
-dep** — all three summary endpoints (`getWebAccessAudit`/`getMcTasks`/`getDispatcher`) already in HEAD api.ts (`:173`/`:176`/`:213`).
-Edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file): a `Badges` state, a single `useEffect([open])` that
-`Promise`-fetches the three summaries in parallel with **per-field graceful degrade** (each `.catch` leaves its field `null` → that
-badge simply doesn't render, never a wrong number), and a `badgeFor(tab)` resolver (count + amber/emerald tone, suppressed when
-unknown or 0); the tab `.map` renders the badge as a `tabular-nums` pill inside each `<button>` + an attention-aware `title`. No
-synchronous setState in the effect (parent keys the wrapper on `open` → fresh mount, all-null initial state, no stale flash → lint
-`set-state-in-effect`-clean). **HEALTH: bridge UP at start** (`/api/ping` → `uptime 13805s`, operator's process alive ~3.8h) — no
-restart needed. Board `ready 8 · blocked 6 · done 18`; diagnostics → only the 6 expected `blocked_no_reason` web-gap research tasks
-(5×narratrix + 1×default; no stale/dead/cycle, nothing to reclaim); dispatcher LIVE-but-OFF + FED (8 dispatchable, 4 web_gap); cron
-`jobs:[]`. **Verified LIVE** (Vite 5219, `#/operations`, DOM/data/console layer via `preview_eval` — `preview_screenshot` timed out,
-same renderer hiccup as runs #34–#37, that visual layer unverified): opened ⊙ AUTONOMY → tab bar showed **⊘ BLOCKED·6 (amber) · ⚿
-WEB-ACCESS·9 (amber) · ⚡ DISPATCHABLE·8 (emerald)**, ▦ ACTIVITY badge-less — every count matched the live endpoints exactly
-(blocked 6 / missing_web 9 / dispatchable 8); titles read "N need attention"; **0 console errors**. `npm run build` ✅ (641ms);
-`npx eslint AutonomyDrawer.tsx` → No issues; `graphify update .` ✅ (1880 nodes). Commit: LOOP_STATE only (the file is clean against
-HEAD's api.ts but imports the four uncommitted child drawers whose api deps are HEAD-absent → a full-file commit breaks HEAD;
+_Last run: **2026-06-18 (Run #39)** — **⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH** (run #38's candidate (b)) — the run #38 tab-bar
+attention badges, previously a fetch-once-on-open snapshot, now **poll every 5s** with a **● LIVE / ⏸ PAUSED** header toggle, so a
+count that changes while the surface stays open (a task unblocked elsewhere, an agent provisioned) no longer goes stale until
+close+reopen; on a later-poll failure each field keeps its **last good value** (steady badge, no flicker to absent). **Pure-frontend,
+100% mine, no backend change, no new dep** — reuses the same three HEAD endpoints. Edited ONLY `src/components/AutonomyDrawer.tsx`
+(my own untracked file): the run #38 `useEffect([open])` one-shot became a **poll keyed `[open,paused]`** (run #29 idiom — inner
+`fetchOnce()` fired immediately then on `setInterval(5000)`, teardown `cancelled`+`clearInterval`), plus a `paused` state + the
+● LIVE / ⏸ PAUSED toggle between the tab bar and ✕ CLOSE. Lint-clean (no `set-state-in-effect`; parent keys on `open`). **Chose (b)
+over run #38's PREFERRED (a)** — (a)'s in_flight-pulse is empty/low-value while the dispatcher is LIVE-but-OFF (`dispatched:0`,
+TO-DO #1 unrun), the exact deferral the run #38 ledger flagged. **HEALTH: bridge UP at start** (`/api/ping` → `uptime 20989s`,
+operator's process alive ~5.8h) — no restart needed. Board `ready 8 · blocked 6 · done 18`; diagnostics → only the 6 expected
+`blocked_no_reason` web-gap research tasks (5×narratrix + 1×default; no stale/dead/cycle, nothing to reclaim); dispatcher
+LIVE-but-OFF + FED (8 dispatchable, 4 web_gap); cron `jobs:[]` + scheduler daemon LIVE (700 ticks @30s). **Verified LIVE** (Vite 5219,
+`#/operations`, DOM/data/interaction/network/console via `preview_eval`+`preview_network` — `preview_screenshot` not attempted, same
+renderer hiccup as runs #34–#38, visual layer unverified): opened ⊙ AUTONOMY → tab bar **⊘ BLOCKED·6 · ⚿ WEB-ACCESS·9 · ⚡
+DISPATCHABLE·8** (matches live endpoints exactly) + the new **● LIVE** toggle present; clicking it flipped **LIVE→PAUSED→LIVE**;
+`preview_network` showed the web-access+tasks+dispatcher triad **repeating every cycle** (poll proven); **0 console errors**. `npm
+run build` ✅ (805ms); `npx eslint AutonomyDrawer.tsx` → No issues; `graphify update .` ✅. Commit: LOOP_STATE only (the file is clean
+against HEAD's api.ts but imports the four uncommitted child drawers whose api deps are HEAD-absent → a full-file commit breaks HEAD;
 live-but-uncommitted bucket, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline
-(~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #39, TO-DO #5): runner-up (b) — a live
-in_flight pulse on the ⚡ DISPATCHABLE badge (only meaningful once the dispatcher is ON / TO-DO #1's first dispatch has run).
+(~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #40, TO-DO #5): re-check the dispatcher at
+the top of the run — if `dispatched>0`/enabled, BUILD (a) the in_flight pulse on the ⚡ DISPATCHABLE badge; else (b') a stale-since /
+last-refresh affordance on the badge poll.
+— Prior run #38 — **⊙ AUTONOMY TAB ATTENTION BADGES** — each tab button gained a live numeric badge (⊘ BLOCKED·6 / ⚿ WEB-ACCESS·9 /
+⚡ DISPATCHABLE·8, amber/amber/emerald) so attention is visible before opening a tab; fetch-once-on-open (made live in run #39).
 — Prior run #37 — **WEB-SKILL DETAIL → BLOCKED-TASK DEEP-LINKS in the ⚿ WEB-ACCESS audit** — the expanded per-agent detail added a
 **BLOCKS** chip-row naming the agent's *actual* `status==='blocked'` tasks as deep-link buttons into the TaskDetailDrawer (cross-ref
 live `getMcTasks` by assignee, oldest-first), closing "this agent needs web → because of THESE skills → which block THESE tasks →
@@ -900,6 +915,22 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-18 — Run #39 (⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH — the run #38 tab-bar attention badges, previously a fetch-once-on-open snapshot, now poll every 5s with a ● LIVE / ⏸ PAUSED toggle; run #38's candidate (b)) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green, no restart needed.** Bridge :8767 UP at start (`/api/ping` → `{ok:true,uptime_seconds:20989}`, operator's process alive ~5.8h). LIVE confirmed: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18` (steady since runs #19–#38); `/api/mc/kanban/diagnostics` → only the 6 expected `blocked_no_reason` (web-access config gap, info — no stale/dead/cycle/retry-exhausted); `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1,tick_seconds:30,dispatched:0,in_flight:[]}`, `dispatchable`=**8** (4 `web_gap:true`); `/api/mc/agents/web-access` → 9 gap agents; `/api/mc/cron` → `jobs:[]` but scheduler daemon LIVE (`running:true`, 700 ticks @30s, 0 fired); `/api/mc/events` → serves the full taxonomy (promoted events). `npm run build` ✅ both before & after edits (805ms; chunk-size warning pre-existing). Gateway :8642 expected-down (Hermes excised — not a blocker).
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18`. Diagnostics dry → no stale claims / dead agents / cycles / retry-exhausted (`in_flight:[]`, nothing to reclaim); the 6 blocked are the known web-access config gap (5×narratrix + 1×default, `blocked_no_reason`, info — operator config, not code; TO-DO #3). **Did NOT dispatch** (operator absent; TO-DO #1's first watched dispatch still pending — `dispatched:0`); did NOT enable the daemon or seed crons (TO-DO #4). Sibling-log tails skimmed — no file overlap (my edit is `AutonomyDrawer.tsx`, untracked, none of mine touch).
+
+3. **BUILT (run #38 candidate (b)): ⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH.** Run #38 added the tab-bar attention badges but they were a fetch-once-on-open snapshot — a count that changed while the surface stayed open (a task unblocked in another view, an agent provisioned) went stale until close+reopen. **Chose (b) over the run #38-PREFERRED (a) in_flight-pulse** because (a) is empty/low-value while the dispatcher is LIVE-but-OFF (`in_flight:[]`, `dispatched:0` — TO-DO #1 hasn't run), exactly the deferral the run #38 ledger flagged. **Pure-frontend, 100% mine, no backend change, no new dep** — reuses the same three HEAD endpoints. Edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file):
+   - Refactored the run #38 `useEffect([open])` one-shot into a **poll keyed `[open, paused]`** (the run #29 DispatchableDrawer idiom): an inner `fetchOnce()` fires the three fetches in parallel, called immediately on open/resume then on `setInterval(fetchOnce, REFRESH_MS=5000)`; teardown sets `cancelled=true` + `clearInterval`.
+   - **Resilience change:** on a *later*-poll failure a field now keeps its **last good value** (`.catch` is a no-op) rather than nulling — the badge stays steady across a transient blip instead of flickering to absent; only the very first load can leave a field `null` (badge suppressed).
+   - Added a `paused` state + a **● LIVE / ⏸ PAUSED** header toggle (emerald when live, muted when paused) between the tab bar and ✕ CLOSE; pausing tears down the interval (via the `[open,paused]` key) and keeps the last counts on screen.
+   - **No `set-state-in-effect` lint** (parent keys the wrapper on `open` → fresh mount; the poll only writes via the `cancelled`-guarded async `set`).
+
+4. **VERIFY — build + lint clean; LIVE DOM/data/interaction/network/console conclusive (visual layer unverified, same renderer hiccup as #34–#38).** `npm run build` ✅ (805ms); `npx eslint src/components/AutonomyDrawer.tsx` → **No issues**; `graphify update .` ✅. **Vite preview** (port 5219, `npm run dev`, `#/operations`, bridge UP): opened ⊙ AUTONOMY → tab bar read **⊘ BLOCKED·6 · ⚿ WEB-ACCESS·9 · ⚡ DISPATCHABLE·8 · ▦ ACTIVITY (none)** (matches live endpoints exactly) + the new **● LIVE** toggle present; clicking it flipped **LIVE→PAUSED→LIVE** cleanly; `preview_network` showed the `agents/web-access`+`tasks`+`dispatcher` triad **repeating every cycle** (multiple rounds, entries .152→.185) — the live poll proven; `preview_console_logs` (error) → **No console logs** (0 errors). `preview_screenshot` not attempted (timed out runs #34–#38 — visual/pixel layer the only unverified layer; DOM/network/console proof conclusive).
+
+5. **COMMIT — LOOP_STATE.md only.** `AutonomyDrawer.tsx` is clean against HEAD's api.ts (its three deps are all in HEAD) but it imports the four uncommitted child drawers whose own api deps (`getRecentEvents`, etc.) are HEAD-absent — so a full-file commit breaks HEAD's build. Stays in the live-but-uncommitted bucket (TO-DO #2). No new sibling tangle (zero api.ts/bridge.py/mc_store.py edits). Staged only `.mc/LOOP_STATE.md`; left sibling-loop WIP untouched.
 
 ### 2026-06-18 — Run #38 (⊙ AUTONOMY TAB ATTENTION BADGES — each tab button in the consolidated ⊙ AUTONOMY surface now carries a live numeric badge of where attention is needed *before* opening the tab; run #37's PREFERRED candidate (a)) · branch `auto/loop-reconcile-20260615`
 
