@@ -1172,18 +1172,6 @@ def kanban_sweep(payload: Optional[SweepPayload] = None):
     return STORE.sweep_board(dry_run=dry)
 
 
-@app.post("/api/mc/tasks/{task_id}/specify")
-def specify_task(task_id: str):
-    """Flesh out a triage task's spec with Claude, then promote it to ready."""
-    try:
-        detail = STORE.show_task(task_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
-    task = detail["task"]
-    prompt = (
-        "You are a delivery lead refining a task spec. Rewrite the task below into a clear, "
-        "actionable spec with: a one-line goal, a short approach, and 3-6 acceptance criteria as "
-        "a markdown checklist. Return ONLY the markdown body.\n\n"
 class DispatchPayload(BaseModel):
     # Dispatch a specific ready task; omit to target the best-first dispatchable.
     task_id: Optional[str] = None
@@ -1243,6 +1231,18 @@ def _safe_dispatch(task_id: str):
         print(f"[mc-bridge] manual dispatch {task_id} failed: {e}", flush=True)
 
 
+@app.post("/api/mc/tasks/{task_id}/specify")
+def specify_task(task_id: str):
+    """Flesh out a triage task's spec with Claude, then promote it to ready."""
+    try:
+        detail = STORE.show_task(task_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+    task = detail["task"]
+    prompt = (
+        "You are a delivery lead refining a task spec. Rewrite the task below into a clear, "
+        "actionable spec with: a one-line goal, a short approach, and 3-6 acceptance criteria as "
+        "a markdown checklist. Return ONLY the markdown body.\n\n"
         f"Title: {task.get('title')}\n\nCurrent body:\n{task.get('body') or '(empty)'}"
     )
     try:
