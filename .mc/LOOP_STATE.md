@@ -10,7 +10,27 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#45) — 🔌 WIRED THE COMMITTED DRAWERS INTO HEAD (island-test technique, done autonomously).**
+0. **✅ DONE this run (#46) — 🩺 REPAIRED THE HEAD-UNPARSEABLE BRIDGE (a 34-run-old self-inflicted breakage, done autonomously).**
+   While island-testing the bridge deliverables endpoint per run #45's handoff, I AST-checked HEAD first (per the HEAD-broken-commit-trap
+   rule) and discovered **HEAD's `mission-control-bridge.py` has not parsed since run #11 (`496fad2`)**: that island commit spliced the whole
+   dispatcher block (`DispatchPayload`…`_safe_dispatch`) INTO THE MIDDLE of `specify_task`, leaving its head truncated before
+   `class DispatchPayload` (unclosed `prompt = (`) and its tail orphaned after `_safe_dispatch` (unmatched `)`). The committed bridge would
+   **crash on import** — the live bridge only works because the operator's process runs the *complete working tree*, not HEAD; a clean
+   checkout / restart from HEAD = dead bridge. This silently survived ~34 runs because every run committed "LOOP_STATE only" or frontend
+   islands and never restarted the bridge from HEAD. **Surgical repair, isolated as a build-verified island against HEAD:** removed the
+   truncated specify head (site A), reinserted a COMPLETE `specify_task` after `_safe_dispatch` (site B, reattaching the orphan); dispatcher
+   block untouched; the sibling-owned `kanban_promote`/`PromoteReadyPayload` deliberately EXCLUDED (stays in the working tree). Staged via
+   `git hash-object -w` + `git update-index --cacheinfo` (working tree keeps ALL sibling WIP), AST-verified the **staged blob** parses,
+   `git diff --cached` = exactly the 2 specify hunks (12/12), committed **`4784609`**; **NEW HEAD bridge AST-parses ✅**, and all 7 tracked
+   HEAD `*.py` now parse. **HEALTH: bridge UP** (`/api/ping` → `uptime 71442s` ≈ 19.8h, no restart); dispatcher LIVE-but-OFF (`enabled:false`,
+   `dispatched:0`); cron `jobs:[]`; gateway graceful-empty. **ORCHESTRATION (clean):** board `done 18 · blocked 6 · ready 8`, `reconcile` dry
+   = "no stale claims found", no FAILED/RUNNING, only the 6 known `blocked_no_reason` web-gap research tasks (not force-unblocked while
+   dispatcher OFF). **PIPELINES:** `/api/mc/deliverables` LIVE returns 6 real artifacts (deliverables browser functional end-to-end; backend
+   still uncommitted — now landable next run on a parseable HEAD). `npm run build` ✅ (819ms). **Next (run #47): NOW that HEAD parses, land the
+   deliverables endpoint island** (3 read-only GETs `/api/mc/deliverables`+`/file`+`/raw` + the `FileResponse` top-level import) on the new
+   HEAD via the same throwaway-build + hash-object/update-index technique — it's a clean contiguous insert after `task_workspace`, deps
+   (`_MAX_FILE_BYTES`/`Path`/`Any`/`HTTPException`) all in HEAD. AST-check the staged blob before commit. (See DONE Run #46.) —
+   _Prior run #45 — 🔌 WIRED THE COMMITTED DRAWERS INTO HEAD (island-test technique, done autonomously).**
    Ran the two un-gate checks first — both still blocked at the full-file level (tree NOT quiet: **30 files / 2401 ins** sibling WIP; dispatcher LIVE-but-OFF `dispatched:0`) — but did NOT inherit "build nothing". Run #44 committed the 7 drawers + api.ts into HEAD but **nothing mounted them** (committed-but-dead code), so the highest-value slice was the `OperationsCenter.tsx` ⊙ AUTONOMY/📄 DELIVERABLES wiring that makes them *reachable*. The working-tree file is congested (my 4 drawer concerns intermixed with sibling cron/`archived`/`promoteReady`/break-cycle hunks that depend on uncommitted `cronSchedule.ts`/`useTaskStore.ts`), so I kept ONLY the 4 additive drawer concerns (2 imports, `deliverablesOpen`/`autonomyOpen` state, 2 toolbar buttons, 2 mounts) and EXCLUDED every sibling-dependent hunk. **Proved the island in a throwaway detached worktree** (`tsc -b` → No errors; `vite build` ✅ 737ms; `eslint` clean), **staged the proven blob via `git hash-object -w` + `git update-index --cacheinfo`** (index gets exactly the island; working tree keeps ALL sibling WIP untouched), and `git diff --cached` confirmed the staged delta is EXACTLY the 4 wiring concerns — zero sibling hunks. Committed; full-tree build ✅. **Result:** the ⊙ AUTONOMY + 📄 DELIVERABLES toolbar buttons + drawers are now durable, reachable HEAD (run #44's island is no longer dead code). **ORCHESTRATION (clean):** board `done 18 · blocked 6 · ready 8`, no FAILED/RUNNING (reconcile dry = no-op), only the 6 known web-gap `blocked` (not force-unblocked while dispatcher OFF). **HEALTH: bridge UP** (`uptime 64228s` ≈ 17.8h, no restart); `npm run build` ✅ (879ms); cron `jobs:[]`, scheduler daemon LIVE (2152 ticks @30s, 0 fired); gateway graceful-empty. (See DONE Run #45.) —
    _Prior run #44 — ⛓️‍💥 BROKE THE 22-RUN UNCOMMITTED-BACKLOG DEADLOCK (escalation-unlock B, done autonomously).**
    Ran the two un-gate checks first and confirmed both still blocked (tree NOT quiet: **31 files / 2475 ins** sibling WIP; dispatcher LIVE-but-OFF `dispatched:0`) — but instead of inheriting the 22-run "build nothing" verdict, I **verified** the inherited "uncommittable" claim and found it **false for the committable subset.** Established that api.ts's 105-ins working-tree delta is one coherent body of *loop-built* client functions with **no sibling hunk** (bughunt's log lists only `useTaskStore.ts`+`Layout.tsx`; evolve's only `nav.ts`/`CommandPalette.tsx`/`App.tsx`), that HEAD's `eventLabels.ts` already exports `labelFor`/`eventParent`, and that **no HEAD file imports the 7 untracked drawers** → so api.ts + the 7 drawers form a **buildable island against HEAD** (only the `OperationsCenter.tsx` mount wiring is genuinely sibling-congested, left uncommitted). **Proved it in an isolated detached worktree** (`tsc -b && vite build` against HEAD → ✅ 155 mods/711ms; junction removed with `rmdir` before `worktree remove` so `node_modules` was never followed — verified intact), then in the main tree staged **ONLY my 8 files** (`git diff --cached --name-only` confirmed exactly api.ts + the 7 drawers), eslint those 8 → clean, and committed **`955ae94`** "feat(loop): land the autonomy-drawer island…" (+1799/-5); full-tree build ✅ (762ms). **Result:** uncommitted tree **31→30 files / 2475→2370 ins** (api.ts in history), 7 drawers untracked→committed — 22 runs of live-verified work is now durable git history, and the operator's eventual wiring commit shrinks to ONE shared file (`OperationsCenter.tsx`). **ORCHESTRATION (clean):** `ready 8 · blocked 6 · done 18`, no FAILED/RUNNING (reconcile = no-op), only the 6 documented orphaned `blocked_no_reason` tasks (deliberately not force-unblocked while dispatcher off). **HEALTH: bridge UP** (`uptime 57017s` ≈ 15.8h, no restart); `npm run build` ✅ (831ms); cron `jobs:[]`, scheduler daemon LIVE (1901 ticks, 0 fired); gateway graceful-empty (expected post-Hermes). **Commit: 955ae94 (island, 8 files) + LOOP_STATE.** (See DONE Run #44.) —
@@ -340,7 +360,21 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-19 (Run #45)** — **🔌 WIRED THE COMMITTED DRAWERS INTO HEAD.** Run #44 committed the 7 drawers + api.ts into
+_Last run: **2026-06-19 (Run #46)** — **🩺 REPAIRED THE HEAD-UNPARSEABLE BRIDGE.** While island-testing the deliverables endpoint
+per run #45's handoff, I AST-checked HEAD first (HEAD-broken-commit-trap rule) and found **HEAD's `mission-control-bridge.py` has not
+parsed since run #11 (`496fad2`)**: that commit spliced the dispatcher block into the middle of `specify_task`, leaving its head truncated
+(unclosed `prompt = (`) before `class DispatchPayload` and its tail orphaned after `_safe_dispatch` (unmatched `)`). The committed bridge
+crashes on import — the live bridge only runs because the operator's process holds the *complete working tree*; a clean checkout/restart
+from HEAD = dead bridge. Silent for ~34 runs (every run committed LOOP_STATE-only/frontend islands, never restarted from HEAD). **Fix:**
+removed the truncated specify head (site A), reinserted a COMPLETE `specify_task` after `_safe_dispatch` (site B); dispatcher untouched;
+sibling `kanban_promote`/`PromoteReadyPayload` EXCLUDED. Staged via `hash-object -w`+`update-index --cacheinfo` (working tree keeps all
+sibling WIP), AST-verified the **staged blob**, `git diff --cached` = exactly the 2 specify hunks (12/12), committed **`4784609`**;
+**NEW HEAD bridge parses ✅** and all 7 tracked HEAD `*.py` parse. **HEALTH: bridge UP** (`/api/ping` → `uptime 71442s` ≈ 19.8h);
+dispatcher LIVE-but-OFF; cron `jobs:[]`; gateway graceful-empty. **ORCHESTRATION (clean):** board `done 18 · blocked 6 · ready 8`;
+`reconcile` dry = "no stale claims found"; only the 6 known `blocked_no_reason` web-gap tasks. **PIPELINES:** `/api/mc/deliverables`
+LIVE = 6 real artifacts. `npm run build` ✅ (819ms). **Next (run #47): land the deliverables endpoint island on the now-parseable HEAD**
+(3 read-only GETs + `FileResponse` import; clean insert after `task_workspace`; AST-check staged blob first)._
+— Prior run #45 — **🔌 WIRED THE COMMITTED DRAWERS INTO HEAD.** Run #44 committed the 7 drawers + api.ts into
 HEAD but nothing mounted them (committed-but-dead code); this run landed the `OperationsCenter.tsx` ⊙ AUTONOMY/📄 DELIVERABLES
 wiring as a **build-verified island against HEAD**, so those drawers are now reachable, durable git history. Both un-gate checks were
 still blocked at the full-file level (tree NOT quiet: **30 files / 2401 ins** sibling WIP; dispatcher LIVE-but-OFF `dispatched:0`),
@@ -977,6 +1011,45 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-19 — Run #46 (🩺 REPAIRED THE HEAD-UNPARSEABLE BRIDGE — run #11's island commit had spliced the dispatcher block into the middle of `specify_task`, leaving HEAD's `mission-control-bridge.py` unparseable for ~34 runs) · branch `auto/loop-reconcile-20260615` · commit `4784609`
+
+- **What was wrong.** Following run #45's handoff ("island-test the bridge deliverables endpoint block; AST-check the staged Python blob
+  per the HEAD-broken-commit-trap rule"), I AST-checked **HEAD itself first** and found `git show HEAD:mission-control-bridge.py` raises
+  `SyntaxError` at `class DispatchPayload(BaseModel):`. Root cause: run #11's commit `496fad2` ("kanban task dispatcher") was an island
+  commit that **spliced the entire dispatcher block (`class DispatchPayload` → `get_dispatcher` → dispatch endpoint → `def _safe_dispatch`)
+  INTO THE MIDDLE of `specify_task`**. Result: `specify_task`'s head (`@app.post(.../specify)` … `prompt = (` + 3 strings) dangles
+  *before* `class DispatchPayload` with an **unclosed `(`**, and its tail (`f"Title…"` `)` … `run_claude` … `return {…}`) is **orphaned
+  after `_safe_dispatch`** with an **unmatched `)`**. HEAD crashes on `import`. It survived ~34 runs undetected because the operator's live
+  bridge process runs the **complete working tree** (which parses fine — `uptime 71442s`), not HEAD, and every run since committed
+  LOOP_STATE-only or *frontend* islands that never touched the bridge and never restarted it from a clean checkout. A `git stash` or fresh
+  clone + `npm run bridge` would have produced a dead bridge.
+- **The fix (build-verified island against HEAD).** Reconstructed the region to the correct structure *minus* sibling work: dispatcher
+  block intact, then **one COMPLETE `specify_task` after `_safe_dispatch`**. Mechanically: in a HEAD copy, removed the truncated specify
+  head (site A, from the `@app.post(.../specify)` decorator up to `class DispatchPayload`) and replaced the orphaned tail (site B) by
+  reinserting the complete `specify_task` (recovered verbatim from the working-tree live version, `mission-control-bridge.py:1380-1406`).
+  The sibling-owned `kanban_promote`/`PromoteReadyPayload` (the working tree's reorg of this same region — explicitly an excluded
+  sibling-dependent hunk since run #45) was **deliberately left out** — asserted `'kanban_promote' not in fixed`. Verified the
+  reconstructed file `ast.parse`s + `py_compile`s, `specify_task` count == 1, `DispatchPayload` count == 1, orphan return count == 1.
+- **Staging + commit (working tree untouched).** `git hash-object -w` the fixed blob → `git update-index --cacheinfo 100644,<blob>,mission-control-bridge.py`
+  so the **index** holds exactly the repaired file while the **working tree keeps ALL 34 files of sibling WIP** (full live bridge, incl.
+  `kanban_promote` + the uncommitted deliverables endpoints). `git diff --cached --name-only` = `mission-control-bridge.py` ONLY;
+  `git diff --cached` = exactly **2 hunks (12 ins / 12 del)** — the specify move/repair, nothing else. **AST-checked the STAGED blob**
+  (`git cat-file -p :mission-control-bridge.py | python -c ast.parse` → parses) before committing. Committed `4784609`.
+- **Verify.** Post-commit `git show HEAD:mission-control-bridge.py | ast.parse` → **parses OK**; swept all 7 tracked HEAD `*.py`
+  (`mc_store.py`, `mc_brain.py`, `mc_diag.py`, `mc_scheduler.py`, `mission-control-bridge.py`, `scripts/sentinel_news_pipeline.py`,
+  `.mc/repair_mojibake.py`) → **all parse**. Working-tree `mission-control-bridge.py` still parses (untouched). `npm run build` ✅ (819ms).
+  `npm run lint` ran (pre-existing sibling-TS baseline only — my change is Python, no eslint surface). HEALTH gate green; bridge UP
+  (no restart). ORCHESTRATION: board `done 18 · blocked 6 · ready 8`, `reconcile` dry → "no stale claims found", no FAILED/RUNNING; the 6
+  `blocked_no_reason` are the known web-gap research tasks (5×narratrix + 1×default) — config gap (needs `web-brave-free`/
+  `BRAVE_SEARCH_API_KEY`), not force-unblocked while dispatcher OFF. PIPELINES: `GET /api/mc/deliverables` LIVE → 6 real artifacts (the
+  deliverables browser works end-to-end; backend endpoints still uncommitted, now landable on a parseable HEAD).
+- **Files touched:** `mission-control-bridge.py` (index/HEAD only — specify_task repair, 12/12; working tree unchanged), `.mc/LOOP_STATE.md`
+  (this handoff). Throwaway `.mc/_island/` scratch removed. **Commit `4784609`** (bridge) + LOOP_STATE. Did NOT push / open PR (loop rule).
+- **Why this over the deliverables island (run #45's literal next step):** the deliverables island is built on HEAD; with HEAD unparseable
+  the island can't be build-proven (confirmed empirically — every attempt to splice the deliverables block onto HEAD inherited the
+  pre-existing `SyntaxError`). HEAD parsing is the prerequisite for **any** bridge island and is a HEALTH-gate issue caused by this loop's
+  own run #11 — so it's the higher-impact, in-lane increment. Deliverables endpoint island is now unblocked for run #47.
 
 ### 2026-06-19 — Run #45 (🔌 WIRED THE COMMITTED DRAWERS INTO HEAD — landed the `OperationsCenter` ⊙ AUTONOMY/📄 DELIVERABLES mount as a build-verified island; run #44's drawers go from dead code → reachable feature) · branch `auto/loop-reconcile-20260615`
 
