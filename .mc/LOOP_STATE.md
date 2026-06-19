@@ -10,28 +10,35 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#41) — STALE-SINCE FRESHNESS AFFORDANCE ON THE BADGE POLL (the designated (b') last-resort increment).**
-   Before touching a drawer I ran BOTH run #41 gates and confirmed both still blocked: **(i) tree NOT quiet** (`git diff --stat`:
-   28 files, 2352 insertions — bridge.py +414, api.ts +110, OperationsCenter +109, mc_store.py +139 of live sibling bughunt/evolve WIP),
-   so the TO-DO #2 commit logjam stays correctly deferred (per-hunk surgery would contaminate sibling WIP); **(ii) dispatcher still
-   LIVE-but-OFF** (`enabled:false, dispatched:0, in_flight:[]`), so the in_flight pulse (a) stays gated. Also **re-scouted
-   `/api/mc/events`** (TO-DO #5d): 45 events, kinds `promoted/completed/claimed/created/routed/reclaimed` only — **still NO
-   dependency kind**, so the reciprocal child-chip (d) stays deferred. The CAPABILITY GAPS inventory is fully ✅ BUILT; what remains is
-   operator-gated (first dispatch #1, cron seeding #4) or the stranded logjam. With both gates blocked and (d) absent, fell to (b').
-   **The fix:** the run #39 badge poll live-refreshes and can be PAUSED — but a frozen count looked identical whether 1s or 10min old, and
-   a silently-wedged poll left the operator trusting stale numbers with no signal. Each poll cycle now stamps `lastRefresh` (after all
-   three fetches settle, via `Promise.all`), a 1s ticker drives a small **`↻ Ns`** age chip next to the ● LIVE toggle — dim when fresh,
-   **AMBER once older than 2× the refresh interval** (10s → provably stale: paused, or the poll stopped); title reads "last refreshed N
-   ago — STALE (poll paused)". **Pure-frontend, 100% mine, no backend change, no new dep, no new endpoint** — reads only the timing of the
-   existing run #39 poll. Edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file): added `lastRefresh`/`now` state + a 1s
-   render-only ticker effect (`[open]`), wrapped the three fetches in `Promise.all` to stamp `lastRefresh`, derived `ageSeconds`/`ageLabel`
-   (`now`/`Ns`/`NmNs`)/`stale`, rendered the chip. **Verified LIVE** (Vite 5219, `#/operations` → ⊙ AUTONOMY, DOM/data/console via
-   `preview_eval`): chip renders **`↻ now`** dim when LIVE; pause → age advances → **`↻ 2m2s` AMBER** with title "…— STALE (poll paused)"
-   (minute formatting + stale-amber proven); resume → snaps back to **`↻ now`** dim, toggle `● LIVE`; **0 console errors** (`preview_screenshot`
-   not attempted — same renderer hiccup as runs #34–#40, visual layer DOM-verified; one long sampling eval timed out, traced to active
-   sibling HMR remounting the component, not a logic bug). `npm run build` ✅ (727ms); `npx eslint AutonomyDrawer.tsx` → No issues;
-   `graphify update .` ✅. **Commit: LOOP_STATE only** (inert in HEAD without the sibling-congested `OperationsCenter.tsx` + the uncommitted
-   child drawers — live-but-uncommitted bucket, TO-DO #2). (See DONE Run #41.) —
+0. **✅ DONE this run (#42) — NO BUILD, BY DESIGN: both un-gate checks still blocked → orchestration + health only (the directive's explicit decline-make-work path).**
+   Per the run #42 mandate I ran the two un-gate checks FIRST, before considering any drawer work, and confirmed BOTH still blocked:
+   **(i) tree NOT quiet** (`git diff --stat`: **29 files, 2394 insertions** of live sibling bughunt/evolve WIP — BUGHUNT_LOG +748,
+   patch-notes +494, bridge.py +414, mc_store.py +139, api.ts +110, OperationsCenter +109, plus ~dozen sibling page/store edits), so the
+   TO-DO #2 commit logjam stays correctly deferred — committing any of those files in full would sweep in sibling WIP (forbidden), and any
+   NEW backend capability would have to edit the same congested bridge.py/api.ts (so a "missing capability" build is also off the table this
+   run); **(ii) dispatcher still LIVE-but-OFF** (`enabled:false, dispatched:0, in_flight:[]`), so the in_flight pulse (a) stays an
+   always-empty signal. The CAPABILITY GAPS inventory is fully ✅ BUILT; the drawer/badge surface is SATURATED (20 stranded LOOP_STATE-only
+   runs #22–#41); the audit surfaced **no genuinely-missing operational capability that isn't backend-congested**. Per the directive's exact
+   wording — *"if both still blocked AND no genuinely-missing capability surfaces, do orchestration + health only and explicitly decline a
+   make-work drawer tweak; record the no-build with its reason rather than padding the ledger"* — **I deliberately built nothing this run.**
+   **ORCHESTRATION (clean):** board `ready 8 · blocked 6 · done 18`; **no FAILED, no RUNNING** tasks (so `POST /api/mc/kanban/reconcile`
+   would be a no-op — nothing to reclaim); diagnostics → only the 6 expected `blocked_no_reason` tasks (5×narratrix + 1×default); no
+   dead-agent assignments to reassign. Inspected the oldest blocked task `t_ac3acb98` ("Analyze competitor positioning") directly: `events:[]`,
+   `parents:[]`, `runs:[]`, `started_at` set but never completed → an **orphaned-block** (claimed pre-excision, run abandoned, left BLOCKED),
+   NOT a live dependency wait. **Deliberately did NOT force-unblock** the 6: with the dispatcher OFF, moving them to ready just inflates the
+   ready queue (8→14) without anything running them, and erases a known/documented baseline — their real next-action is the operator-watched
+   first dispatch (#1), not a status flip. **Orchestration finding for the operator/next run (no action taken — would be a no-op while the
+   dispatcher is off, and may be deliberate):** several blocked tasks are *competitive-research* work (e.g. t_ac3acb98 "Analyze competitor
+   positioning", t_9b58127d "Synthesize competitor analysis") assigned to **narratrix** (content strategist) rather than **signalscraper/corpnet**
+   (competitive-intelligence specialists, the role-matched agents) — a possible decomposer mis-skill worth a glance at the first dispatch.
+   **HEALTH: bridge UP at start AND end** (`/api/ping` → `uptime 42599s` ≈ 11.8h, operator's process alive — no restart); `npm run build` ✅
+   (775ms); my 6 untracked drawers `npx eslint` → No issues; scheduler daemon LIVE (1422 ticks @30s, 0 fired); cron `jobs:[]`; gateway
+   graceful-empty (expected post-Hermes). `/api/mc/events` NOT re-scouted this run (no code change to gate on it; the (d) child-chip remains
+   deferred until a dependency kind appears — see TO-DO #5d). **Commit: LOOP_STATE only** (no code touched this run). (See DONE Run #42.) —
+   _Prior run #41 — STALE-SINCE FRESHNESS AFFORDANCE ON THE BADGE POLL (the designated (b') last-resort increment): each poll cycle stamps
+   `lastRefresh` (`Promise.all`), a 1s ticker drives a **`↻ Ns`** age chip next to ● LIVE — dim fresh, AMBER past 2× the refresh interval
+   ("…— STALE (poll paused)"); pure-frontend, 100% mine, wholly in `AutonomyDrawer.tsx`; verified LIVE; commit LOOP_STATE only. (See DONE
+   Run #41.)_ —
    _Prior run #40 — ⚡ DISPATCHABLE BADGE NOW SHOWS THE WEB-GAP SPLIT (run #39's candidate, sharper than (b')).
    The run #38/#39 ⚡ DISPATCHABLE tab badge showed only a flat ready count (`8`), hiding that **4 of those 8 next-to-fire tasks are
    `web_gap:true`** (the claudelink Notion carousels). The badge now reads **`8 · 4⚠`** — the emerald ready count plus an amber
@@ -325,15 +332,13 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#41) — STALE-SINCE FRESHNESS AFFORDANCE (the designated (b') last-resort increment).** The run #39 badge poll
-   live-refreshes + can be PAUSED, but a frozen count looked the same whether 1s or 10min old. Each cycle now stamps `lastRefresh`
-   (`Promise.all` after the three fetches settle); a 1s ticker drives a **`↻ Ns`** age chip next to ● LIVE — dim fresh, **AMBER past
-   2× the refresh interval** (provably stale: paused / wedged). Pure-frontend, 100% mine, no new dep/endpoint; wholly in
-   `AutonomyDrawer.tsx`. Verified LIVE (`↻ now` dim → pause → `↻ 2m2s` AMBER "…— STALE (poll paused)" → resume → `↻ now` dim; 0 console
-   errors). (See DONE Run #41.)
-   **Next capability to BUILD (run #42)** — **the drawer/badge surface is now SATURATED: runs #22–#41 (20 runs) have all landed as
+5. **✅ HONORED this run (#42) — explicit no-build (see TO-DO #0).** Both un-gate checks re-confirmed blocked (tree LOUD: 29 files /
+   2394 insertions sibling WIP; dispatcher OFF, `dispatched:0`); audit surfaced no genuinely-missing capability that isn't backend-congested;
+   the drawer surface is saturated. Per the directive I did orchestration + health only and declined a make-work tweak. **Run #43 must run the
+   SAME two un-gate checks first** — they are the only things that unlock real work in this lane.
+   **Next capability to BUILD (run #43)** — **the drawer/badge surface is now SATURATED: runs #22–#41 (20 runs) have all landed as
    LOOP_STATE-only commits because the whole surface is inert in HEAD (TO-DO #2). The marginal value of any further badge/chip polish is
-   effectively zero — do NOT add another one.** Run #42's FIRST move (highest impact by far) is the two un-gate checks: (i) `git diff
+   effectively zero — do NOT add another one.** Run #43's FIRST move (highest impact by far) is the two un-gate checks: (i) `git diff
    --stat` — **if the tree has gone QUIET** (bughunt/evolve have landed their api.ts/bridge.py/OperationsCenter/mc_store WIP), the
    TO-DO #2 commit logjam is finally breakable: land the stranded run #22–#41 drawers + their api.ts/bridge deps and un-strand 20 runs of
    work (FAR higher operator value than anything else this lane can do); (ii) `/api/mc/dispatcher` — **if `dispatched>0`/enabled**, the
@@ -364,35 +369,32 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-19 (Run #41)** — **STALE-SINCE FRESHNESS AFFORDANCE ON THE BADGE POLL** (the designated (b') last-resort
-increment). Ran BOTH run #41 un-gate checks first and confirmed both still blocked → fell to (b'). The run #39 badge poll
-live-refreshes + can be PAUSED, but a frozen count looked identical whether 1s or 10min old (and a silently-wedged poll left the
-operator trusting stale numbers). Each poll cycle now stamps `lastRefresh` (`Promise.all` after the three fetches settle); a 1s
-ticker drives a small **`↻ Ns`** age chip next to the ● LIVE toggle — dim when fresh, **AMBER once older than 2× the refresh
-interval** (10s → provably stale: paused or wedged), title "last refreshed N ago — STALE (poll paused)". **Pure-frontend, 100% mine,
-no backend change, no new dep, no new endpoint** — reads only the timing of the existing run #39 poll. Edited ONLY
-`src/components/AutonomyDrawer.tsx`: added `lastRefresh`/`now` state + a 1s render-only ticker (`useEffect([open])`), wrapped the
-three fetches in `Promise.all` to stamp `lastRefresh`, derived `ageSeconds`/`ageLabel`(`now`/`Ns`/`NmNs`)/`stale`, rendered the chip.
-**HEALTH: bridge UP at start** (`/api/ping` → `uptime 35402s` ≈ 9.8h, operator's process alive) — no restart; reconfirmed UP at end
-(`35853s`), operator process untouched. Board `ready 8 · blocked 6 · done 18`; diagnostics → only the 6 expected `blocked_no_reason`
-web-gap research tasks (5×narratrix + 1×default; no stale/dead/cycle/retry-exhausted, nothing to reclaim or reassign); dispatcher
-**LIVE-but-OFF** + FED (`dispatchable:8`, 4 `web_gap`, `dispatched:0`, `in_flight:[]`); cron `jobs:[]` + scheduler daemon LIVE (1181
-ticks @30s, 0 fired); gateway graceful-empty (expected post-Hermes). `/api/mc/events` re-scouted (TO-DO #5d): 45 events, kinds
-`promoted/completed/claimed/created/routed/reclaimed` only — still NO dependency kind, child-chip (d) stays deferred. **Tree still
-LOUD with sibling WIP** (`git diff --stat`: 28 tracked files — BUGHUNT_LOG +733, patch-notes +481, bridge.py +414, mc_store +139,
-api.ts +110, OperationsCenter +109, ~dozen sibling component/page edits) → the TO-DO #2 commit logjam stays correctly deferred;
-per-hunk surgery would contaminate bughunt/evolve WIP. **Verified LIVE** (Vite 5219, `#/operations` → ⊙ AUTONOMY, DOM/data/console via
-`preview_eval`): chip **`↻ now`** dim when LIVE → pause → age advances → **`↻ 2m2s` AMBER** title "…— STALE (poll paused)" (minute
-formatting + stale-amber proven) → resume → snaps back to **`↻ now`** dim, toggle `● LIVE`; **0 console errors** (`preview_screenshot`
-not attempted — same renderer hiccup as runs #34–#40, visual layer DOM-verified; one long sampling eval timed out, traced to active
-sibling HMR remounting the component mid-eval, not a logic bug). `npm run build` ✅ (727ms); `npx eslint AutonomyDrawer.tsx` → No
-issues; `graphify update .` ✅. Commit: LOOP_STATE only (the file is clean against HEAD but imports the four uncommitted child drawers
-→ a full-file commit breaks HEAD; live-but-uncommitted bucket, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4)
-still need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). **Next (run #42, TO-DO
-#5): the drawer surface is SATURATED — 20 runs (#22–#41) all stranded LOOP_STATE-only. Do NOT add another badge/chip. Run #42's first
-move is the two un-gate checks (tree-quiet → break the TO-DO #2 logjam, FAR higher value; dispatcher-fired → build the in_flight pulse
-a); if both still blocked and the audit surfaces no genuinely-missing capability, do orchestration + health only and explicitly decline
-a make-work tweak.**
+_Last run: **2026-06-19 (Run #42)** — **NO BUILD, BY DESIGN — orchestration + health only (the directive's explicit decline-make-work
+path).** Ran the two un-gate checks FIRST and confirmed BOTH still blocked: **(i) tree NOT quiet** (`git diff --stat`: **29 files /
+2394 insertions** sibling WIP — BUGHUNT_LOG +748, patch-notes +494, bridge.py +414, mc_store +139, api.ts +110, OperationsCenter +109,
+~dozen sibling page/store edits), so the TO-DO #2 commit logjam stays deferred AND any new backend capability would tangle the same
+congested bridge.py/api.ts; **(ii) dispatcher LIVE-but-OFF** (`enabled:false, dispatched:0, in_flight:[]`), so the in_flight pulse (a)
+is an always-empty signal. The drawer/badge surface is SATURATED (20 stranded LOOP_STATE-only runs #22–#41); the audit surfaced **no
+genuinely-missing operational capability that isn't backend-congested**. Per the directive's exact wording, **I deliberately built
+nothing** and recorded the no-build with its reason rather than padding the ledger. **HEALTH: bridge UP at start AND end** (`/api/ping`
+→ `uptime 42599s` ≈ 11.8h, operator's process alive — no restart); `npm run build` ✅ (775ms); my 6 untracked drawers `npx eslint` →
+No issues; scheduler daemon LIVE (1422 ticks @30s, 0 fired); cron `jobs:[]`; gateway graceful-empty (expected post-Hermes).
+**ORCHESTRATION (clean):** board `ready 8 · blocked 6 · done 18`; **no FAILED, no RUNNING** (so `reconcile` is a no-op); diagnostics →
+only the 6 expected `blocked_no_reason` (5×narratrix + 1×default); no dead-agent assignments. Inspected the oldest blocked task
+`t_ac3acb98` directly: `events:[] parents:[] runs:[]`, `started_at` set but never completed → an **orphaned-block** (claimed
+pre-excision, run abandoned), not a live dependency wait. **Deliberately did NOT force-unblock the 6** — with the dispatcher OFF a
+status flip just inflates the ready queue (8→14) without running anything and erases a documented baseline; their real next-action is
+the operator-watched first dispatch (#1). **Finding for next run (no action — no-op while dispatcher off, may be deliberate):** several
+blocked tasks are competitive-research work (t_ac3acb98, t_9b58127d) assigned to **narratrix** (content strategist) not
+**signalscraper/corpnet** (the role-matched competitive-intel agents) — a possible decomposer mis-skill to glance at on first dispatch.
+Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off; lint baseline (~500 errors, sibling/untouched TS)
+unchanged, still bughunt/evolve's (#6). **Next (run #43): re-run the SAME two un-gate checks first** — tree-quiet → break the TO-DO #2
+logjam (FAR higher value than anything else this lane can do); dispatcher-fired → build the in_flight pulse (a). If both still blocked,
+decline make-work again and do orchestration + health only.
+— Prior run #41 — **STALE-SINCE FRESHNESS AFFORDANCE ON THE BADGE POLL** (the designated (b') last-resort increment) — each poll cycle
+stamps `lastRefresh` (`Promise.all`); a 1s ticker drives a **`↻ Ns`** age chip next to ● LIVE — dim fresh, AMBER past 2× the refresh
+interval ("…— STALE (poll paused)"). Pure-frontend, 100% mine, wholly in `AutonomyDrawer.tsx`; verified LIVE (`↻ now` dim → pause →
+`↻ 2m2s` AMBER → resume → `↻ now` dim; 0 console errors); commit LOOP_STATE only.
 — Prior run #40 — **⚡ DISPATCHABLE BADGE NOW SHOWS THE WEB-GAP SPLIT** — the ⊙ AUTONOMY ⚡ DISPATCHABLE tab badge read a flat ready
 count (`8`), hiding that 4 of those next-to-fire tasks are `web_gap:true`; it now reads **`8 · 4⚠`** (emerald ready + amber web-gap),
 serving TO-DO #1's "pick a NON-`web_gap` task first". Pure-frontend, 100% mine, no new dep; wholly in `AutonomyDrawer.tsx`. Verified
@@ -987,6 +989,18 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-19 — Run #42 (NO BUILD, BY DESIGN — both un-gate checks still blocked → orchestration + health only; the directive's explicit decline-make-work path, recorded with its reason rather than padding the ledger) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green, no restart needed.** Bridge :8767 UP at start AND end (`/api/ping` → `{ok:true,uptime_seconds:42599}` ≈ 11.8h, operator's process alive — never touched). LIVE: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18` (steady since runs #19–#41); `/api/mc/kanban/diagnostics` → only the 6 expected `blocked_no_reason` (info — no stale/dead/cycle/retry-exhausted); `/api/mc/dispatcher` → `{enabled:false,running:false,dispatched:0,in_flight:[]}`, `dispatchable`=**8** (4 `web_gap:true`); `/api/mc/cron` → `jobs:[]` but scheduler daemon LIVE (`running:true`, 1422 ticks @30s, 0 fired); gateway graceful-empty (expected post-Hermes). `npm run build` ✅ (775ms); my 6 untracked drawers `npx eslint` → No issues found.
+
+2. **UN-GATE CHECKS (the mandated first move) — BOTH still blocked.** (i) **Tree NOT quiet**: `git diff --stat` → **29 tracked files / 2394 insertions** of live sibling bughunt/evolve WIP (BUGHUNT_LOG +748, patch-notes +494, bridge.py +414, mc_store +139, api.ts +110, OperationsCenter +109, ~dozen sibling page/store edits) → the TO-DO #2 commit logjam stays deferred (a full-file commit sweeps in sibling WIP), AND any new backend capability would have to edit the same congested bridge.py/api.ts → a "missing capability" build is also off the table this run. (ii) **Dispatcher LIVE-but-OFF** (`dispatched:0, in_flight:[]`) → the in_flight pulse (a) is an always-empty signal. The drawer/badge surface is SATURATED (20 stranded LOOP_STATE-only runs #22–#41) and the audit surfaced **no genuinely-missing operational capability that isn't backend-congested**.
+
+3. **DECISION — deliberate no-build.** Per the run #42 directive's exact wording (*"if both still blocked AND no genuinely-missing capability surfaces, do orchestration + health only and explicitly decline a make-work drawer tweak; record the no-build with its reason rather than padding the ledger"*) I built nothing this run. The marginal operator value of a 21st stranded badge/chip is effectively zero; honesty beats ledger-padding.
+
+4. **ORCHESTRATION — board clean, no action needed (and no silent mutation).** `ready 8 · blocked 6 · done 18`. **No FAILED, no RUNNING** tasks → `POST /api/mc/kanban/reconcile` would be a no-op (nothing to reclaim); no dead-agent assignments to reassign. Inspected the oldest blocked task `t_ac3acb98` ("Analyze competitor positioning") directly via `/api/mc/tasks/{id}`: `events:[] parents:[] runs:[]`, `started_at` set but `completed_at:null` → an **orphaned-block** (claimed pre-Hermes-excision, run abandoned, left BLOCKED), NOT a live dependency wait. **Deliberately did NOT force-unblock the 6**: with the dispatcher OFF a status flip just inflates the ready queue (8→14) without running anything and erases a known/documented baseline; their real next-action is the operator-watched first dispatch (TO-DO #1), not a status mutation. **Finding for the operator / next run (no action — would be a no-op while the dispatcher is off, and may be a deliberate decomposer choice):** several blocked tasks are *competitive-research* work (`t_ac3acb98` "Analyze competitor positioning", `t_9b58127d` "Synthesize competitor analysis and strategic takeaways") assigned to **narratrix** (content strategist) rather than **signalscraper/corpnet** (the role-matched competitive-intelligence agents) — a possible mis-skill to glance at on first dispatch. Did NOT dispatch (operator absent; TO-DO #1), enable the daemon, or seed crons (TO-DO #4) — all need sign-off.
+
+5. **HANDOFF — commit LOOP_STATE only (no code touched).** Zero source files edited this run; staged only `.mc/LOOP_STATE.md`. Did NOT touch any sibling-dirty file. **Run #43 must run the SAME two un-gate checks first** — tree-quiet → break the TO-DO #2 logjam (FAR higher value than anything else this lane can do); dispatcher-fired → build the in_flight pulse (a). If both still block, decline make-work again.
 
 ### 2026-06-19 — Run #41 (STALE-SINCE FRESHNESS AFFORDANCE ON THE BADGE POLL — the run #39 live-polled tab badges could be PAUSED but a frozen count carried no age; a `↻ Ns` chip next to ● LIVE now shows the last-cycle age, dim when fresh and AMBER once provably stale) · branch `auto/loop-reconcile-20260615`
 
