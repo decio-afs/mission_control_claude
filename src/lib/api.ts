@@ -3,7 +3,7 @@ import axios from 'axios';
 // ---------------------------------------------------------------------------
 // Mc Bridge client
 // ---------------------------------------------------------------------------
-// Mission Control talks to the local Mc bridge (mc-bridge.py), a thin
+// Mission Control talks to the local Mc bridge (mission-control-bridge.py), a thin
 // FastAPI wrapper around the `mc` CLI. There is no other backend — every
 // screen renders live data sourced from Mc.
 export const BRIDGE_BASE_URL = import.meta.env.VITE_BRIDGE_URL || 'http://localhost:8767';
@@ -92,6 +92,8 @@ export interface McCronJob {
   script?: string;
   /** Outcome of the most recent fire (scheduled or manual), stamped by the bridge. */
   last_run?: number;
+  /** Epoch SECONDS the job was created — the interval anchor when it has never fired. */
+  created_at?: number;
   last_status?: 'ok' | 'error';
   last_trigger?: 'schedule' | 'manual';
   last_detail?: string;
@@ -173,8 +175,6 @@ export async function getWebAccessAudit(): Promise<WebAccessAudit> {
   return data;
 }
 
-export async function getMcTasks(): Promise<{ tasks: McTask[] }> {
-  const { data } = await bridge.get('/api/mc/tasks');
 // --- Task dispatcher (post-Hermes kanban dispatcher: runs ready tasks via Claude) ---
 export interface DispatcherStatus {
   enabled: boolean;
@@ -222,6 +222,8 @@ export async function dispatchTask(opts?: { taskId?: string; dryRun?: boolean })
   return data;
 }
 
+export async function getMcTasks(): Promise<{ tasks: McTask[] }> {
+  const { data } = await bridge.get('/api/mc/tasks');
   return data;
 }
 
@@ -242,6 +244,13 @@ export async function completeMcTask(taskId: string) {
 
 export async function blockMcTask(taskId: string, reason: string) {
   const { data } = await bridge.post(`/api/mc/tasks/${taskId}/block`, { reason });
+  return data;
+}
+
+// Terminal failure (distinct from a recoverable `block`). Mirrors blockMcTask;
+// the bridge reuses BlockTaskPayload, so the body is the same single `reason`.
+export async function failMcTask(taskId: string, reason: string) {
+  const { data } = await bridge.post(`/api/mc/tasks/${taskId}/fail`, { reason });
   return data;
 }
 
@@ -338,7 +347,7 @@ export interface KanbanBoard {
 }
 export interface BoardDiagnostic {
   task_id: string; title?: string; status?: string; assignee?: string | null;
-  diagnostics: Array<{ kind?: string; severity?: string; message?: string; [k: string]: unknown }>;
+  diagnostics: Array<{ kind?: string; severity?: string; message?: string; cycle_parents?: string[]; [k: string]: unknown }>;
 }
 
 export async function specifyMcTask(taskId: string) {
@@ -375,6 +384,32 @@ export async function getMcTaskWorkspace(taskId: string): Promise<TaskWorkspace>
 export async function getMcTaskWorkspaceFile(taskId: string, file: string): Promise<TaskWorkspaceFile> {
   const { data } = await bridge.get(`/api/mc/tasks/${taskId}/workspace`, { params: { file } });
   return data;
+}
+
+// Deliverables browser: dispatched agents write substantive output to
+// deliverables/ and research/ at the repo root. These give that orphaned output a
+// reachable home in the UI. The bridge confines all reads to those two roots.
+export interface DeliverableEntry {
+  path: string; root: string; name: string; rel_to_root: string;
+  task_id?: string | null; size: number; modified: number; ext: string;
+}
+export interface DeliverableFile { path: string; binary: boolean; truncated: boolean; content: string; note?: string }
+
+export async function listDeliverables(): Promise<{ deliverables: DeliverableEntry[]; count: number; roots: string[] }> {
+  const { data } = await bridge.get('/api/mc/deliverables');
+  return data;
+}
+
+export async function readDeliverable(path: string): Promise<DeliverableFile> {
+  const { data } = await bridge.get('/api/mc/deliverables/file', { params: { path } });
+  return data;
+}
+
+// Raw-bytes URL for a deliverable, for rendering media the JSON `/file` endpoint
+// can only flag as "binary, not shown" (e.g. a generated image). The bridge
+// confines reads to the deliverable roots. Used as an <img src>.
+export function deliverableRawUrl(path: string): string {
+  return `${BRIDGE_BASE_URL}/api/mc/deliverables/raw?path=${encodeURIComponent(path)}`;
 }
 
 export async function getKanbanDiagnostics(): Promise<{ diagnostics: BoardDiagnostic[] }> {
@@ -523,12 +558,14 @@ export interface SweepCounts {
   promoted: number;
   reassigned: number;
   escalated: number;
+  promoted_ready: number;
 }
 export interface SweepResult {
   reconciled: ReconcileResult;
   cascade: CascadeResult;
   reassigned: ReassignResult;
   escalated: EscalateResult;
+  promoted: PromoteReadyResult;
   counts: SweepCounts;
   total: number;
   dry_run: boolean;
@@ -538,6 +575,29 @@ export async function sweepBoard(opts?: { dryRun?: boolean }): Promise<SweepResu
   const body: Record<string, unknown> = {};
   if (opts?.dryRun) body.dry_run = true;
   const { data } = await bridge.post('/api/mc/kanban/sweep', body);
+  return data;
+}
+
+// --- Board-wide promotion gate: promote actionable todo → ready (dispatcher feeder) ---
+// The dispatcher only fires `ready` work, never raw `todo` backlog, so freshly-
+// routed/assigned tasks sat in todo forever and the dispatcher stayed starved.
+// This promotes every todo task with a live assignee and no open parent dependency
+// to `ready` (with a `promoted` event), and honestly LEAVES in todo any task that
+// is unassigned, off-roster (reassign first), or dependency-blocked (cascade first).
+// Distinct from the per-task ungated promoteMcTask (the drawer's manual move).
+// Idempotent; `dryRun` previews the plan without mutating.
+export interface PromotedReadyTask { id: string; title?: string; assignee: string; reason: string }
+export interface PromoteReadyResult {
+  promoted: PromotedReadyTask[];
+  skipped: Array<{ id: string; title?: string; reason: string }>;
+  dry_run: boolean;
+  message: string;
+}
+export async function promoteReady(opts?: { taskId?: string; dryRun?: boolean }): Promise<PromoteReadyResult> {
+  const body: Record<string, unknown> = {};
+  if (opts?.taskId != null) body.task_id = opts.taskId;
+  if (opts?.dryRun) body.dry_run = true;
+  const { data } = await bridge.post('/api/mc/kanban/promote', body);
   return data;
 }
 
@@ -577,7 +637,13 @@ export async function getMcCron(): Promise<{ jobs: McCronJob[]; raw: string; sch
 }
 
 export async function runMcCron(jobId: string) {
-  const { data } = await bridge.post(`/api/mc/cron/${jobId}/run`);
+  // A claude-kind cron job fires its prompt through a SYNCHRONOUS run_claude turn
+  // (bridge run_cron → timeout=300s) before the route returns. The 30s axios
+  // default would abort RUN-NOW long before the agent finishes — the operator
+  // sees a spurious timeout while the bridge keeps running and records the result
+  // server-side (a lost interaction). Clear the backend ceiling like every other
+  // run_claude-backed endpoint (specify 190s, chat 185s, spawn 605s): 300s + margin.
+  const { data } = await bridge.post(`/api/mc/cron/${jobId}/run`, undefined, { timeout: 305000 });
   return data;
 }
 
@@ -757,6 +823,28 @@ export async function getMcBriefing(): Promise<McBriefing> {
 
 export async function getMcActivity(): Promise<{ activities: McActivity[] }> {
   const { data } = await bridge.get('/api/mc/activity');
+  return data;
+}
+
+// ── Board-wide event feed — the FULL task-event taxonomy ────────────────────
+// Distinct from getMcActivity (3 synthesized lifecycle entries per task): this
+// merges every task's recorded event timeline newest-first (claim/complete/
+// block/route/promote/escalate/reassign/reconcile/dependency-edge/workspace/…),
+// each row tagged with its owning task_id + title so the Operations event feed
+// can deep-link to the task and render an icon+label per `kind` (eventLabels.ts).
+export interface McEvent {
+  task_id: string;
+  title: string;
+  assignee: string | null;
+  task_status: string | null;
+  kind: string;
+  payload: Record<string, unknown> | null;
+  created_at: number | null;
+  run_id: string | null;
+}
+
+export async function getRecentEvents(limit = 50): Promise<{ events: McEvent[]; total: number }> {
+  const { data } = await bridge.get('/api/mc/events', { params: { limit } });
   return data;
 }
 
@@ -1256,6 +1344,18 @@ export async function predictCalendarVirality(itemId: string): Promise<{ item: C
 
 export async function getContentIdeas(): Promise<ContentIdeas> {
   const { data } = await bridge.get('/api/content/ideas');
+  return data;
+}
+
+// Channel preferences — which social channels the Idea Engine may target. The
+// generator only proposes ideas for `enabled` channels.
+export interface ContentChannels { available: string[]; enabled: string[] }
+export async function getContentChannels(): Promise<ContentChannels> {
+  const { data } = await bridge.get('/api/content/channels');
+  return data;
+}
+export async function setContentChannels(enabled: string[]): Promise<ContentChannels> {
+  const { data } = await bridge.put('/api/content/channels', { enabled });
   return data;
 }
 export async function generateContentIdeas(): Promise<ContentIdeas> {
