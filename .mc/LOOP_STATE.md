@@ -10,7 +10,24 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#39) — ⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH (run #38's candidate (b)).** The run #38 tab-bar
+0. **✅ DONE this run (#40) — ⚡ DISPATCHABLE BADGE NOW SHOWS THE WEB-GAP SPLIT (run #39's candidate, sharper than (b')).**
+   The run #38/#39 ⚡ DISPATCHABLE tab badge showed only a flat ready count (`8`), hiding that **4 of those 8 next-to-fire tasks are
+   `web_gap:true`** (the claudelink Notion carousels). The badge now reads **`8 · 4⚠`** — the emerald ready count plus an amber
+   web-gap segment — so the operator sees the queue's web-gap risk *before* opening the tab; tooltip reads "8 ready, 4 blocked on a
+   web MCP". This directly serves TO-DO #1 ("pick a NON-`web_gap` task first" for the watched first dispatch). **Chose this over run
+   #39's listed (a)/(b')** — (a) the in_flight pulse is still empty (dispatcher LIVE-but-OFF, `dispatched:0` re-confirmed at the top
+   of this run); (b') a stale-since dot is lower operator-value than surfacing a real go/no-go signal. **Pure-frontend, 100% mine, no
+   backend change, no new dep** — derived from the SAME run #39 `getDispatcher` poll (`web_gap` is on `DispatchablePlan` in HEAD
+   api.ts `:201`); edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file): `Badges` gained a `webGap` field, the
+   dispatcher poll handler now also sets `webGap = dispatchable.filter(r=>r.web_gap).length`, `badgeFor('dispatch')` attaches an
+   optional `warn` segment, and the tab-button render shows `· N⚠` inside the emerald pill (suppressed when 0/unknown). **Verified
+   LIVE** (Vite 5219, `#/operations`, DOM/data/console via `preview_eval`): badge rendered **`⚡ DISPATCHABLE 8 · 4⚠`** matching the
+   live endpoint EXACTLY (`dispatchable.length=8`, `web_gap count=4`), tooltip correct, other badges unchanged (⊘ BLOCKED·6 · ⚿
+   WEB-ACCESS·9); **0 console errors** (`preview_screenshot` not attempted — same renderer hiccup as runs #34–#39, visual layer
+   DOM-verified). `npm run build` ✅ (838ms); `npx eslint AutonomyDrawer.tsx` → No issues; `graphify update .` ✅. **Commit:
+   LOOP_STATE only** (inert without the sibling-congested `OperationsCenter.tsx` + the uncommitted child drawers — live-but-uncommitted
+   bucket, TO-DO #2). (See DONE Run #40.) —
+   _Prior run #39 — ⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH (run #38's candidate (b)). The run #38 tab-bar
    attention badges were a fetch-once-on-open snapshot; they now poll every 5s (the run #29 DispatchableDrawer idiom) with a
    **● LIVE / ⏸ PAUSED** header toggle, so a count that changes while the surface stays open no longer goes stale until
    close+reopen. On a later-poll failure each field keeps its last good value (steady badge, no flicker to absent). **Pure-frontend,
@@ -286,25 +303,24 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#39) — ⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH** (run #38's candidate (b)). The run #38 tab-bar badges
-   were a fetch-once-on-open snapshot; they now poll every 5s with a **● LIVE / ⏸ PAUSED** toggle, so a count that changes while the
-   surface stays open no longer goes stale until close+reopen. On a later-poll failure each field keeps its last good value (no
-   flicker). Wholly in `AutonomyDrawer.tsx` (my untracked file): the run #38 `useEffect([open])` became a `[open,paused]`-keyed poll
-   (immediate `fetchOnce` + `setInterval(5000)`, teardown clears); no backend change, no new dep, lint-clean. Verified LIVE (badges
-   6/9/8 match endpoints, ● LIVE toggle flips, `preview_network` shows the triad repeating every cycle, 0 console errors). (See DONE
-   Run #39.)
-   **Next capability to BUILD (run #40)** — in-lane, live-backed candidates, pick by impact:
-   (a) **PREFERRED (still deferred) — a live in_flight pulse on the ⚡ DISPATCHABLE tab badge**: when the dispatcher has an active
-   run, surface `in_flight.length`/`last_dispatched_id` as a tiny pulsing emerald dot or count on the ⚡ DISPATCHABLE badge so an
-   autonomous run is visible from the tab bar. The badges now live-poll `getDispatcher` (run #39), so the data is already on hand —
-   this is a small `badgeFor('dispatch')` extension. **Caveat (unchanged): only meaningful once the dispatcher is ON / TO-DO #1's
-   first watched dispatch has run.** As of run #39 it's still LIVE-but-OFF (`dispatched:0`, `in_flight:[]`) → the pulse would always
-   be empty, so it stays low-value until #1 lands. **Re-check `/api/mc/dispatcher` at the top of run #40 — if `dispatched>0` or the
-   dispatcher is enabled, BUILD (a); otherwise prefer (b').**
-   (b') **Alternative (near-term value while dispatcher OFF) — a "stale since" / last-refresh affordance on the badge poll**: the
-   badges live-refresh now (run #39) but there's no signal of *when* they last updated or if a poll is mid-flight. A tiny `↻`/age
-   indicator next to ● LIVE (or a subtle pulse on each badge tick) would confirm the data is fresh. Pure-frontend, in-lane (reuse the
-   run #39 poll; stamp a `lastRefresh` on each successful `fetchOnce`). Lower-stakes polish — only do this if (a) is still gated.
+5. **✅ DONE this run (#40) — ⚡ DISPATCHABLE BADGE NOW SHOWS THE WEB-GAP SPLIT.** The ⚡ DISPATCHABLE tab badge read a flat `8`,
+   hiding that 4 of those next-to-fire tasks are `web_gap:true`; it now reads **`8 · 4⚠`** (emerald ready + amber web-gap), serving
+   TO-DO #1's "pick a NON-`web_gap` task first". Pure-frontend, 100% mine, derived from the SAME run #39 `getDispatcher` poll (no new
+   dep); wholly in `AutonomyDrawer.tsx`. Verified LIVE (badge `8 · 4⚠` matches endpoint `dispatchable.length=8`/`web_gap=4`, tooltip
+   correct, other badges unchanged, 0 console errors). (See DONE Run #40.)
+   **Next capability to BUILD (run #41)** — in-lane, live-backed candidates, pick by impact. **NOTE: this lane has now spent runs
+   #22–#40 (19 runs) entirely on `AutonomyDrawer`/child-drawer micro-features, ALL stranded as LOOP_STATE-only commits (the whole
+   surface is inert in HEAD, TO-DO #2). The marginal operator value of further badge polish is near zero.** Before reaching for
+   another drawer tweak, run #41 should (i) re-check whether the tree has gone QUIET (`git diff --stat` — if bughunt/evolve have
+   landed their api.ts/bridge.py/OperationsCenter WIP, the commit logjam (TO-DO #2) may finally be breakable, which is FAR higher
+   impact than any new badge), and (ii) re-check `/api/mc/dispatcher` — if `dispatched>0`/enabled, the in_flight pulse (a) below
+   becomes real. Only if both are still blocked, fall to a drawer increment:
+   (a) **a live in_flight pulse on the ⚡ DISPATCHABLE badge** — when the dispatcher has an active run, surface
+   `in_flight.length`/`last_dispatched_id` as a pulsing emerald dot. Data already on hand (run #39 poll). **Still gated: dispatcher
+   LIVE-but-OFF (`dispatched:0`, `in_flight:[]`) re-confirmed run #40 → the pulse is always empty until TO-DO #1's first watched
+   dispatch. BUILD only once `dispatched>0`.**
+   (b') **a "stale since" / last-refresh affordance on the badge poll** — a tiny `↻`/age indicator next to ● LIVE confirming the
+   data is fresh. Pure-frontend, reuse the run #39 poll (stamp `lastRefresh` on each `fetchOnce`). Lowest-stakes polish — last resort.
    (c) Skip — persist the transient per-agent web-focus (run #35 noted low value).
    (d) DEFERRED until the bridge emits dependency events — the reciprocal `↳ child ‹id›` chip (old 5b). Re-scout `/api/mc/events`
    each run; the day a `link`/`unlink`/`dependency` kind appears in the live feed, this becomes a pure-frontend `EventFeedDrawer`
@@ -325,7 +341,30 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-18 (Run #39)** — **⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH** (run #38's candidate (b)) — the run #38 tab-bar
+_Last run: **2026-06-19 (Run #40)** — **⚡ DISPATCHABLE BADGE NOW SHOWS THE WEB-GAP SPLIT.** The ⊙ AUTONOMY ⚡ DISPATCHABLE tab badge
+read a flat ready count (`8`), hiding that 4 of those next-to-fire tasks are `web_gap:true` (claudelink Notion carousels); it now
+reads **`8 · 4⚠`** — emerald ready + amber web-gap segment — so the operator sees the queue's web-gap risk before opening the tab,
+directly serving TO-DO #1 ("pick a NON-`web_gap` task first" for the watched first dispatch). **Pure-frontend, 100% mine, no backend
+change, no new dep** — derived from the SAME run #39 `getDispatcher` poll (`web_gap` on `DispatchablePlan`, HEAD api.ts `:201`).
+Edited ONLY `src/components/AutonomyDrawer.tsx`: `Badges` gained `webGap`, the dispatcher poll handler also sets
+`webGap=dispatchable.filter(r=>r.web_gap).length`, `badgeFor('dispatch')` attaches an optional `warn` segment, the tab render shows
+`· N⚠` inside the emerald pill (suppressed at 0/unknown). **HEALTH: bridge UP at start** (`/api/ping` → `uptime 28191s` ≈ 7.8h,
+operator's process alive) — no restart. Board `ready 8 · blocked 6 · done 18`; diagnostics → only the 6 expected `blocked_no_reason`
+web-gap research tasks (5×narratrix + 1×default; no stale/dead/cycle/retry-exhausted, nothing to reclaim); dispatcher **LIVE-but-OFF**
++ FED (`dispatchable:8`, 4 `web_gap`, `dispatched:0`, `in_flight:[]`); cron `jobs:[]` + scheduler daemon LIVE (941 ticks @30s, 0
+fired); gateway graceful-empty (expected post-Hermes). **Tree is LOUD with sibling WIP** (`git diff --stat`: 28 tracked files —
+BUGHUNT_LOG +716, patch-notes +469, bridge.py +414, api.ts +110, OperationsCenter +109, ~dozen sibling component/page edits) → the
+commit logjam (TO-DO #2) stays correctly deferred; per-hunk surgery would contaminate bughunt/evolve WIP. **Verified LIVE** (Vite 5219,
+`#/operations`, DOM/data/console via `preview_eval`): badge **`⚡ DISPATCHABLE 8 · 4⚠`** matches the live endpoint exactly, tooltip "8
+ready, 4 blocked on a web MCP", other badges unchanged (⊘ BLOCKED·6 · ⚿ WEB-ACCESS·9); **0 console errors** (`preview_screenshot` not
+attempted — same renderer hiccup as runs #34–#39, visual layer DOM-verified). `npm run build` ✅ (838ms); `npx eslint
+AutonomyDrawer.tsx` → No issues; `graphify update .` ✅. Commit: LOOP_STATE only (the file is clean against HEAD api.ts but imports the
+four uncommitted child drawers → a full-file commit breaks HEAD; live-but-uncommitted bucket, TO-DO #2). Operator-watched first
+dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's
+(#6). **Next (run #41, TO-DO #5): this lane has spent 19 runs (#22–#40) on stranded drawer micro-features — before another tweak,
+re-check if the tree has gone QUIET enough to break the TO-DO #2 commit logjam (far higher impact), and re-check the dispatcher; only
+if both still blocked, fall to the in_flight pulse (a, gated until `dispatched>0`) or the stale-since affordance (b').**
+— Prior run #39 — **⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH** (run #38's candidate (b)) — the run #38 tab-bar
 attention badges, previously a fetch-once-on-open snapshot, now **poll every 5s** with a **● LIVE / ⏸ PAUSED** header toggle, so a
 count that changes while the surface stays open (a task unblocked elsewhere, an agent provisioned) no longer goes stale until
 close+reopen; on a later-poll failure each field keeps its **last good value** (steady badge, no flicker to absent). **Pure-frontend,
@@ -915,6 +954,23 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-19 — Run #40 (⚡ DISPATCHABLE BADGE NOW SHOWS THE WEB-GAP SPLIT — the ⊙ AUTONOMY ⚡ DISPATCHABLE tab badge read a flat ready count `8`; it now reads `8 · 4⚠`, surfacing that 4 of the 8 next-to-fire tasks need a web MCP their agent lacks) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green, no restart needed.** Bridge :8767 UP at start (`/api/ping` → `{ok:true,uptime_seconds:28191}`, operator's process alive ~7.8h). LIVE confirmed: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18` (steady since runs #19–#39); `/api/mc/kanban/diagnostics` → only the 6 expected `blocked_no_reason` (web-access config gap, info — no stale/dead/cycle/retry-exhausted); `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1,tick_seconds:30,dispatched:0,in_flight:[]}`, `dispatchable`=**8** (4 `web_gap:true` — the claudelink Notion carousels); `/api/mc/cron` → `jobs:[]` but scheduler daemon LIVE (`running:true`, 941 ticks @30s, 0 fired); `/api/mc/gateway` → graceful-empty (Hermes excised — expected, not a blocker). `npm run build` ✅ both before & after edits (838ms; chunk-size warning pre-existing).
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18`. Diagnostics dry → no stale claims / dead agents / cycles / retry-exhausted (`in_flight:[]`, nothing to reclaim); the 6 blocked are the known web-access config gap (5×narratrix + 1×default, `blocked_no_reason`, info — operator config, not code; TO-DO #3). **Did NOT dispatch** (operator absent; TO-DO #1's first watched dispatch still pending — `dispatched:0`); did NOT enable the daemon or seed crons (TO-DO #4). **Confirmed the tree is LOUD with sibling WIP** (`git diff --stat`: 28 tracked files — BUGHUNT_LOG +716, patch-notes +469, bridge.py +414, api.ts +110, OperationsCenter +109, ~dozen sibling component/page edits) → the commit logjam (TO-DO #2) stays correctly deferred; my edit is the untracked `AutonomyDrawer.tsx`, no overlap.
+
+3. **BUILT: ⚡ DISPATCHABLE BADGE WEB-GAP SPLIT.** The run #38/#39 tab badge showed only `dispatchable.length` (`8`), discarding the per-row `web_gap` flag the SAME `getDispatcher` poll already carries — so the operator couldn't see that half the next-to-fire queue would hit a missing-web-MCP gap without opening the tab. That's exactly the signal TO-DO #1 needs ("pick a NON-`web_gap` task first"). **Chose this over run #39's listed (a)/(b')** — (a) the in_flight pulse is still empty (dispatcher LIVE-but-OFF, `dispatched:0` re-confirmed); (b') a stale-since dot is lower-value than a real go/no-go signal. **Pure-frontend, 100% mine, no backend change, no new dep** (`web_gap` is on `DispatchablePlan`, HEAD api.ts `:201`). Edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file):
+   - `Badges` type gained a `webGap: number | null` field (init `null`).
+   - The `getDispatcher` poll handler now sets **both** `dispatchable: d.dispatchable.length` and `webGap: d.dispatchable.filter(r=>r.web_gap).length` in one `set()`; the single `.catch` keeps prior values for both on a transient blip (same resilience posture as run #39).
+   - `badgeFor('dispatch')` attaches an optional `warn` segment (`{...b, warn: badges.webGap}`) only when `webGap` is known and `> 0`.
+   - The tab-button render shows `· N⚠` (amber text) inside the existing emerald pill when `badge.warn` is set; the tooltip becomes "N ready, M blocked on a web MCP" for dispatch.
+   - **No `set-state-in-effect` lint** (the poll only writes via the `cancelled`-guarded async `set`); other badges (MISSING/BLOCKED) untouched.
+
+4. **VERIFY — build + lint clean; LIVE DOM/data/console conclusive (visual layer DOM-verified).** `npm run build` ✅ (838ms); `npx eslint src/components/AutonomyDrawer.tsx` → **No issues**; `graphify update .` ✅. **Vite preview** (port 5219, `#/operations`, bridge UP, DOM/data via `preview_eval`): opened ⊙ AUTONOMY → ⚡ DISPATCHABLE tab read **`⚡ DISPATCHABLE 8 · 4⚠`**, matching the live endpoint EXACTLY (`dispatchable.length=8`, `web_gap` count=4); tooltip = "switch to the ⚡ DISPATCHABLE view — 8 ready, 4 blocked on a web MCP"; other badges unchanged (⊘ BLOCKED·6 · ⚿ WEB-ACCESS·9); `preview_console_logs` (error) → **No console logs** (0 errors). `preview_screenshot` not attempted (timed out runs #34–#39 — pixel layer the only unverified layer; DOM/data/console proof conclusive).
+
+5. **COMMIT — LOOP_STATE.md only.** `AutonomyDrawer.tsx` is clean against HEAD's api.ts (`web_gap`/`DispatchablePlan`/`getDispatcher` all in HEAD) but it imports the four uncommitted child drawers whose own api deps are HEAD-absent → a full-file commit breaks HEAD's build. Stays in the live-but-uncommitted bucket (TO-DO #2). No new sibling tangle (zero api.ts/bridge.py/mc_store.py edits). Staged only `.mc/LOOP_STATE.md`; left sibling-loop WIP untouched. **Lane note for run #41:** 19 runs (#22–#40) have now gone to stranded drawer micro-features — run #41 should first re-check whether the tree has gone quiet enough to break the TO-DO #2 commit logjam (far higher impact) before reaching for another tweak.
 
 ### 2026-06-18 — Run #39 (⊙ AUTONOMY TAB BADGES NOW LIVE-REFRESH — the run #38 tab-bar attention badges, previously a fetch-once-on-open snapshot, now poll every 5s with a ● LIVE / ⏸ PAUSED toggle; run #38's candidate (b)) · branch `auto/loop-reconcile-20260615`
 
