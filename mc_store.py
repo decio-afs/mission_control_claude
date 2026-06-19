@@ -319,6 +319,16 @@ class MCStore:
             t["status"] = "blocked"; t["completed_at"] = _now()
         return self._mutate(task_id, f, event="blocked", payload={"reason": reason})
 
+    def fail_task(self, task_id, reason):
+        # Terminal failure, distinct from `blocked` (a recoverable wait on a
+        # human/dependency). Mirrors block_task — stamps completed_at like the
+        # other terminal transitions (done/blocked) so cycle-time + the activity
+        # feed treat it as ended — and records a `failed` event carrying the
+        # reason, which TaskDetailDrawer's reason banner already renders.
+        def f(t):
+            t["status"] = "failed"; t["completed_at"] = _now()
+        return self._mutate(task_id, f, event="failed", payload={"reason": reason})
+
     def unblock_task(self, task_id, reason=None):
         def f(t):
             t["status"] = "ready"; t["completed_at"] = None

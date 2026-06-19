@@ -962,6 +962,18 @@ def block_task(task_id: str, payload: BlockTaskPayload):
     return _task_op(STORE.block_task, task_id, payload.reason)
 
 
+@app.post("/api/mc/tasks/{task_id}/fail")
+def fail_task(task_id: str, payload: BlockTaskPayload):
+    """Mark a kanban task as failed (terminal), distinct from blocked.
+
+    Records a `failed` status + reason so the OperationsCenter FAILED column,
+    the FAILED chip, and the notifier can finally distinguish a dead-end from a
+    recoverable block (a `failed` setter did not previously exist anywhere).
+    Reuses BlockTaskPayload — both carry a single required `reason`.
+    """
+    return _task_op(STORE.fail_task, task_id, payload.reason)
+
+
 @app.post("/api/mc/tasks/{task_id}/unblock")
 def unblock_task(task_id: str, payload: ReasonPayload):
     """Return a blocked/scheduled task to ready."""
