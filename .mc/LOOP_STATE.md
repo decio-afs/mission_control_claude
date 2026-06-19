@@ -25,7 +25,7 @@ below. `## DONE` is append-only history.
    → `HTTP 404 {"detail":"task '…' not found"}` = the `_task_op` semantic-not-found path (route registered, store method invoked), NOT a route-missing
    404; no real task mutated. **HEALTH: bridge UP** (`uptime 93016s` ≈ 25.8h); dispatcher LIVE-but-OFF; cron empty; gateway graceful-empty.
    **ORCHESTRATION (clean):** board `done 18 · blocked 6 · ready 8`, no FAILED/RUNNING, dispatchable=8, only the 6 known web-gap `blocked`.
-   **VERIFY:** `npm run build` ✅ (813ms); lint N/A (Python-only island; ~500-error `.tsx`/`.ts` baseline stays pre-existing). **Commit: `<run49>`
+   **VERIFY:** `npm run build` ✅ (813ms); lint N/A (Python-only island; ~500-error `.tsx`/`.ts` baseline stays pre-existing). **Commit: `4d5ede8`
    (mc_store.py + bridge.py island, 22+) + LOOP_STATE.** **Next (run #50): scan HEAD api.ts client fns vs HEAD bridge routes for any remaining
    committed-but-404 pair.** Strongest known candidate: board-wide `kanban_promote` (`POST /api/mc/kanban/promote` + `class PromoteReadyPayload`,
    bridge working-tree `:1300`/`:1293`) — store dep `promote_ready` is ALREADY in HEAD (`mc_store:1309`), so a clean 1-file bridge island; caveat:
@@ -406,7 +406,7 @@ route-missing `{"detail":"Not Found"}` → route registered + `STORE.fail_task` 
 daemon LIVE, 3101 ticks @30s, 0 fired); gateway graceful-empty (expected post-Hermes). **ORCHESTRATION (clean):** board `done 18 · blocked 6
 · ready 8`; no FAILED/RUNNING (nothing to reconcile/reclaim); dispatchable=8 (4 web-gap claudelink carousels); only the 6 known web-gap
 `blocked` research tasks (not force-unblocked while dispatcher OFF). **VERIFY:** `npm run build` ✅ (813ms); lint = N/A for this island
-(Python-only, zero TS touched; project-wide `.tsx`/`.ts` baseline ~500 errors stays pre-existing → bughunt/sibling lane). **Commit: `<run49>`
+(Python-only, zero TS touched; project-wide `.tsx`/`.ts` baseline ~500 errors stays pre-existing → bughunt/sibling lane). **Commit: `4d5ede8`
 (mc_store.py + bridge.py island, 22+) + LOOP_STATE.** **Next (run #50): the fail/events/deliverables chains are all in HEAD now — scan HEAD
 api.ts client fns vs HEAD bridge routes for any remaining committed-but-404 pair (the highest-value class). Strongest known candidate: the
 board-wide `kanban_promote` (`POST /api/mc/kanban/promote` + `class PromoteReadyPayload` at bridge working-tree `:1300`/`:1293`) — its store
@@ -1121,7 +1121,7 @@ dispatcher is OFF — same posture as prior runs).
 **Verify.** `npm run build` ✅ (813ms; this island is Python-only so build is unaffected, run to honor the gate). Lint N/A for this
 island (0 TS touched); the project-wide `.tsx`/`.ts` ~500-error baseline stays pre-existing → bughunt/sibling lane (TO-DO #6).
 
-**Commit.** `<run49>` (mc_store.py + mission-control-bridge.py island, 22+) + LOOP_STATE. Temp build artifacts
+**Commit.** `4d5ede8` (mc_store.py + mission-control-bridge.py island, 22+) + LOOP_STATE. Temp build artifacts
 (`.mc/_build_failtask_island.py`, `.mc/_island_*.py`) removed (untracked, never committed).
 
 **Next (run #50).** The fail/events/deliverables committed-but-404 chains are all closed in HEAD now. Scan HEAD api.ts client fns vs
