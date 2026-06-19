@@ -10,7 +10,21 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#37) — WEB-SKILL DETAIL → BLOCKED-TASK DEEP-LINKS (run #36's PREFERRED candidate (a)).** Run #36's ⚿ WEB-ACCESS
+0. **✅ DONE this run (#38) — ⊙ AUTONOMY TAB ATTENTION BADGES (run #37's PREFERRED candidate (a)).** Each tab button in the
+   consolidated ⊙ AUTONOMY surface now carries a live numeric badge — ⊘ BLOCKED·blocked-count (amber), ⚿ WEB-ACCESS·MISSING-agent-count
+   (amber), ⚡ DISPATCHABLE·ready-count (emerald), ▦ ACTIVITY none — so the operator sees where attention is needed *before* opening a
+   tab. Edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file): a `Badges` state + one `useEffect([open])` that
+   `Promise`-fetches `getWebAccessAudit`/`getMcTasks`/`getDispatcher` (all HEAD api.ts) in parallel with per-field graceful degrade
+   (`.catch` → field stays `null` → badge suppressed, never a wrong number), and a `badgeFor(tab)` resolver (count + tone, suppressed
+   when unknown/0) rendered as a `tabular-nums` pill in each tab `<button>`. No synchronous setState in the effect (parent keys on
+   `open` → fresh mount, all-null init → lint-clean). **Pure-frontend, 100% mine, no backend change, no new dep.** **Verified LIVE**
+   (Vite 5219, `#/operations`, DOM/data/console via `preview_eval`): ⊙ AUTONOMY tab bar showed **⊘ BLOCKED·6 amber · ⚿ WEB-ACCESS·9
+   amber · ⚡ DISPATCHABLE·8 emerald**, ▦ ACTIVITY badge-less — every count matched the live endpoints (blocked 6 / missing_web 9 /
+   dispatchable 8); **0 console errors** (`preview_screenshot` timed out — same renderer hiccup as runs #34–#37, visual layer
+   unverified). `npm run build` ✅ (641ms); `npx eslint AutonomyDrawer.tsx` → No issues; `graphify update .` ✅ (1880 nodes). **Commit:
+   LOOP_STATE only** — the file is clean against HEAD api.ts but imports the four uncommitted child drawers (HEAD-absent api deps) → a
+   full-file commit breaks HEAD's build; live-but-uncommitted bucket (TO-DO #2). No new sibling tangle. (See DONE Run #38.) —
+   _Prior run #37 — WEB-SKILL DETAIL → BLOCKED-TASK DEEP-LINKS (run #36's PREFERRED candidate (a)). Run #36's ⚿ WEB-ACCESS
    expanded detail named *why* an agent needs web (its web-skills) and *what to provision* (the MISSING fix line), but the blocked
    count (`N blk`) was just a number — the operator couldn't see *which* tasks the gap was stalling without leaving the audit. Now
    the expanded detail adds a **BLOCKS** chip-row listing the agent's actual `status==='blocked'` tasks as deep-link buttons into the
@@ -261,22 +275,24 @@ below. `## DONE` is append-only history.
    side effect, needs sign-off); AND the recurring board self-heal (`*/30 * * * *`, `kind:"maintenance"`, `action:"sweep"`,
    run#10 — now ALSO promotes todo→ready via run #12's sweep step, so a `*/30` maintenance cron + an enabled dispatcher = full
    hands-free pipeline). Create via the ⏱ CRON modal or `POST /api/mc/cron`. Not auto-seeded (standing config + side effects).
-5. **✅ DONE this run (#37) — WEB-SKILL DETAIL → BLOCKED-TASK DEEP-LINKS** (run #36's PREFERRED candidate (a)). The ⚿ WEB-ACCESS
-   expanded detail now adds a **BLOCKS** chip-row naming the agent's actual `status==='blocked'` tasks as deep-links into the
-   TaskDetailDrawer (cross-referenced from live `getMcTasks()`, grouped by assignee oldest-first). Closes "this agent needs web →
-   because of THESE skills → which block THESE specific tasks → open them." Wholly in `WebAccessDrawer.tsx` + a one-line
-   `onOpenTask` pass-through in `AutonomyDrawer.tsx` (both my untracked files); no backend change, no new dep (`getMcTasks`/`McTask`
-   already in HEAD). Verified LIVE end-to-end (narratrix → 5 deep-links → clicking one closed the surface + opened the right
-   TaskDetailDrawer; 0 console errors). (See DONE Run #37.) **Next capability to BUILD (run #38)** — in-lane, live-backed
-   candidates, pick by impact:
-   (a) **PREFERRED — a ⊙ AUTONOMY tab badge** (promoted from run #36's runner-up (b)): show the live `MISSING`/`BLOCKED`/
-   `dispatchable` counts as small numeric badges on the ⚿ WEB-ACCESS / ⊘ BLOCKED / ⚡ DISPATCHABLE tab buttons in
-   `AutonomyDrawer.tsx` so the operator sees where attention is needed *before* opening each tab. Needs the wrapper to fetch the
-   three summaries once on open (cheap; `getWebAccessAudit`/`getMcTasks`/`getDispatcher` all in HEAD); pure-frontend, in-lane. Wire
-   honestly: a badge only when count>0, amber for MISSING/BLOCKED, emerald for dispatchable-ready.
-   (b) Runner-up — surface the dispatcher `in_flight`/`last_dispatched` as a tiny live pulse on the ⚡ DISPATCHABLE tab badge so an
-   active autonomous run is visible from the tab bar (only meaningful once TO-DO #1's first dispatch has run; low priority while the
-   dispatcher is OFF).
+5. **✅ DONE this run (#38) — ⊙ AUTONOMY TAB ATTENTION BADGES** (run #37's PREFERRED candidate (a)). Each tab button in the
+   consolidated ⊙ AUTONOMY surface now shows a live numeric badge of where attention is needed *before* opening the tab — ⊘
+   BLOCKED·blocked-count (amber), ⚿ WEB-ACCESS·MISSING-agent-count (amber), ⚡ DISPATCHABLE·ready-count (emerald), ▦ ACTIVITY none.
+   Wholly in `AutonomyDrawer.tsx` (my untracked file): a `useEffect([open])` `Promise`-fetches `getWebAccessAudit`/`getMcTasks`/
+   `getDispatcher` (all HEAD) in parallel with per-field graceful degrade, a `badgeFor(tab)` resolver, pill rendered in each tab
+   `<button>`; no backend change, no new dep, lint `set-state-in-effect`-clean (parent keys on `open` → fresh mount, no synchronous
+   reset). Verified LIVE (tab bar showed 6/9/8 matching live endpoints exactly, correct tones, 0 console errors). (See DONE Run #38.)
+   **Next capability to BUILD (run #39)** — in-lane, live-backed candidates, pick by impact:
+   (a) **PREFERRED (was runner-up (b)) — a live in_flight pulse on the ⚡ DISPATCHABLE tab badge**: when the dispatcher has an active
+   run, surface `in_flight.length`/`last_dispatched_id` as a tiny pulsing emerald dot or count on the ⚡ DISPATCHABLE badge so an
+   autonomous run is visible from the tab bar without opening the tab. Pure-frontend, in-lane (`getDispatcher` already fetched on
+   open this run — reuse the same `badges` fetch). **Caveat: only meaningful once the dispatcher is ON / TO-DO #1's first watched
+   dispatch has run** — while it's LIVE-but-OFF (`in_flight:[]`) this badge would always be empty, so it's low-value until #1 lands.
+   If #1 hasn't run by next loop, prefer (b).
+   (b) **Alternative (higher near-term value while dispatcher OFF) — make the badges live-refresh** rather than fetch-once-on-open:
+   the children already live-poll, but the tab-bar badges are a one-shot snapshot, so a count that changes while the surface is open
+   (e.g. a task gets unblocked in another view) goes stale until close+reopen. Add a light interval (reuse the children's ~5s
+   cadence) to the wrapper's `badges` fetch with a ● LIVE/⏸ pause affordance. Pure-frontend, in-lane.
    (c) Skip — persist the transient per-agent web-focus (run #35 noted low value).
    (d) DEFERRED until the bridge emits dependency events — the reciprocal `↳ child ‹id›` chip (old 5b). Re-scout `/api/mc/events`
    each run; the day a `link`/`unlink`/`dependency` kind appears in the live feed, this becomes a pure-frontend `EventFeedDrawer`
@@ -297,28 +313,33 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-18 (Run #37)** — **WEB-SKILL DETAIL → BLOCKED-TASK DEEP-LINKS in the ⚿ WEB-ACCESS audit** (run #36's PREFERRED
-candidate (a)) — the expanded per-agent detail now adds a **BLOCKS** chip-row naming the agent's *actual* `status==='blocked'` tasks
-as deep-link buttons into the TaskDetailDrawer, so the operator goes "this agent needs web → because of THESE skills → which block
-THESE specific tasks → open them" without leaving the audit. **Pure-frontend, 100% mine, no backend change, no new dep**
-(`getMcTasks`/`McTask` already in HEAD api.ts `:225`/`:57`) — TWO of my own untracked files: `WebAccessDrawer.tsx` (new `onOpenTask?`
-prop; open effect `Promise.all`-fetches audit + `getMcTasks()` with a `.catch` graceful-degrade so a task-list failure never blanks
-the primary audit; `blockedByAgent` `useMemo` groups blocked tasks by assignee oldest-first; a **BLOCKS** sub-row of red deep-link
-`<button>`s — `onClose(); onOpenTask(id)`, `e.stopPropagation()` so it doesn't toggle the row, graceful `disabled` when unwired) and
-`AutonomyDrawer.tsx` (one-line `onOpenTask` pass-through to the `WebAccessDrawer` mount `:135` — the only embedded drawer not yet
-wired for it). **HEALTH: bridge UP at start** (`/api/ping` → `uptime 6593s`, operator's process alive ~110min) — no restart needed.
-Board `ready 8 · blocked 6 · done 18`; diagnostics → only the 6 expected `blocked_no_reason` web-gap research tasks (5×narratrix +
-1×default; no stale/dead/cycle, nothing to reclaim); dispatcher LIVE-but-OFF + FED (8 dispatchable, 4 web_gap); cron `jobs:[]` +
-scheduler LIVE (220 ticks @30s, 0 errors). **Verified LIVE** (Vite 5219, `#/operations`, DOM/interaction/console layer via
-`preview_eval` — `preview_screenshot` timed out, same renderer hiccup as runs #34–#36, that visual layer unverified): ⊙ AUTONOMY →
-⚿ WEB-ACCESS (`9 MISSING · 6 BLOCKED`) → expanded `narratrix` → **BLOCKS** row showed **exactly 5 deep-link task buttons** matching
-narratrix's 5 blocked tasks; **clicking `t_ac3acb98` closed the autonomy surface AND opened the TaskDetailDrawer** for that exact
-task (deep-link proven end-to-end); **0 console errors**. `npm run build` ✅; `npx eslint WebAccessDrawer.tsx AutonomyDrawer.tsx` →
-No issues; `graphify update .` ✅ (1878 nodes). Commit: LOOP_STATE only (both files inert without the sibling-congested
-OperationsCenter wiring + the uncommitted run #22–#36 drawer imports → live-but-uncommitted bucket, TO-DO #2). Operator-watched
-first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline (~500 errors, sibling/untouched TS) unchanged, still
-bughunt/evolve's (#6). Next gap (run #38, TO-DO #5a): a ⊙ AUTONOMY tab badge showing live MISSING/BLOCKED/dispatchable counts on the
-tab buttons. — Prior run #36 — **PER-AGENT WEB-SKILLS DETAIL — inline + actionable** (click-to-expand row revealing WEB-LEANING
+_Last run: **2026-06-18 (Run #38)** — **⊙ AUTONOMY TAB ATTENTION BADGES** (run #37's PREFERRED candidate (a)) — each tab button in
+the consolidated ⊙ AUTONOMY surface now carries a live numeric badge so the operator sees *where attention is needed before opening
+a tab*: ⊘ BLOCKED → blocked-task count (amber), ⚿ WEB-ACCESS → "MISSING" agent count (amber), ⚡ DISPATCHABLE → dispatch-ready count
+(emerald); ▦ ACTIVITY carries none (a feed has no single attention number). **Pure-frontend, 100% mine, no backend change, no new
+dep** — all three summary endpoints (`getWebAccessAudit`/`getMcTasks`/`getDispatcher`) already in HEAD api.ts (`:173`/`:176`/`:213`).
+Edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file): a `Badges` state, a single `useEffect([open])` that
+`Promise`-fetches the three summaries in parallel with **per-field graceful degrade** (each `.catch` leaves its field `null` → that
+badge simply doesn't render, never a wrong number), and a `badgeFor(tab)` resolver (count + amber/emerald tone, suppressed when
+unknown or 0); the tab `.map` renders the badge as a `tabular-nums` pill inside each `<button>` + an attention-aware `title`. No
+synchronous setState in the effect (parent keys the wrapper on `open` → fresh mount, all-null initial state, no stale flash → lint
+`set-state-in-effect`-clean). **HEALTH: bridge UP at start** (`/api/ping` → `uptime 13805s`, operator's process alive ~3.8h) — no
+restart needed. Board `ready 8 · blocked 6 · done 18`; diagnostics → only the 6 expected `blocked_no_reason` web-gap research tasks
+(5×narratrix + 1×default; no stale/dead/cycle, nothing to reclaim); dispatcher LIVE-but-OFF + FED (8 dispatchable, 4 web_gap); cron
+`jobs:[]`. **Verified LIVE** (Vite 5219, `#/operations`, DOM/data/console layer via `preview_eval` — `preview_screenshot` timed out,
+same renderer hiccup as runs #34–#37, that visual layer unverified): opened ⊙ AUTONOMY → tab bar showed **⊘ BLOCKED·6 (amber) · ⚿
+WEB-ACCESS·9 (amber) · ⚡ DISPATCHABLE·8 (emerald)**, ▦ ACTIVITY badge-less — every count matched the live endpoints exactly
+(blocked 6 / missing_web 9 / dispatchable 8); titles read "N need attention"; **0 console errors**. `npm run build` ✅ (641ms);
+`npx eslint AutonomyDrawer.tsx` → No issues; `graphify update .` ✅ (1880 nodes). Commit: LOOP_STATE only (the file is clean against
+HEAD's api.ts but imports the four uncommitted child drawers whose api deps are HEAD-absent → a full-file commit breaks HEAD;
+live-but-uncommitted bucket, TO-DO #2). Operator-watched first dispatch (#1) + cron seeding (#4) still need sign-off. Lint baseline
+(~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (#6). Next gap (run #39, TO-DO #5): runner-up (b) — a live
+in_flight pulse on the ⚡ DISPATCHABLE badge (only meaningful once the dispatcher is ON / TO-DO #1's first dispatch has run).
+— Prior run #37 — **WEB-SKILL DETAIL → BLOCKED-TASK DEEP-LINKS in the ⚿ WEB-ACCESS audit** — the expanded per-agent detail added a
+**BLOCKS** chip-row naming the agent's *actual* `status==='blocked'` tasks as deep-link buttons into the TaskDetailDrawer (cross-ref
+live `getMcTasks` by assignee, oldest-first), closing "this agent needs web → because of THESE skills → which block THESE tasks →
+open them"; two of my untracked files (`WebAccessDrawer.tsx` + a one-line `AutonomyDrawer.tsx` pass-through), verified LIVE end-to-end
+(narratrix → 5 deep-links → click opened the right TaskDetailDrawer). — Prior run #36 — **PER-AGENT WEB-SKILLS DETAIL — inline + actionable** (click-to-expand row revealing WEB-LEANING
 skills / HAS MCPs / MISSING fix line); also pre-scouted + KILLED the 5b reciprocal-child-chip (live `/api/mc/events` has no
 dependency events → TO-DO #5d). — Prior run #35 — **PER-ROW WEB-GAP DEEP-LINK ON ⊘ BLOCKED** — each
 blocked-by-web-gap row's assignee became a `‹assignee› ↗` button opening the ⚿ WEB-ACCESS tab focused on that exact agent; with
@@ -879,6 +900,22 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-18 — Run #38 (⊙ AUTONOMY TAB ATTENTION BADGES — each tab button in the consolidated ⊙ AUTONOMY surface now carries a live numeric badge of where attention is needed *before* opening the tab; run #37's PREFERRED candidate (a)) · branch `auto/loop-reconcile-20260615`
+
+1. **HEALTH GATE — green, no restart needed.** Bridge :8767 UP at start (`/api/ping` → `{ok:true,uptime_seconds:13805}`, the operator's process alive ~3.8h). Confirmed LIVE: `/api/mc/kanban/stats` → `ready 8 · blocked 6 · done 18` (steady since runs #19–#37); `/api/mc/kanban/diagnostics` → only the 6 expected `blocked_no_reason` (web-access config gap, info — no stale/dead/cycle/retry-exhausted); `/api/mc/dispatcher` → `{enabled:false,running:false,concurrency:1,tick_seconds:30}`, `dispatchable`=**8** (4 `web_gap:true`); `/api/mc/agents/web-access` → 9 gap agents (narratrix 5 blocked, default 1, + 7 zero-blocked); `/api/mc/cron` → `jobs:[]`. `npm run build` ✅ both before & after edits (641ms; chunk-size warning pre-existing). Gateway :8642 expected-down (Hermes excised — not a blocker).
+
+2. **ORCHESTRATION — board steady + healthy, no action needed.** `ready 8 · blocked 6 · done 18`. Diagnostics dry → no stale claims / dead agents / cycles / retry-exhausted (dispatcher `in_flight:[]`, nothing to reclaim); the 6 blocked are the known web-access config gap (5×narratrix + 1×default, `blocked_no_reason`, info — operator config, not code; TO-DO #3). **Did NOT dispatch** (operator absent; side-effecting turns need sign-off — TO-DO #1); did NOT enable the daemon or seed crons (TO-DO #4). Sibling-log tails skimmed (BUGHUNT: topbar QUEUE double-count fix in useTaskStore/Layout; LOOP_LOG: Command Palette / nav.ts) — no file overlap with this run (my edit is `AutonomyDrawer.tsx`, an untracked file none of mine touch).
+
+3. **BUILT (run #37 candidate (a)): ⊙ AUTONOMY TAB ATTENTION BADGES.** Runs #32–#37 consolidated the four autonomy views into one tabbed ⊙ AUTONOMY surface and cross-linked them, but the operator still had to *open* a tab to learn whether it had anything needing attention — the tab bar itself was silent. Now each tab button carries a live numeric badge so attention is visible *before* the click. **Pure-frontend, 100% mine, no backend change, no new dep** — all three summary endpoints (`getWebAccessAudit`/`getMcTasks`/`getDispatcher`) already in HEAD api.ts (`:173`/`:176`/`:213`). Edited ONLY `src/components/AutonomyDrawer.tsx` (my own untracked file):
+   - A `Badges` type (`{missing,blocked,dispatchable: number|null}`) + a `useEffect([open])` that fires the three fetches in **parallel** (independent `.then`/`.catch` per field — a failed fetch leaves that field `null` so its badge simply doesn't render, never a wrong number; a `cancelled` guard drops late writes on unmount).
+   - A `badgeFor(tab)` resolver mapping ⚿ WEB-ACCESS → `summary.missing_web` (amber), ⊘ BLOCKED → blocked-task count (amber), ⚡ DISPATCHABLE → `dispatchable.length` (emerald); returns `null` (no badge) when the count is unknown (pending/failed) **or** zero (nothing needs attention) — and always `null` for ▦ ACTIVITY (a feed has no single attention number).
+   - The tab `.map` renders the badge as a `tabular-nums` pill inside each `<button>` + an attention-aware `title` ("…view — N need attention").
+   - **No synchronous setState in the effect** (the `setBadges` reset was removed once confirmed redundant — `OperationsCenter.tsx:331` keys the wrapper `key={autonomyOpen ? 'auto-open' : 'auto-closed'}`, so every open is a fresh mount starting from the all-null initial state, no stale flash possible) → fixes the `react-hooks/set-state-in-effect` lint that the first cut tripped.
+
+4. **VERIFY — build + lint clean; LIVE DOM/data/console conclusive (visual layer unverified, same renderer hiccup as #34–#37).** `npm run build` ✅ (641ms, 163 modules); `npx eslint src/components/AutonomyDrawer.tsx` → **No issues** (after removing the synchronous reset); `graphify update .` ✅ (1880 nodes). **Vite preview** (port 5219, `npm run dev`, `#/operations`, bridge UP): opened ⊙ AUTONOMY → tab bar read **⊘ BLOCKED·6 · ⚿ WEB-ACCESS·9 · ⚡ DISPATCHABLE·8 · ▦ ACTIVITY (none)** — every count matched the live endpoints exactly (`stats.blocked`=6 / `web-access.missing_web`=9 / `dispatcher.dispatchable`=8); badge tones confirmed via class inspect (BLOCKED+WEB-ACCESS `border-amber-400/40 bg-amber-400/15 text-amber-300`, DISPATCHABLE `border-emerald-400/40 …text-emerald-300`); titles read "N need attention"; `preview_console_logs` (error) → **No console logs** (0 errors). `preview_screenshot` timed out after 30s (same renderer hiccup as runs #34–#37 — the visual/pixel layer is the only unverified layer; DOM/data/console proof is conclusive).
+
+5. **COMMIT — LOOP_STATE.md only.** `AutonomyDrawer.tsx` is clean against HEAD's api.ts (its three new deps are all in HEAD) but it imports the four uncommitted child drawers (`EventFeedDrawer`/`BlockedTasksDrawer`/`WebAccessDrawer`/`DispatchableDrawer`), whose own api deps (`getRecentEvents`, etc.) are HEAD-absent — so a full-file commit would break HEAD's build. Stays in the live-but-uncommitted bucket (TO-DO #2). No new sibling tangle (zero api.ts/bridge.py/mc_store.py edits this run). Staged only my own file (`.mc/LOOP_STATE.md`); left the sibling-loop WIP in the working tree untouched.
 
 ### 2026-06-18 — Run #37 (WEB-SKILL DETAIL → BLOCKED-TASK DEEP-LINKS — the ⚿ WEB-ACCESS expanded detail now names the *actual* blocked tasks each gap agent drives, as deep-links into the TaskDetailDrawer; run #36's PREFERRED candidate (a)) · branch `auto/loop-reconcile-20260615`
 
