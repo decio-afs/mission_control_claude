@@ -61,10 +61,12 @@ import {
   getDispatcher,
   getMcCron,
   getMcTasks,
+  promoteReady,
   errMessage,
   type DispatcherStatus,
   type DispatchablePlan,
   type CronSchedulerStatus,
+  type PromoteReadyResult,
 } from '../lib/api';
 
 const POLL_MS = 5000;
@@ -99,6 +101,16 @@ export default function DispatchableDrawer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  // ▲ PROMOTE READY (run #56): wire the committed-but-uncalled `promoteReady` client
+  // (landed run #50, never surfaced anywhere) to the one place it belongs — this queue,
+  // which `promote_ready` feeds (todo → ready). Two-step + dry-run-first so it stays
+  // honest and side-effect-safe: the first click PREVIEWS what would promote (dry_run,
+  // never mutates); a second confirms and APPLIES it. Strictly narrower than the SWEEP
+  // button (promote only, no escalate/reassign/cascade) and operator-gated (a manual
+  // click), so it adds no autonomous-`claude` risk the already-surfaced SWEEP didn't.
+  const [promoting, setPromoting] = useState(false);
+  const [promotePreview, setPromotePreview] = useState<PromoteReadyResult | null>(null);
+  const [promoteMsg, setPromoteMsg] = useState<string | null>(null);
   // Holds the latest resolved titles so the polling closure can decide whether a
   // task-list re-fetch is needed without re-subscribing the effect on every change.
   const titlesRef = useRef<Record<string, string>>({});
@@ -162,6 +174,42 @@ export default function DispatchableDrawer({
   const cronGreen = (cronJobs ?? 0) > 0 && schedulerLive;
   const autonomyLive = dispatcherGreen && cronGreen;
 
+  // Step 1 — dry-run preview. Never mutates; shows exactly what a real promote would do.
+  // On a drained board this is the honest no-op ("no actionable todo tasks").
+  const previewPromote = async () => {
+    setPromoting(true);
+    setPromoteMsg(null);
+    try {
+      const res = await promoteReady({ dryRun: true });
+      if (res.promoted.length === 0) {
+        // Nothing to promote — report the honest no-op, skip the confirm step.
+        setPromotePreview(null);
+        setPromoteMsg(res.message || 'promote: no actionable todo tasks');
+      } else {
+        setPromotePreview(res);
+      }
+    } catch (e) {
+      setPromotePreview(null);
+      setPromoteMsg(errMessage(e));
+    } finally {
+      setPromoting(false);
+    }
+  };
+
+  // Step 2 — apply. Promotes todo → ready for real; the live 5s poll refreshes the queue.
+  const applyPromote = async () => {
+    setPromoting(true);
+    try {
+      const res = await promoteReady();
+      setPromotePreview(null);
+      setPromoteMsg(res.message || `promoted ${res.promoted.length}`);
+    } catch (e) {
+      setPromoteMsg(errMessage(e));
+    } finally {
+      setPromoting(false);
+    }
+  };
+
   if (!open) return null;
 
   const panel = (
@@ -196,6 +244,16 @@ export default function DispatchableDrawer({
                 {status.enabled ? (status.running ? '● ON · RUNNING' : '● ON · IDLE') : '○ OFF'}
               </span>
             )}
+            {/* ▲ PROMOTE READY (run #56) — preview-then-apply the todo → ready promotion
+                that feeds this very queue. Disabled while a request is in flight or a
+                preview is awaiting confirmation (the confirm strip owns the action then). */}
+            <button
+              onClick={previewPromote}
+              disabled={promoting || promotePreview != null}
+              title="promote dependency-cleared todo tasks into the ready queue — previews (dry-run) first, then asks to confirm. Advances todo → ready only (narrower than SWEEP)."
+              className="flex items-center gap-1 border border-sky-400/30 text-sky-300/90 px-1.5 py-0.5 rounded-sm text-[9px] tracking-[0.15em] hover:border-sky-400/60 hover:text-sky-200 disabled:opacity-40">
+              ▲ {promoting && promotePreview == null ? 'CHECKING…' : 'PROMOTE'}
+            </button>
             {webGaps > 0 && (
               onOpenAudit ? (
                 <button
@@ -218,6 +276,38 @@ export default function DispatchableDrawer({
             {!embedded && <button onClick={onClose} className="ml-2 border border-white/10 px-2 py-0.5 text-[#b8b8b8] hover:border-white/30">✕ CLOSE</button>}
           </div>
         </div>
+
+        {/* ▲ PROMOTE READY strip (run #56) — the preview/confirm/result surface for the
+            header ▲ PROMOTE button. While a dry-run preview is held it lists what WOULD
+            be promoted with explicit CONFIRM/CANCEL; otherwise it shows the last result
+            (or a no-op / error message) with a dismiss. Suppressed entirely when idle. */}
+        {(promotePreview != null || promoteMsg != null) && (
+          <div className="shrink-0 px-3 py-2 border-b border-white/10 bg-sky-500/[0.04] text-[10px] leading-relaxed">
+            {promotePreview != null ? (
+              <div className="flex items-start gap-2">
+                <span className="shrink-0 text-sky-300/90">▲ would promote {promotePreview.promoted.length} todo → ready:</span>
+                <span className="flex-1 min-w-0 text-[#c8c8c8]" title={promotePreview.promoted.map((t) => t.title || t.id).join(', ')}>
+                  {promotePreview.promoted.map((t) => t.title || t.id).join(', ')}
+                </span>
+                <button onClick={applyPromote} disabled={promoting}
+                  className="shrink-0 border border-emerald-400/40 text-emerald-300/90 px-2 py-0.5 rounded-sm hover:border-emerald-400/70 disabled:opacity-40">
+                  {promoting ? '…' : '✓ CONFIRM'}
+                </button>
+                <button onClick={() => { setPromotePreview(null); setPromoteMsg(null); }} disabled={promoting}
+                  className="shrink-0 border border-white/15 text-[#aaa] px-2 py-0.5 rounded-sm hover:border-white/30 disabled:opacity-40">
+                  ✕ CANCEL
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-[#9a9a9a]">▲ {promoteMsg}</span>
+                <button onClick={() => setPromoteMsg(null)}
+                  title="dismiss"
+                  className="ml-auto shrink-0 border border-white/10 text-[#888] px-1.5 py-0.5 rounded-sm hover:border-white/30">✕</button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ⚙ AUTONOMY GATES — the two operator switches that keep ready work from firing
             on its own: ① the dispatcher env flag, ② the cron schedule. Read-only: it
