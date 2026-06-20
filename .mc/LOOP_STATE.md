@@ -1247,7 +1247,7 @@ deep, mirroring the dispatcher's `✕N` chip + RUN STATE panel).
 (running/enabled true, ticks 1258→1259, fired 0, errors 0, jobs 0): **exact match**. Header `⏱ SCHED · idle` chip unchanged. **0 console errors** (`preview_console_logs`
 level=error empty). `preview_screenshot` timed out (same renderer hiccup as runs #34–#40 — DOM/data proof is conclusive).
 
-**Commit.** `src/components/AutonomyDrawer.tsx` (whole file, 100% mine) + `.mc/LOOP_STATE.md`, on `auto/loop-reconcile-20260615`, local only.
+**Commit.** `1b67a1e` — `src/components/AutonomyDrawer.tsx` (whole file, 100% mine) + `.mc/LOOP_STATE.md`, on `auto/loop-reconcile-20260615`, local only.
 
 **Next (run #55).** (a) re-run the scan first. (b) Scheduler still 0-fired; seeding `reconcile` is operator-gated and **must not** be fired against the live process
 (HEAD-only action) — restart the bridge on HEAD OR wait for a sibling to land `reconcile` into the working-tree `mc_store.py`, then re-verify `run_maintenance("reconcile")`
