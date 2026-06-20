@@ -106,7 +106,7 @@
 // it reuses the same getMcCron() poll the run #53 chip already runs; the extra scheduler fields
 // (ticks/last_tick/started_at/tick_seconds) and the jobs[] array are folded into the existing
 // `sched` state. Read-only — seeding jobs stays the operator's action in the ⏱ CRON modal.
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import EventFeedDrawer from './EventFeedDrawer';
 import BlockedTasksDrawer from './BlockedTasksDrawer';
 import WebAccessDrawer from './WebAccessDrawer';
@@ -197,6 +197,14 @@ export default function AutonomyDrawer({
   // Run #51: the dispatcher's most recent run error (status.last_error), shown in the ⚡
   // DISPATCHABLE fault chip's tooltip. null when the loop is clean or not yet loaded.
   const [lastError, setLastError] = useState<string | null>(null);
+  // Run #60: the id of the dispatcher's most recent dispatch (status.last_dispatched_id) and a
+  // baseline of the cumulative error count captured the first poll after this cockpit opened.
+  // Together they let the ⚡ DISPATCHABLE fault chip tell a LIVE fault (errors rose since you
+  // opened the view, or the latest dispatch is itself the errored one) apart from a STALE
+  // historical error the dispatcher has already self-healed (a later, different dispatch
+  // succeeded) — so the chip stops crying wolf red forever after one old timeout.
+  const [lastDispatchedId, setLastDispatchedId] = useState<string | null>(null);
+  const [errorsBaseline, setErrorsBaseline] = useState<number | null>(null);
   // Run #53: scheduler-daemon liveness for the header ⏱ SCHED chip. null = not yet loaded /
   // fetch failed / no scheduler block in the response (chip suppressed — never a wrong signal).
   // `jobs` is the count of registered cron jobs; the rest mirror /api/mc/cron's scheduler{}.
@@ -244,7 +252,13 @@ export default function AutonomyDrawer({
             // Run #51: cumulative run-error count for the ⚡ DISPATCHABLE fault chip.
             errors: d.status.errors,
           });
-          if (!cancelled) setLastError(d.status.last_error);
+          if (!cancelled) {
+            setLastError(d.status.last_error);
+            setLastDispatchedId(d.status.last_dispatched_id ?? null);
+            // Run #60: latch the error count seen on the first poll after open as the
+            // "already-known" baseline. Any later increase = a NEW fault while watching.
+            setErrorsBaseline((b) => (b == null ? d.status.errors : b));
+          }
         })
         .catch(() => { /* keep prior dispatchable / webGap / errors */ });
       // Run #53: the scheduler daemon's liveness for the header ⏱ SCHED chip. Same graceful
@@ -307,6 +321,37 @@ export default function AutonomyDrawer({
     : ageSeconds < 60 ? `${ageSeconds}s`
     : `${Math.floor(ageSeconds / 60)}m${ageSeconds % 60}s`;
   const stale = ageSeconds != null && now - (lastRefresh ?? 0) > REFRESH_MS * 2;
+
+  // Run #60: resolve the ⚡ DISPATCHABLE fault chip. The run #51 chip went hard red on the
+  // dispatcher's CUMULATIVE `errors` counter and stayed red forever after a single timeout —
+  // so a fully self-healed loop (e.g. 1 historical 900s timeout, then 18 clean dispatches)
+  // glowed a permanent ✕1, training the operator to ignore the one signal meant to catch a
+  // genuine fault. This splits the chip into two honest states:
+  //   • LIVE (alarm red)  — errors ROSE since this cockpit opened (a fault while you watch),
+  //     OR the most recent dispatch is itself the errored task (no recovery dispatch yet).
+  //   • STALE (muted grey) — errors > 0 but unchanged since open AND a later, *different*
+  //     dispatch has since succeeded → the dispatcher recovered; surfaced, not alarmed.
+  // Pure derivation off the existing poll (no new fetch); null = clean loop or not yet loaded.
+  const faultChip = useMemo<{ label: string; tone: string; title: string } | null>(() => {
+    const errs = badges.errors;
+    if (errs == null || errs <= 0) return null;
+    const fresh = errorsBaseline != null && errs > errorsBaseline;
+    // `last_error` is formatted "<task_id>: <message>" — the leading token is the errored task.
+    const erroredId = lastError ? lastError.split(':')[0].trim() : null;
+    const recovered = !!lastDispatchedId && lastDispatchedId !== erroredId;
+    if (fresh || !recovered) {
+      return {
+        label: `✕${errs}`,
+        tone: 'border-red-400/40 bg-red-400/15 text-red-300',
+        title: `dispatcher has logged ${errs} run error${errs === 1 ? '' : 's'}${fresh ? ' — a NEW error since you opened this view' : ' — the latest dispatch is the errored one (no recovery yet)'}${lastError ? ` — last: ${lastError}` : ''} — open ⚡ DISPATCHABLE → ▶ RUN STATE`,
+      };
+    }
+    return {
+      label: `✕${errs}`,
+      tone: 'border-white/15 bg-white/[0.04] text-[#7a7a7a]',
+      title: `${errs} historical run error${errs === 1 ? '' : 's'} — the dispatcher has since recovered (later dispatch ${lastDispatchedId} succeeded${erroredId ? `; the error was ${erroredId}` : ''}); no new errors since you opened this view — open ⚡ DISPATCHABLE → ▶ RUN STATE for detail`,
+    };
+  }, [badges.errors, errorsBaseline, lastError, lastDispatchedId]);
 
   // Run #53: resolve the header ⏱ SCHED chip — a glance-level health signal for the cron
   // scheduler daemon, mirroring the dispatcher's fault chip. null suppresses the chip (status
@@ -397,12 +442,14 @@ export default function AutonomyDrawer({
                   )}
                   {/* run #51: dispatcher-fault chip — separate from the ready-count pill (which
                       is suppressed on an empty queue) so an errored autonomous loop is visible
-                      at the tab bar even when nothing is queued. last_error in the tooltip. */}
-                  {t.key === 'dispatch' && badges.errors != null && badges.errors > 0 && (
+                      at the tab bar even when nothing is queued. last_error in the tooltip.
+                      run #60: red only for a LIVE fault; muted grey once recovered/historical
+                      (see faultChip) so a self-healed loop no longer glows a permanent alarm. */}
+                  {t.key === 'dispatch' && faultChip && (
                     <span
-                      title={`dispatcher has logged ${badges.errors} run error${badges.errors === 1 ? '' : 's'}${lastError ? ` — last: ${lastError}` : ''} — open ⚡ DISPATCHABLE → ▶ RUN STATE`}
-                      className="ml-0.5 px-1 rounded-sm border text-[9px] leading-none tabular-nums border-red-400/40 bg-red-400/15 text-red-300">
-                      ✕{badges.errors}
+                      title={faultChip.title}
+                      className={`ml-0.5 px-1 rounded-sm border text-[9px] leading-none tabular-nums ${faultChip.tone}`}>
+                      {faultChip.label}
                     </span>
                   )}
                 </button>
