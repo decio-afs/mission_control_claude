@@ -93,14 +93,49 @@
 // jobs[] + the scheduler{} liveness block) on the SAME poll cycle as the tab badges, with the
 // same graceful degrade (a failed/absent scheduler block suppresses the chip, never a wrong
 // signal). Read-only — seeding/fixing cron jobs is the operator's action in the ⏱ CRON modal.
+//
+// Run #54: a ⏱ SCHEDULER tab — the cron daemon's full RUN-STATE panel, the sibling of the
+// dispatcher's ▶ RUN STATE panel (in ⚡ DISPATCHABLE). Run #53's header chip is glance-only and,
+// crucially, reads `running` as a BOOLEAN FLAG set at daemon start — it cannot tell a healthy
+// ticking daemon from one whose tick thread has WEDGED (still reports running:true, but its
+// last_tick froze). The scheduler block carries `last_tick`/`ticks`/`started_at`/`tick_seconds`
+// that NO UI surfaced. This tab renders them: a LIVENESS row computing last_tick age and flagging
+// it AMBER once it exceeds 2× the tick interval (the wedge signal the boolean can't give), plus
+// uptime, tick count, fired history (+last_fired_id), error detail (+last_error), and the
+// registered-jobs list (honest empty when the daemon holds nothing to fire). Zero new endpoint —
+// it reuses the same getMcCron() poll the run #53 chip already runs; the extra scheduler fields
+// (ticks/last_tick/started_at/tick_seconds) and the jobs[] array are folded into the existing
+// `sched` state. Read-only — seeding jobs stays the operator's action in the ⏱ CRON modal.
 import { useState, useEffect } from 'react';
 import EventFeedDrawer from './EventFeedDrawer';
 import BlockedTasksDrawer from './BlockedTasksDrawer';
 import WebAccessDrawer from './WebAccessDrawer';
 import DispatchableDrawer from './DispatchableDrawer';
-import { getWebAccessAudit, getMcTasks, getDispatcher, getMcCron } from '../lib/api';
+import { getWebAccessAudit, getMcTasks, getDispatcher, getMcCron, type McCronJob } from '../lib/api';
 
-type Tab = 'activity' | 'blocked' | 'webaccess' | 'dispatch';
+type Tab = 'activity' | 'blocked' | 'webaccess' | 'dispatch' | 'scheduler';
+
+// Run #54: format an elapsed-seconds span as a compact human age ("42s", "3m 7s", "5h 12m",
+// "2d 4h"). Used by the ⏱ SCHEDULER panel for uptime and last-tick age. Module-level (no
+// per-render allocation); seconds-domain (the scheduler's epoch fields are in SECONDS).
+function fmtDuration(secs: number): string {
+  if (secs < 1) return 'just now';
+  if (secs < 60) return `${Math.round(secs)}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+  return `${Math.floor(secs / 86400)}d ${Math.floor((secs % 86400) / 3600)}h`;
+}
+
+// Run #54: one labelled stat cell in the ⏱ SCHEDULER run-state grid.
+function Stat({ label, value, tone }: { label: string; value: string; tone?: 'emerald' | 'dim' }) {
+  const v = tone === 'emerald' ? 'text-emerald-300' : tone === 'dim' ? 'text-[#777]' : 'text-white';
+  return (
+    <div className="border border-white/10 bg-white/[0.02] px-3 py-2 rounded-sm">
+      <div className="text-[#888] tracking-[0.12em] text-[9px]">{label}</div>
+      <div className={`mt-0.5 tabular-nums break-words ${v}`}>{value}</div>
+    </div>
+  );
+}
 
 // Live attention badges, fetched once per open. null = not yet loaded / fetch failed for
 // that field (badge suppressed). Each field is independently degradable. `webGap` is the
@@ -115,7 +150,7 @@ type Badges = { missing: number | null; blocked: number | null; dispatchable: nu
 // only the tab (not the transient per-agent web-focus, which is tied to a specific gap
 // that may no longer exist on the next session).
 const TAB_STORAGE_KEY = 'mc.autonomy.tab';
-const TAB_KEYS: Tab[] = ['activity', 'blocked', 'webaccess', 'dispatch'];
+const TAB_KEYS: Tab[] = ['activity', 'blocked', 'webaccess', 'dispatch', 'scheduler'];
 
 function readStoredTab(fallback: Tab): Tab {
   try {
@@ -134,6 +169,7 @@ const TABS: Array<{ key: Tab; label: string; hover: string }> = [
   { key: 'blocked', label: '⊘ BLOCKED', hover: 'hover:border-amber-400 hover:text-amber-400' },
   { key: 'webaccess', label: '⚿ WEB-ACCESS', hover: 'hover:border-amber-400 hover:text-amber-400' },
   { key: 'dispatch', label: '⚡ DISPATCHABLE', hover: 'hover:border-emerald-400 hover:text-emerald-400' },
+  { key: 'scheduler', label: '⏱ SCHEDULER', hover: 'hover:border-emerald-400 hover:text-emerald-400' },
 ];
 
 export default function AutonomyDrawer({
@@ -164,7 +200,14 @@ export default function AutonomyDrawer({
   // Run #53: scheduler-daemon liveness for the header ⏱ SCHED chip. null = not yet loaded /
   // fetch failed / no scheduler block in the response (chip suppressed — never a wrong signal).
   // `jobs` is the count of registered cron jobs; the rest mirror /api/mc/cron's scheduler{}.
-  type Sched = { running: boolean; enabled: boolean; jobs: number; fired: number; errors: number; lastError: string | null; lastFiredId: string | null };
+  // Run #54: extended to carry the full run-state the ⏱ SCHEDULER panel needs — ticks/lastTick/
+  // startedAt/tickSeconds (for uptime + the wedge-detecting liveness age) and the raw jobList.
+  type Sched = {
+    running: boolean; enabled: boolean; jobs: number; fired: number; errors: number;
+    lastError: string | null; lastFiredId: string | null;
+    ticks: number; lastTick: number | null; startedAt: number | null; tickSeconds: number;
+    jobList: McCronJob[];
+  };
   const [sched, setSched] = useState<Sched | null>(null);
   // ● LIVE (default) vs ⏸ PAUSED — the operator can stop the badge poll (e.g. to stop the
   // network churn while reading). Pausing keeps the last-fetched counts on screen.
@@ -209,6 +252,9 @@ export default function AutonomyDrawer({
             running: s.running, enabled: s.enabled, jobs: c.jobs.length,
             fired: s.fired, errors: s.errors,
             lastError: s.last_error ?? null, lastFiredId: s.last_fired_id ?? null,
+            // Run #54: run-state for the ⏱ SCHEDULER panel.
+            ticks: s.ticks, lastTick: s.last_tick ?? null, startedAt: s.started_at ?? null,
+            tickSeconds: s.tick_seconds, jobList: c.jobs,
           });
         })
         .catch(() => { /* keep prior sched */ });
@@ -395,6 +441,91 @@ export default function AutonomyDrawer({
             <DispatchableDrawer embedded open onClose={onClose} onOpenTask={onOpenTask}
               onOpenAudit={openAudit} />
           )}
+          {/* run #54: ⏱ SCHEDULER — the cron daemon's full run-state, the scheduler twin of the
+              dispatcher's ▶ RUN STATE panel. Reads the run #53 `sched` state (now extended). The
+              IIFE mirrors schedChip's pattern. */}
+          {tab === 'scheduler' && (() => {
+            const s = sched;
+            if (!s) {
+              return (
+                <div className="h-full flex items-center justify-center text-[#666] text-[11px] px-8 text-center leading-relaxed">
+                  cron scheduler status unavailable — the bridge returned no <code className="text-[#999]">scheduler</code> block (older bridge, or the <code className="text-[#999]">/api/mc/cron</code> poll failed). The daemon may still be running; this view needs that block to report on it.
+                </div>
+              );
+            }
+            const nowS = now / 1000;
+            const tickAge = s.lastTick != null ? Math.max(0, nowS - s.lastTick) : null;
+            // A daemon flagged running:true whose last tick is older than 2× its interval is almost
+            // certainly wedged (tick thread died) — the boolean can't show that, this age can.
+            const tickStale = tickAge != null && tickAge > s.tickSeconds * 2;
+            const down = !s.running || !s.enabled;
+            return (
+              <div className="h-full overflow-y-auto p-4 space-y-3 text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="tracking-[0.2em] text-white font-bold">⏱ CRON SCHEDULER — RUN STATE</span>
+                  <span className={`px-1.5 py-0.5 rounded-sm border text-[10px] tracking-[0.12em] ${
+                    down ? 'border-red-400/40 bg-red-400/15 text-red-300'
+                         : 'border-emerald-400/40 bg-emerald-400/15 text-emerald-300'}`}>
+                    {s.enabled ? (s.running ? '● RUNNING' : '⏸ STOPPED') : '⊘ DISABLED'}
+                  </span>
+                </div>
+
+                {/* LIVENESS — the signature signal: last-tick age catches a wedged daemon that
+                    still reports running:true (which the run #53 chip cannot). */}
+                <div className={`border px-3 py-2 rounded-sm ${tickStale ? 'border-amber-400/40 bg-amber-400/[0.07]' : 'border-white/10 bg-white/[0.02]'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#888] tracking-[0.12em] text-[9px]">LIVENESS</span>
+                    <span className={`tabular-nums ${tickStale ? 'text-amber-300' : tickAge == null ? 'text-[#777]' : 'text-emerald-300'}`}>
+                      {tickAge == null ? 'never ticked' : `⟳ ticked ${fmtDuration(tickAge)} ago`}
+                    </span>
+                  </div>
+                  {tickStale && (
+                    <div className="mt-1 text-amber-300/80 text-[10px] leading-snug">
+                      ⚠ last tick is older than 2× the {s.tickSeconds}s interval — the scheduler thread may be wedged even though it still reports {s.running ? 'running' : 'stopped'}.
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Stat label="UPTIME" value={s.startedAt != null ? fmtDuration(nowS - s.startedAt) : '—'} />
+                  <Stat label="TICKS" value={`${s.ticks.toLocaleString()} @ ${s.tickSeconds}s`} />
+                  <Stat label="JOBS REGISTERED" value={`${s.jobs}`} tone={s.jobs > 0 ? 'emerald' : 'dim'} />
+                  <Stat label="FIRED" value={`${s.fired}${s.lastFiredId ? ` · ${s.lastFiredId}` : ''}`} />
+                </div>
+
+                {s.errors > 0 ? (
+                  <div className="border border-red-400/40 bg-red-400/10 px-3 py-2 rounded-sm text-red-300 leading-snug">
+                    ✕ {s.errors} fire error{s.errors === 1 ? '' : 's'}{s.lastError ? ` — last: ${s.lastError}` : ''}
+                  </div>
+                ) : (
+                  <div className="text-[#666] text-[10px] px-1">no fire errors logged</div>
+                )}
+
+                <div>
+                  <div className="text-[#888] tracking-[0.12em] text-[9px] mb-1">REGISTERED JOBS ({s.jobs})</div>
+                  {s.jobList.length === 0 ? (
+                    <div className="border border-white/10 bg-white/[0.02] px-3 py-3 rounded-sm text-[#777] text-[10px] leading-snug">
+                      the scheduler is holding 0 jobs — nothing will fire on its own. Seed a job (a <code className="text-[#999]">maintenance</code> hygiene job or a <code className="text-[#999]">claude</code> prompt) in the ⏱ CRON modal; a registered job appears here and the daemon fires it on schedule.
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {s.jobList.map((j) => (
+                        <div key={j.id} className="border border-white/10 bg-white/[0.02] px-2 py-1.5 rounded-sm flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-white truncate">{j.name || j.id}</div>
+                            <div className="text-[#777] text-[10px] truncate">
+                              {j.schedule || j.repeat || 'unscheduled'}{j.deliver ? ` → ${j.deliver}` : ''}
+                            </div>
+                          </div>
+                          <span className="shrink-0 text-[10px] text-[#999] tracking-[0.1em]">{j.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
