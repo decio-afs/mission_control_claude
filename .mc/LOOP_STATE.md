@@ -25,7 +25,7 @@ below. `## DONE` is append-only history.
    (`t_a33fad25`) **timed out after 900s → auto-requeued → re-claimed → COMPLETED** (run `ee50bb63911f` ok, $0.64) — the dispatcher's requeue-on-timeout self-heal works; `errors:1` is a
    historical counter, NOT a stuck task. **ORCHESTRATION (clean, self-healing):** board `done 26 · archived 1 · running 1 · ready 4`; NO blocked/failed; `reconcile` = "no stale claims found";
    the 1 running task is a legit recent claim. Scheduler daemon LIVE (`/api/mc/cron` `enabled:true running:true`, 48 ticks, **0 jobs registered**, 0 fired) — note `/api/mc/cron/jobs` 404s; the
-   real route is `GET /api/mc/cron`. **VERIFY:** `npm run build` ✅ (812ms, 163 mods); lint N/A (Python-only island). **Commit: `<RUN50_HASH>` (bridge.py island, 28+) + LOOP_STATE.**
+   real route is `GET /api/mc/cron`. **VERIFY:** `npm run build` ✅ (812ms, 163 mods); lint N/A (Python-only island). **Commit: `4e61fdd` (bridge.py island, 28+) + LOOP_STATE.**
    **Next (run #51): the api.ts↔bridge committed-but-404 class is now FULLY CLOSED (0 remaining — re-run the scan to confirm).** Pivot the island lane to the *reverse* gap or to dispatcher
    observability: now that the dispatcher is ON and firing, the highest-value MISSING capability is a **reachable UI surface for dispatcher RUN HEALTH** (`in_flight`/`dispatched`/`errors`/
    `last_error`/`last_dispatched_id` from `/api/mc/dispatcher`) — today only the dispatchable *plan* is shown, not run state/errors. That lives in the sibling-congested `OperationsCenter`/
@@ -421,7 +421,7 @@ self-heal confirmed; `errors:1` is historical, not stuck. **HEALTH: bridge UP** 
 `enabled:true running:true`, 48 ticks, **0 jobs registered**, 0 fired — note `/api/mc/cron/jobs` 404s, real route is `GET /api/mc/cron`); gateway
 graceful-empty (expected post-Hermes). **ORCHESTRATION (clean, self-healing):** board `done 26 · archived 1 · running 1 · ready 4`; NO blocked/failed;
 `reconcile` = "no stale claims found"; the 1 running task is a legit recent claim; nothing to reclaim. **VERIFY:** `npm run build` ✅ (812ms, 163
-mods); lint N/A (Python-only island; project-wide `.tsx`/`.ts` baseline ~500 errors stays pre-existing → bughunt/sibling lane). **Commit: `<RUN50_HASH>`
+mods); lint N/A (Python-only island; project-wide `.tsx`/`.ts` baseline ~500 errors stays pre-existing → bughunt/sibling lane). **Commit: `4e61fdd`
 (bridge.py island, 28+) + LOOP_STATE.** **Next (run #51): committed-but-404 class FULLY CLOSED — pivot the island lane to dispatcher RUN-HEALTH
 observability** (`in_flight`/`dispatched`/`errors`/`last_error` are unsurfaced now that the dispatcher actually fires) or to any NEW api.ts client a
 sibling adds. NEVER `subprocess(text=True)` on a blob. — (superseded) Run #49 — **🟥 LANDED THE FAIL-TASK ENDPOINT ISLAND INTO HEAD.** Discharged run #48's explicit handoff
@@ -1151,7 +1151,7 @@ is a legit recent claim; diagnostics `[]`. No manual orchestration needed this r
 
 **Files touched (committed):** `mission-control-bridge.py` (island, +28, staged via cacheinfo — working tree sibling WIP untouched), `.mc/LOOP_STATE.md`.
 Sibling-owned modified files (`BUGHUNT_LOG.md`, `patch-notes.json`, the many `src/**` + `mc_store.py` working-tree edits) deliberately NOT staged.
-**Commit: `<RUN50_HASH>`.** **Result:** the api.ts↔bridge committed-but-404 class (runs #47–#50) is **fully closed** — a clean checkout/restart now serves
+**Commit: `4e61fdd`.** **Result:** the api.ts↔bridge committed-but-404 class (runs #47–#50) is **fully closed** — a clean checkout/restart now serves
 every route HEAD's frontend calls. **Next (run #51): re-run the scan to confirm 0 pairs; then pivot the island lane to dispatcher RUN-HEALTH UI
 (gap A′) now that the dispatcher actually fires.**
 
