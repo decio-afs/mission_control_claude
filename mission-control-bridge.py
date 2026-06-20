@@ -1198,6 +1198,34 @@ def kanban_sweep(payload: Optional[SweepPayload] = None):
     return STORE.sweep_board(dry_run=dry)
 
 
+class PromoteReadyPayload(BaseModel):
+    # Promote a single todo task by id; omit to promote every actionable todo.
+    task_id: Optional[str] = None
+    # Preview the promotion plan without mutating the board.
+    dry_run: bool = False
+
+
+@app.post("/api/mc/kanban/promote")
+def kanban_promote(payload: Optional[PromoteReadyPayload] = None):
+    """Promote actionable `todo` task(s) → `ready` to feed the dispatcher.
+
+    The dispatcher only fires `ready` work, never raw `todo` backlog, so a
+    freshly-routed/assigned task sat in `todo` forever and the dispatcher stayed
+    starved (0 ready ⇒ nothing to run). This is the board-wide promotion gate —
+    distinct from the per-task, ungated `/api/mc/tasks/{id}/promote` (the drawer's
+    manual move): it promotes every `todo` task with a live assignee and no open
+    parent dependency to `ready` (with a `promoted` event), and honestly LEAVES
+    in `todo` any task that is unassigned, off-roster (reassign first), or
+    dependency-blocked (cascade first). Idempotent; `dry_run` previews the plan.
+    """
+    tid = payload.task_id if payload else None
+    dry = payload.dry_run if payload else False
+    try:
+        return STORE.promote_ready(tid, dry_run=dry)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {tid} not found")
+
+
 class DispatchPayload(BaseModel):
     # Dispatch a specific ready task; omit to target the best-first dispatchable.
     task_id: Optional[str] = None

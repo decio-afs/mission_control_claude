@@ -10,7 +10,27 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#49) — 🟥 LANDED THE FAIL-TASK ENDPOINT ISLAND INTO HEAD (closed the next committed frontend↔backend gap, autonomously).**
+0. **✅ DONE this run (#50) — ⤴ LANDED THE PROMOTE-READY ENDPOINT ISLAND INTO HEAD — closed the LAST committed-but-404 pair; api.ts↔bridge contract now COMPLETE.**
+   Discharged run #49's handoff. Ran the full scan (programmatic diff of every `/api/mc/*` path in HEAD `src/lib/api.ts` against every `@app.<verb>` route in HEAD
+   `mission-control-bridge.py`): **exactly ONE** committed-but-404 pair remained — `POST /api/mc/kanban/promote`. Run #49's note guessed "no `promoteReady` in HEAD api.ts" —
+   that was **WRONG**: HEAD `src/lib/api.ts:596` ships `export async function promoteReady(...)` → `POST /api/mc/kanban/promote` (`:600`), so a clean checkout = `promoteReady` → 404.
+   (No committed *page* calls `promoteReady` yet, but the client fn is real committed HEAD; the gap is genuine.) Store dep already in HEAD (`mc_store.py:1319 def promote_ready`);
+   HEAD bridge served **neither** `class PromoteReadyPayload` nor the route. Clean **1-file bridge island**: extracted the model+endpoint byte-exact from the working tree
+   (`:1293`–`:1318`, UTF-8 decode so `→`/`—`/`⇒` stay byte-exact), inserted between HEAD `kanban_sweep` (`:1198`) and `class DispatchPayload` (`:1201`). New file `ast.parse`d;
+   staged via `hash-object -w`+`update-index --cacheinfo` (working tree keeps ALL sibling WIP); `git diff --cached -U0` = exactly **28 ins / 0 del** in 1 hunk (`@@ -1200,0 +1201`);
+   staged blob re-AST-parsed ✅; staged name-only = exactly `mission-control-bridge.py` (zero eslint surface). **Proven LIVE** against the running bridge (byte-identical working-tree code):
+   `POST /api/mc/kanban/promote {"dry_run":true}` → `{"promoted":[],"skipped":[],"dry_run":true,"message":"promote: no actionable todo tasks"}` (route registered + `STORE.promote_ready`
+   invoked, board UNCHANGED — dry-run); bad id → HTTP 404 (the KeyError→404 path). **HEALTH: bridge UP** (`uptime ~1389s`+; rebuilt this window). **⚡ NEW — the dispatcher is now LIVE
+   AND ON** (`/api/mc/dispatcher` `enabled:true running:true`, 47 ticks, **dispatched 8**, in_flight `[t_9ff79915]`); the autonomy loop is genuinely firing real `claude` turns. One task
+   (`t_a33fad25`) **timed out after 900s → auto-requeued → re-claimed → COMPLETED** (run `ee50bb63911f` ok, $0.64) — the dispatcher's requeue-on-timeout self-heal works; `errors:1` is a
+   historical counter, NOT a stuck task. **ORCHESTRATION (clean, self-healing):** board `done 26 · archived 1 · running 1 · ready 4`; NO blocked/failed; `reconcile` = "no stale claims found";
+   the 1 running task is a legit recent claim. Scheduler daemon LIVE (`/api/mc/cron` `enabled:true running:true`, 48 ticks, **0 jobs registered**, 0 fired) — note `/api/mc/cron/jobs` 404s; the
+   real route is `GET /api/mc/cron`. **VERIFY:** `npm run build` ✅ (812ms, 163 mods); lint N/A (Python-only island). **Commit: `<RUN50_HASH>` (bridge.py island, 28+) + LOOP_STATE.**
+   **Next (run #51): the api.ts↔bridge committed-but-404 class is now FULLY CLOSED (0 remaining — re-run the scan to confirm).** Pivot the island lane to the *reverse* gap or to dispatcher
+   observability: now that the dispatcher is ON and firing, the highest-value MISSING capability is a **reachable UI surface for dispatcher RUN HEALTH** (`in_flight`/`dispatched`/`errors`/
+   `last_error`/`last_dispatched_id` from `/api/mc/dispatcher`) — today only the dispatchable *plan* is shown, not run state/errors. That lives in the sibling-congested `OperationsCenter`/
+   `AutonomyDrawer` lane, so weigh an island vs. waiting for the tree to quiet. Alternatively land the `recent_events`-style backend for any NEW api.ts client a sibling adds. NEVER `subprocess(text=True)` on a blob. (See DONE Run #50.) —
+   _Prior run #49 — 🟥 LANDED THE FAIL-TASK ENDPOINT ISLAND INTO HEAD (closed the next committed frontend↔backend gap, autonomously).**
    Discharged run #48's explicit handoff. HEAD api.ts already shipped `failMcTask` (`:252` → `POST /api/mc/tasks/{id}/fail`), but committed
    HEAD served that route from **neither** file — `git show HEAD:` confirmed NO `def fail_task` in `mc_store.py` and NO `/fail` endpoint in
    `mission-control-bridge.py`. So a clean checkout = `failMcTask` → 404, and a task could never be marked terminally-`failed` (distinct from a
@@ -385,7 +405,26 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-19 (Run #49)** — **🟥 LANDED THE FAIL-TASK ENDPOINT ISLAND INTO HEAD.** Discharged run #48's explicit handoff
+_Last run: **2026-06-19 (Run #50)** — **⤴ LANDED THE PROMOTE-READY ENDPOINT ISLAND INTO HEAD — the LAST committed-but-404 pair; the
+api.ts↔bridge route contract is now COMPLETE (0 remaining).** A full programmatic scan (every HEAD api.ts `/api/mc/*` path vs every HEAD
+bridge `@app.<verb>` route) left exactly one 404: `POST /api/mc/kanban/promote`. HEAD `src/lib/api.ts:596` ships `promoteReady()` → that path,
+but HEAD bridge served neither `class PromoteReadyPayload` nor the route (store dep `promote_ready` was already in HEAD `mc_store.py:1319`). Clean
+1-file bridge island: model+endpoint extracted byte-exact from the working tree (`:1293`–`:1318`, UTF-8 decode so `→`/`—`/`⇒` survive), inserted
+between HEAD `kanban_sweep` (`:1198`) and `class DispatchPayload` (`:1201`); new file `ast.parse`d; staged via `hash-object -w`+`update-index
+--cacheinfo` (working tree keeps ALL sibling WIP); `git diff --cached -U0` = exactly **28 ins / 0 del** in 1 hunk; staged blob re-AST-parsed ✅;
+staged name-only = exactly `mission-control-bridge.py`. **Proven LIVE** (running bridge runs byte-identical code): `POST /api/mc/kanban/promote
+{"dry_run":true}` → `{"promoted":[],"skipped":[],"dry_run":true,"message":"promote: no actionable todo tasks"}` (route + `STORE.promote_ready`
+end-to-end, board UNCHANGED); bad id → HTTP 404. **⚡ MAJOR STATE CHANGE THIS RUN — the dispatcher is now LIVE *and ON*** (`/api/mc/dispatcher`
+`enabled:true running:true concurrency:2`, 47 ticks, **dispatched:8**, in_flight `[t_9ff79915]`, errors:1) — the autonomy loop is firing real
+`claude` turns. The lone error (`t_a33fad25` timed out @900s) **auto-requeued → re-claimed → COMPLETED** (run `ee50bb63911f` ok, $0.64): requeue-on-timeout
+self-heal confirmed; `errors:1` is historical, not stuck. **HEALTH: bridge UP** (`/api/ping` ok); scheduler daemon LIVE (`/api/mc/cron`
+`enabled:true running:true`, 48 ticks, **0 jobs registered**, 0 fired — note `/api/mc/cron/jobs` 404s, real route is `GET /api/mc/cron`); gateway
+graceful-empty (expected post-Hermes). **ORCHESTRATION (clean, self-healing):** board `done 26 · archived 1 · running 1 · ready 4`; NO blocked/failed;
+`reconcile` = "no stale claims found"; the 1 running task is a legit recent claim; nothing to reclaim. **VERIFY:** `npm run build` ✅ (812ms, 163
+mods); lint N/A (Python-only island; project-wide `.tsx`/`.ts` baseline ~500 errors stays pre-existing → bughunt/sibling lane). **Commit: `<RUN50_HASH>`
+(bridge.py island, 28+) + LOOP_STATE.** **Next (run #51): committed-but-404 class FULLY CLOSED — pivot the island lane to dispatcher RUN-HEALTH
+observability** (`in_flight`/`dispatched`/`errors`/`last_error` are unsurfaced now that the dispatcher actually fires) or to any NEW api.ts client a
+sibling adds. NEVER `subprocess(text=True)` on a blob. — (superseded) Run #49 — **🟥 LANDED THE FAIL-TASK ENDPOINT ISLAND INTO HEAD.** Discharged run #48's explicit handoff
 (the run #49 primary candidate). Same committed-frontend↔missing-backend class as runs #47/#48: HEAD api.ts already ships `failMcTask`
 (`:252` → `POST /api/mc/tasks/{id}/fail`), but committed HEAD served that route from **neither** file — `git show HEAD:` confirmed NO
 `def fail_task` in `mc_store.py` and NO `/fail` endpoint in `mission-control-bridge.py` (the `:887` bridge hit is only a docstring listing
@@ -777,18 +816,25 @@ baseline (~500 errors, sibling/untouched TS) unchanged, still bughunt/evolve's (
 
 ## CAPABILITY GAPS  _(ranked by operator impact; ✅=built, →bughunt=broken-not-missing)_
 
-A. ✅ **Committed-frontend↔unserved-backend route gaps (BUILDING DOWN, runs #47–#49).** A recurring class: the loop's
+A. ✅ **Committed-frontend↔unserved-backend route gaps — CLASS FULLY CLOSED (runs #47–#50).** A recurring class: the loop's
    prior runs landed *frontend* clients into HEAD (api.ts callers + mounted drawers) while the matching bridge/store code
    stayed in the uncommitted working tree, so a clean checkout 404s. **Run #47** closed deliverables (`/api/mc/deliverables`
    +`/file`+`/raw`, `4cbbe31`). **Run #48** closed the events feed (`GET /api/mc/events` + `STORE.recent_events`, two-file
    island, 57+) → `EventFeedDrawer` (▦ ACTIVITY tab) now resolves on a clean HEAD. **Run #49** closed `fail_task`
-   (`POST /api/mc/tasks/{id}/fail` + `STORE.fail_task`, two-file island, 22+; HEAD shipped `failMcTask` api.ts `:252`) — the
-   board can now record a terminal `failed` state on a clean HEAD. **Remaining in this class (run #50):** scan HEAD api.ts
-   callers vs HEAD bridge routes for any other committed-but-404 pair. Strongest known *backend-missing* candidate is the
-   board-wide `kanban_promote` (`POST /api/mc/kanban/promote` + `class PromoteReadyPayload`, bridge working-tree `:1300`/`:1293`;
-   store dep `promote_ready` ALREADY in HEAD `mc_store:1309`) — a clean 1-file bridge island, but **no committed frontend consumer
-   yet** (no `promoteReady` in HEAD api.ts), so lower operator value than the #47–#49 pairs; confirm the absence before treating
-   it as the top pick.
+   (`POST /api/mc/tasks/{id}/fail` + `STORE.fail_task`, two-file island, 22+; HEAD shipped `failMcTask` api.ts `:252`).
+   **Run #50** closed the LAST one — `kanban_promote` (`POST /api/mc/kanban/promote` + `class PromoteReadyPayload`, 1-file bridge
+   island, 28+; store dep `promote_ready` already in HEAD `mc_store:1319`; HEAD api.ts `:596` ships `promoteReady` — run #49's
+   "no committed consumer" guess was WRONG, the client fn is real committed HEAD, just not yet called by any page). **A full
+   programmatic scan (every HEAD api.ts `/api/mc/*` path vs every HEAD bridge `@app.<verb>` route) now shows ZERO committed-but-404
+   pairs remaining.** Re-run that scan at the top of run #51 to confirm before declaring the class re-opened. The island lane should
+   now pivot (see gap A′ below).
+A′. ⬜ **Dispatcher RUN-HEALTH has no reachable UI surface (NEW — highest-value MISSING, surfaced run #50).** The dispatcher went
+   LIVE-AND-ON this run (`/api/mc/dispatcher` `enabled:true running:true`, dispatched:8, in_flight, errors:1, last_error). The
+   AutonomyDrawer's ⚡ DISPATCHABLE tab shows only the *plan* (what would fire next); nothing reachable shows actual RUN STATE —
+   `in_flight` / `dispatched` / `errors` / `last_error` / `last_dispatched_id`. Now that real `claude` turns fire (and one timed
+   out + self-healed this run), the operator can't see live throughput or failures without curling. Build: a RUN-HEALTH strip/tab
+   reading `/api/mc/dispatcher` (`getDispatcher` already in HEAD api.ts). Caveat: lives in the sibling-congested
+   `OperationsCenter`/`AutonomyDrawer` lane — weigh an isolated island (proven `hash-object` technique) vs. waiting for the tree to quiet.
 0. ✅ **Dispatch-queue legibility (BUILT run #27).** The dispatcher was LIVE-but-OFF and FED (`dispatchable`=8) but the
    readiness queue had no UI home — the operator couldn't see what would fire next without curling `/api/mc/dispatcher`.
    Built `DispatchableDrawer.tsx` (⚡ DISPATCHABLE), pure-frontend (`getDispatcher()` already in HEAD), listing the queue
@@ -1071,6 +1117,43 @@ A. ✅ **Committed-frontend↔unserved-backend route gaps (BUILDING DOWN, runs #
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-19 — Run #50 (⤴ LANDED THE PROMOTE-READY ENDPOINT ISLAND INTO HEAD — the LAST committed-but-404 pair; api.ts↔bridge contract COMPLETE)
+
+**Scan.** Discharged run #49's handoff: programmatically diffed every `/api/mc/*` path referenced in HEAD `src/lib/api.ts` against every
+`@app.<verb>("/api/mc/…")` route in HEAD `mission-control-bridge.py`. **Exactly one** committed-but-404 pair remained: `POST /api/mc/kanban/promote`.
+
+**Gap (and a corrected assumption).** HEAD `src/lib/api.ts:596` ships `export async function promoteReady(opts?)` → `bridge.post('/api/mc/kanban/promote')`
+(`:600`). Run #49's handoff guessed "no `promoteReady` in HEAD api.ts" — **that was wrong**: the client fn is real committed HEAD (no committed *page*
+calls it yet, but a clean checkout would still 404 on any call). HEAD `mc_store.py:1319` already has `def promote_ready`, but HEAD bridge served
+**neither** `class PromoteReadyPayload` nor the route. So this was a clean **1-file bridge island** (store half already in HEAD ⇒ no 500 risk).
+
+**Build.** Extracted the model+endpoint byte-exact from the working tree (`mission-control-bridge.py:1293`–`:1318`) by reading the file as bytes and
+decoding **UTF-8** (never `text=True` — that cp1252-mojibakes `→`/`—`/`⇒`; the run #49 trap). Inserted between HEAD `kanban_sweep`'s `return` (`:1198`)
+and `class DispatchPayload` (`:1201`), preserving the 2-blank PEP8 spacing. Built the full new file against the **HEAD blob** (LF), `ast.parse`d it,
+wrote it to a temp, staged via `git hash-object -w` + `git update-index --cacheinfo 100644 <blob> mission-control-bridge.py` so the working tree kept
+**ALL** sibling WIP untouched. `git diff --cached -U0` = exactly **28 insertions / 0 deletions** in one hunk (`@@ -1200,0 +1201,28 @@`); staged blob
+re-AST-parsed ✅; `git diff --cached --name-only` = exactly `mission-control-bridge.py` (zero eslint surface). Temp file removed.
+
+**Verify — LIVE.** The running bridge serves the byte-identical working-tree code, so the endpoint contract the island lands is proven against it:
+`POST /api/mc/kanban/promote {"dry_run":true}` → `{"promoted":[],"skipped":[],"dry_run":true,"message":"promote: no actionable todo tasks"}` — route
+registered + `STORE.promote_ready` invoked end-to-end, **board UNCHANGED** (dry-run; there are 0 actionable `todo` tasks right now); `{"task_id":"__nope__"}`
+→ **HTTP 404** (the `KeyError`→404 path). `npm run build` ✅ (812ms, 163 modules); lint N/A (Python-only island).
+
+**Health & orchestration.** **Bridge UP** (`/api/ping` ok). **⚡ The dispatcher is now LIVE AND ON** (`/api/mc/dispatcher` `enabled:true running:true
+concurrency:2 tick:30s`, 47 ticks, **dispatched:8**, in_flight `[t_9ff79915]`, errors:1, last_error `t_a33fad25: claude timed out after 900s`) — the
+autonomy loop is firing real `claude` turns (first time observed ON in this ledger). The lone error **self-healed**: `t_a33fad25` timed out @900s →
+`requeued` event → re-`claimed` → `completed` (run `ee50bb63911f` outcome ok, $0.6410924) — requeue-on-timeout works; `errors:1` is a historical
+counter, not a stuck task. Scheduler daemon LIVE (`/api/mc/cron` `enabled:true running:true`, 48 ticks, **0 jobs registered**, 0 fired; note
+`/api/mc/cron/jobs` 404s — the real route is `GET /api/mc/cron`). Gateway graceful-empty (expected post-Hermes). **Board clean & self-healing:**
+`done 26 · archived 1 · running 1 · ready 4`; NO blocked/failed tasks; `POST /api/mc/kanban/reconcile` = "no stale claims found"; the 1 running task
+is a legit recent claim; diagnostics `[]`. No manual orchestration needed this run.
+
+**Files touched (committed):** `mission-control-bridge.py` (island, +28, staged via cacheinfo — working tree sibling WIP untouched), `.mc/LOOP_STATE.md`.
+Sibling-owned modified files (`BUGHUNT_LOG.md`, `patch-notes.json`, the many `src/**` + `mc_store.py` working-tree edits) deliberately NOT staged.
+**Commit: `<RUN50_HASH>`.** **Result:** the api.ts↔bridge committed-but-404 class (runs #47–#50) is **fully closed** — a clean checkout/restart now serves
+every route HEAD's frontend calls. **Next (run #51): re-run the scan to confirm 0 pairs; then pivot the island lane to dispatcher RUN-HEALTH UI
+(gap A′) now that the dispatcher actually fires.**
 
 ### 2026-06-19 — Run #49 (🟥 LANDED THE FAIL-TASK ENDPOINT ISLAND INTO HEAD — the next committed frontend↔backend gap, autonomously)
 
