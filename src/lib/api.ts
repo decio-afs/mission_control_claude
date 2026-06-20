@@ -636,6 +636,17 @@ export async function getMcCron(): Promise<{ jobs: McCronJob[]; raw: string; sch
   return data;
 }
 
+// The maintenance actions the *running* bridge can fire as a `maintenance`-kind cron
+// job (e.g. ['sweep'] or ['reconcile','sweep']). Read off the live process — not the
+// source — so the UI can show whether a hygiene job like `reconcile` is actually
+// fireable HERE, instead of inferring it from a checkout. A bridge that predates this
+// endpoint 404s; callers treat that (and any failure) as "unknown" via the empty array,
+// and the capability self-activates once the bridge is restarted on a build that has it.
+export async function getMaintenanceActions(): Promise<string[]> {
+  const { data } = await bridge.get('/api/mc/maintenance/actions');
+  return Array.isArray(data?.actions) ? data.actions : [];
+}
+
 export async function runMcCron(jobId: string) {
   // A claude-kind cron job fires its prompt through a SYNCHRONOUS run_claude turn
   // (bridge run_cron → timeout=300s) before the route returns. The 30s axios

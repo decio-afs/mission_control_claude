@@ -1643,6 +1643,16 @@ def get_cron():
     return out
 
 
+@app.get("/api/mc/maintenance/actions")
+def get_maintenance_actions():
+    """Report the maintenance actions this RUNNING process can fire as a cron job.
+    Read off the live bridge (not a checkout) so the UI can show whether a hygiene
+    job like `reconcile` is actually fireable here. A bridge restart on a build with
+    new actions updates the set, which reflects this process's mc_store."""
+    from mc_store import MAINTENANCE_ACTIONS
+    return {"actions": sorted(MAINTENANCE_ACTIONS)}
+
+
 @app.post("/api/mc/cron")
 def create_cron(payload: CreateCronPayload):
     """Create a scheduled job in the native store (claude or maintenance kind)."""

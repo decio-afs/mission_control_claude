@@ -111,7 +111,7 @@ import EventFeedDrawer from './EventFeedDrawer';
 import BlockedTasksDrawer from './BlockedTasksDrawer';
 import WebAccessDrawer from './WebAccessDrawer';
 import DispatchableDrawer from './DispatchableDrawer';
-import { getWebAccessAudit, getMcTasks, getDispatcher, getMcCron, type McCronJob } from '../lib/api';
+import { getWebAccessAudit, getMcTasks, getDispatcher, getMcCron, getMaintenanceActions, type McCronJob } from '../lib/api';
 
 type Tab = 'activity' | 'blocked' | 'webaccess' | 'dispatch' | 'scheduler';
 
@@ -209,6 +209,13 @@ export default function AutonomyDrawer({
     jobList: McCronJob[];
   };
   const [sched, setSched] = useState<Sched | null>(null);
+  // Run #55: the maintenance actions the *running* bridge can fire (e.g. ['sweep'] or
+  // ['reconcile','sweep']), read off the live process via getMaintenanceActions. null =
+  // not yet loaded / the bridge predates the endpoint (404) / the fetch failed — in every
+  // case the SCHEDULER panel's "FIREABLE ACTIONS" row is suppressed (never a wrong claim).
+  // Fetched once per open (it only changes on a bridge restart), not on the 5s badge poll,
+  // so an old bridge 404s at most once instead of every cycle.
+  const [maintActions, setMaintActions] = useState<string[] | null>(null);
   // ● LIVE (default) vs ⏸ PAUSED — the operator can stop the badge poll (e.g. to stop the
   // network churn while reading). Pausing keeps the last-fetched counts on screen.
   const [paused, setPaused] = useState(false);
@@ -277,6 +284,19 @@ export default function AutonomyDrawer({
     if (!open) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
+  }, [open]);
+
+  // Run #55: read the running bridge's fireable maintenance actions ONCE per open. It only
+  // changes when the bridge restarts, so it doesn't belong on the 5s poll — fetching it once
+  // means a bridge that predates the endpoint 404s at most once (silently caught) rather than
+  // every cycle. A failure leaves maintActions null → the panel row is suppressed.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getMaintenanceActions()
+      .then((a) => { if (!cancelled) setMaintActions(a); })
+      .catch(() => { if (!cancelled) setMaintActions(null); });
+    return () => { cancelled = true; };
   }, [open]);
 
   // Relative age of the last poll cycle + whether it's provably stale (older than two refresh
@@ -499,6 +519,35 @@ export default function AutonomyDrawer({
                   </div>
                 ) : (
                   <div className="text-[#666] text-[10px] px-1">no fire errors logged</div>
+                )}
+
+                {/* run #55: the maintenance actions THIS running process can fire, read off the
+                    live bridge (not the source). Suppressed when unknown (bridge predates the
+                    endpoint / fetch failed) so it never makes a wrong claim. When `reconcile` is
+                    absent it surfaces the recurring operator gap — the live process can't fire the
+                    terminal-safe board self-heal until the bridge is restarted on a build with it. */}
+                {maintActions && maintActions.length > 0 && (
+                  <div className="border border-white/10 bg-white/[0.02] px-3 py-2 rounded-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[#888] tracking-[0.12em] text-[9px]">FIREABLE ACTIONS</span>
+                      <div className="flex items-center gap-1 flex-wrap justify-end">
+                        {maintActions.map((a) => (
+                          <span key={a}
+                            className={`px-1.5 py-0.5 rounded-sm border text-[10px] tracking-[0.1em] tabular-nums ${
+                              a === 'reconcile'
+                                ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-300'
+                                : 'border-white/15 bg-white/[0.04] text-[#bbb]'}`}>
+                            {a}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    {!maintActions.includes('reconcile') && (
+                      <div className="mt-1 text-amber-300/80 text-[10px] leading-snug">
+                        ⚠ the terminal-safe <code className="text-[#999]">reconcile</code> board self-heal is NOT fireable on this process — seeding a reconcile cron here would fault. Restart the bridge on a build that ships it to enable, then seed.
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 <div>
