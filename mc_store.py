@@ -36,9 +36,12 @@ STALE_CLAIM_SECONDS = 2 * 3600
 FAILED_OUTCOMES = {"error", "failed", "failure", "timeout", "timed_out", "crashed"}
 
 # Internal maintenance verbs a `kind:"maintenance"` cron job can fire directly
-# (no Claude turn). `sweep` runs the full board self-heal macro. This is the
-# post-Hermes "board self-heals on a timer" path — see run_maintenance().
-MAINTENANCE_ACTIONS = {"sweep"}
+# (no Claude turn). `sweep` runs the full board self-heal macro; `reconcile`
+# runs ONLY the stale-claim reclaim (recovers stuck running tasks → ready
+# without promoting fresh todo work), so it is a terminal-safe hands-free
+# hygiene job that never feeds the dispatcher a new autonomous Claude turn.
+# This is the post-Hermes "board self-heals on a timer" path — see run_maintenance().
+MAINTENANCE_ACTIONS = {"sweep", "reconcile"}
 
 # Substrings that identify a web-capable MCP plugin on an agent's `mcps` list.
 # Matched case-insensitively — covers the common web-search/scrape providers.
@@ -1678,6 +1681,9 @@ class MCStore:
         if action == "sweep":
             res = self.sweep_board(dry_run=False)
             return {"ok": True, "action": "sweep", "detail": res["message"], "result": res}
+        if action == "reconcile":
+            res = self.reconcile_board(dry_run=False)
+            return {"ok": True, "action": "reconcile", "detail": res["message"], "result": res}
         raise ValueError(f"unknown maintenance action: {action!r}")
 
     def get_cron_job(self, job_id) -> Optional[dict[str, Any]]:

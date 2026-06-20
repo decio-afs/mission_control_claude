@@ -10,7 +10,18 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#51) — ✕ DISPATCHER-FAULT CHIP ON THE ⊙ AUTONOMY TAB BAR — the at-a-glance autonomy-failure signal that was missing now the dispatcher is LIVE+ON+erroring.**
+0. **✅ DONE this run (#52) — 🧹 RECONCILE MAINTENANCE ACTION — a terminal-safe, no-`claude` hygiene job the LIVE scheduler daemon can finally fire.**
+   Re-ran the committed-but-404 scan → contract still FULLY CLOSED (0 genuine pairs; the 2 raw hits are query-string/ternary false positives). No NEW api.ts client awaits a backend (working-tree `api.ts` == HEAD). Health green (bridge `uptime ~15843s`; dispatcher LIVE+ON 528 ticks/dispatched 13; scheduler
+   daemon LIVE+ON 528 ticks but **0 jobs / 0 fired**). Board fully drained (`done 31 · archived 1`, zero blocked/failed/ready/running; reconcile = no stale claims; diagnostics `[]`). **Gap built:** the scheduler had nothing *safe* to fire — the only maintenance action was `sweep`, whose `promote_ready` tail feeds the
+   dispatcher → autonomous `claude` turns (operator-gated). Added a `reconcile` maintenance action in `mc_store.py` (`"reconcile"` ∈ `MAINTENANCE_ACTIONS` `:41`; a `reconcile` branch in `run_maintenance` `:1684` → `self.reconcile_board(dry_run=False)`). `reconcile_board` ONLY reclaims stale *running* claims (recovers stuck
+   work → ready) — it never promotes fresh `todo`, so it can't manufacture autonomous `claude` work from a drained backlog: terminal-safe, schedulable hands-free. No downstream wiring needed (scheduler tick `bridge:384`, `run_cron` `:1813`, `create_cron` `:1795` already dispatch any `MAINTENANCE_ACTIONS` member; ⏱ CRON
+   modal already exposes both kinds). **Island vs HEAD blob** (UTF-8 decode; `—`/`→` bytes verified; AST-parsed; `hash-object -w`+`update-index --cacheinfo`; `git diff --cached -U0` = exactly **9 ins / 3 del** in 2 hunks; staged name-only = `mc_store.py`; working-tree sibling WIP untouched). **Proven in-process** (imported
+   the staged island vs a temp `MCStore`): `MAINTENANCE_ACTIONS=['reconcile','sweep']`; `create_cron(action=reconcile)` accepted; `run_maintenance("reconcile")` → `{ok,action:reconcile,detail:"reconcile: no stale claims found"}`; unknown still raises; `sweep` unregressed. `npm run build` ✅ (747ms); lint N/A (Python-only).
+   **Commit: mc_store.py island (9+/3−) + LOOP_STATE.**
+   **Next (run #53):** (a) re-run the api.ts↔bridge scan first — confirm the contract stays CLOSED before any island work. (b) **Highest-value IDLE gap now = scheduler-daemon observability.** `/api/mc/cron`'s `scheduler` block (`ticks`/`fired`/`last_fired_id`/`last_error`) has NO UI surface — asymmetric with the
+   dispatcher, which has both a ▶ RUN STATE panel AND the run #51 `✕N` fault chip. Build a glance-level scheduler-health chip/panel mirroring that work; `CronTimeline.tsx` carries sibling WIP so prefer the clean HEAD-tracked `AutonomyDrawer.tsx` lane or an island. (c) The daemon is still 0-fired; now that a **safe**
+   `reconcile` maintenance job exists, seeding one (e.g. hourly board self-heal) is a fair, in-lane orchestration move to let the daemon prove itself — do NOT force daily autonomous `claude` cron jobs unattended (still operator-gated). NEVER `subprocess(text=True)` on a git blob (UTF-8 decode). (See DONE Run #52.) —
+   _Prior run #51 — ✕ DISPATCHER-FAULT CHIP ON THE ⊙ AUTONOMY TAB BAR — the at-a-glance autonomy-failure signal that was missing now the dispatcher is LIVE+ON+erroring.**
    First re-ran run #50's full programmatic scan (every HEAD `src/lib/api.ts` `/api/mc/*` path vs every HEAD `mission-control-bridge.py` `@app.<verb>` route): **0 committed-but-404 pairs** — the contract is still
    FULLY CLOSED. Then corrected a stale gap-A′ assumption: the dispatcher's in-drawer **▶ RUN STATE** panel (`in_flight`/`dispatched`/`errors`/`last_error`/`last_dispatched_id`) ALREADY exists and is reachable in HEAD
    (built runs #28–#30 inside `DispatchableDrawer.tsx`, mounted via AutonomyDrawer→OperationsCenter). What was genuinely MISSING was the **glance-level** fault signal: the ⚡ DISPATCHABLE *tab badge* (runs #38–#40)
@@ -424,7 +435,21 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-19 (Run #51)** — **✕ DISPATCHER-FAULT CHIP ON THE ⊙ AUTONOMY TAB BAR.** The committed-but-404 contract is still FULLY CLOSED
+_Last run: **2026-06-19 (Run #52)** — **🧹 RECONCILE MAINTENANCE ACTION — a terminal-safe, no-`claude` hygiene job the LIVE scheduler daemon can finally fire.**
+The committed-but-404 scan still shows 0 genuine pairs (contract FULLY CLOSED) and no NEW api.ts client awaits a backend. **HEALTH green:** bridge UP
+(`uptime ~15843s`); dispatcher LIVE+ON (528 ticks, dispatched 13, errors:1 historical); scheduler daemon LIVE+ON (528 ticks, **0 jobs / 0 fired** — still
+proven nothing); gateway graceful-empty. **ORCHESTRATION (fully drained):** board `done 31 · archived 1`, zero blocked/failed/ready/running; reconcile =
+no stale claims; diagnostics `[]`. **Gap built:** the scheduler's only maintenance action was `sweep`, whose `promote_ready` tail feeds the dispatcher →
+autonomous `claude` turns (operator-gated) — so there was no terminal-safe job the daemon could fire unattended. Added a `reconcile` maintenance action
+in `mc_store.py` (`MAINTENANCE_ACTIONS` `:41` + `run_maintenance` branch `:1684` → `reconcile_board(dry_run=False)`); it ONLY reclaims stale *running*
+claims (recovers stuck work → ready), never promotes fresh `todo`, so it can't manufacture autonomous `claude` work — schedulable hands-free. Downstream
+wiring already complete (scheduler tick, `run_cron`, `create_cron`, ⏱ CRON modal all dispatch any `MAINTENANCE_ACTIONS` member). **Island vs HEAD blob**
+(UTF-8 decode; `—`/`→` bytes verified; AST-parsed; staged via `hash-object`/`update-index`; `git diff --cached -U0` = 9 ins / 3 del; working-tree WIP
+untouched). **Proven in-process** (staged island vs temp `MCStore`): `create_cron(action=reconcile)` accepted, `run_maintenance("reconcile")` →
+`{ok,action:reconcile,detail:"reconcile: no stale claims found"}`, unknown still raises, `sweep` unregressed. `npm run build` ✅ (747ms); lint N/A
+(Python-only). **Commit: mc_store.py island (9+/3−) + LOOP_STATE.** **Next (run #53): scan stays closed; highest-value idle gap = scheduler-daemon
+observability (no UI surface for `/api/mc/cron`'s `scheduler` block — asymmetric with the dispatcher's RUN STATE + ✕N chip); seeding a `reconcile` job to
+let the daemon prove itself is now SAFE.** — (superseded) Run #51 — **✕ DISPATCHER-FAULT CHIP ON THE ⊙ AUTONOMY TAB BAR.** The committed-but-404 contract is still FULLY CLOSED
 (re-ran run #50's scan → 0 pairs). Corrected gap A′: the dispatcher's in-drawer **▶ RUN STATE** panel already exists/reachable (runs #28–#30,
 `DispatchableDrawer.tsx`); the genuinely-MISSING piece was the **glance-level** fault signal. The ⚡ DISPATCHABLE tab badge (runs #38–#40) showed
 ready-count + web-gap but nothing about a *fault*, and its emerald pill is suppressed on an empty queue — so a faulted autonomous loop was invisible
@@ -869,6 +894,14 @@ A′. ✅ **Dispatcher RUN-HEALTH observability — CLOSED (run #50 premise was 
    suppressed on a drained board. **Run #51** added the red **`✕N` dispatcher-fault chip** on the ⚡ DISPATCHABLE tab button
    (`AutonomyDrawer.tsx`, clean-island commit), decoupled from the count gate, `last_error` in tooltip — proven LIVE against `errors:1`.
    So both the deep view (RUN STATE panel) and the glance view (fault chip) now exist. Nothing left here.
+A″. ✅ **Terminal-safe maintenance action for hands-free scheduling — BUILT run #52.** The scheduler daemon is LIVE but had fired 0 times
+   because the only `kind=maintenance` action was `sweep`, whose `promote_ready` tail feeds the dispatcher → autonomous `claude` turns — unsafe
+   to schedule unattended. There was no narrow, no-`claude` hygiene action the operator could put on the clock. Added `reconcile` to
+   `MAINTENANCE_ACTIONS` (`mc_store.py:41`) + a `reconcile` branch in `run_maintenance` (`:1684` → `reconcile_board(dry_run=False)`, which only
+   reclaims stale *running* claims, never promotes fresh `todo`). Downstream wiring already complete (scheduler tick / `run_cron` / `create_cron` /
+   ⏱ CRON modal). Proven in-process (create_cron accepts it, run_maintenance returns the right shape, sweep unregressed). **Still OPEN nearby:**
+   scheduler-daemon *observability* — `/api/mc/cron`'s `scheduler` block has no UI surface (asymmetric with the dispatcher's RUN STATE + ✕N chip);
+   that's the next island. Seeding an hourly `reconcile` job to let the daemon prove itself is now a SAFE orchestration move.
 0. ✅ **Dispatch-queue legibility (BUILT run #27).** The dispatcher was LIVE-but-OFF and FED (`dispatchable`=8) but the
    readiness queue had no UI home — the operator couldn't see what would fire next without curling `/api/mc/dispatcher`.
    Built `DispatchableDrawer.tsx` (⚡ DISPATCHABLE), pure-frontend (`getDispatcher()` already in HEAD), listing the queue
@@ -1151,6 +1184,50 @@ A′. ✅ **Dispatcher RUN-HEALTH observability — CLOSED (run #50 premise was 
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-19 — Run #52 (🧹 RECONCILE MAINTENANCE ACTION — a terminal-safe, no-`claude` hygiene job the scheduler daemon can finally fire)
+
+**Orient + scan.** Re-ran the full committed-but-404 scan (every HEAD `src/lib/api.ts` `/api/mc/*` client path vs every HEAD
+`mission-control-bridge.py` `@app.<verb>` route): **0 genuine pairs** — both raw hits are false positives (`/api/mc/logs?…` is `/api/mc/logs`
+with a query string; the `plugins/${id}/${enable?'enable':'disable'}` ternary maps to both served routes). The api.ts↔bridge contract stays
+**FULLY CLOSED**. Confirmed no NEW api.ts client awaits a backend (working-tree `src/lib/api.ts` is unmodified vs HEAD), so gap-A/A′/(c) are all settled.
+
+**Health (green).** Bridge UP (`/api/ping` `uptime ~15843s` ≈ 4.4h, no restart). Dispatcher LIVE+ON (`/api/mc/dispatcher` `enabled:true running:true`,
+528 ticks, **dispatched 13**, in_flight empty, `errors:1` historical = the 900s `claude` timeout that auto-requeued+completed). Scheduler daemon
+LIVE+ON (`/api/mc/cron` `scheduler.enabled:true running:true`, 528 ticks, **0 jobs, 0 fired** — still proven nothing). Gateway graceful-empty (expected post-Hermes).
+
+**Orchestration (clean, fully drained).** Board `done 31 · archived 1` — **zero** blocked/failed/ready/running. `reconcile` (live) = "no stale claims
+found"; `kanban/diagnostics` = `[]`. Nothing to claim, unblock, reassign, or reclaim.
+
+**Gap → build (the run #51 tee-up, validated).** The scheduler daemon is LIVE but has fired **0** times because the only schedulable hands-free job
+type is a `kind=maintenance` cron, and the **only** maintenance action was `sweep` — which runs the full self-heal macro ending in `promote_ready`,
+feeding `todo`→`ready`→ the dispatcher → **autonomous `claude` turns**. That makes `sweep` unsafe to schedule unattended (exactly what run #51 flagged
+to keep operator-gated), so in practice there was **no terminal-safe maintenance action an operator could schedule** — the daemon had nothing safe to
+run. **Built** a new `reconcile` maintenance action (`mc_store.py`): added `"reconcile"` to `MAINTENANCE_ACTIONS` (`:41`) and a `reconcile` branch in
+`run_maintenance` (`:1684`) calling `self.reconcile_board(dry_run=False)`. `reconcile_board` ONLY reclaims stale *running* claims (recovers stuck work →
+`ready`); it never promotes fresh `todo` work, so it cannot manufacture new autonomous `claude` turns from a drained backlog — the safety distinction
+that makes it schedulable hands-free. **Zero wiring needed downstream:** the scheduler tick (`bridge:384`→`STORE.run_maintenance`), manual `run_cron`
+(`bridge:1813`), and `create_cron` (`bridge:1795` passes `kind`/`action` through) already dispatch any action in `MAINTENANCE_ACTIONS`; the ⏱ CRON modal
+already exposes both kinds. So an operator can now schedule a no-`claude` board-hygiene job and the LIVE daemon will finally fire something.
+
+**Island technique (working tree kept intact).** mc_store.py is congested (129 ins of sibling WIP vs HEAD) and the action is absent from BOTH HEAD and
+the working tree. Built against the **HEAD blob** via Python (decoded the git blob as UTF-8 — never `subprocess(text=True)`, per the mojibake trap),
+verified the `—` (`e28094`) and `→` (`e28692`) bytes survive, `ast.parse`d the rebuilt island, staged via `git hash-object -w` + `git update-index
+--cacheinfo` so the working tree kept ALL sibling WIP. `git diff --cached -U0` = exactly **9 ins / 3 del** in the 2 expected hunks (`@@ -39,3 +39,6` comment+set,
+`@@ -1680,0 +1684,3` the branch); STAGED blob re-AST-parsed ✅; staged name-only = exactly `mc_store.py`.
+
+**Verify (in-process proof — no bridge restart).** Imported the staged island as a module against a temp `MCStore` root: `MAINTENANCE_ACTIONS` now
+`['reconcile','sweep']`; `create_cron(kind=maintenance, action=reconcile)` is **accepted** (was rejected before); `run_maintenance("reconcile")` →
+`{ok:True, action:"reconcile", detail:"reconcile: no stale claims found", result:{…}}`; an unknown action still raises `ValueError`; `sweep` still
+works (no regression). `npm run build` ✅ (747ms, vite) — Python-only island adds zero TS/eslint surface; lint N/A (the ~500 pre-existing `.tsx`/`.ts`
+errors are not this lane). The change loads on next bridge restart (the operator's running bridge runs the working tree, untouched this run).
+
+**Commit:** mc_store.py island (9+/3−) + LOOP_STATE. **Next (run #53):** the contract stays closed (re-confirm the scan). With a terminal-safe action now
+available, the highest-value remaining IDLE gap is **observability of the scheduler daemon** — `/api/mc/cron`'s `scheduler` block (`ticks`/`fired`/
+`last_fired_id`/`last_error`) has NO UI surface, unlike the dispatcher which got both a RUN STATE panel and the run #51 `✕N` fault chip. A glance-level
+scheduler-health chip / panel (mirroring the dispatcher work) is the natural next island — but `CronTimeline.tsx` carries sibling WIP, so prefer the
+clean HEAD-tracked `AutonomyDrawer.tsx` lane or an island. Do NOT force daily autonomous `claude` cron jobs unattended (operator-gated); seeding a
+`reconcile` maintenance job to let the daemon prove itself is now SAFE and is a fair orchestration move next run if still 0-fired.
 
 ### 2026-06-19 — Run #51 (✕ DISPATCHER-FAULT CHIP ON THE ⊙ AUTONOMY TAB BAR — the missing glance-level autonomy-failure signal)
 
