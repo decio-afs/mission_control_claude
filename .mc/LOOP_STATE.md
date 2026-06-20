@@ -10,7 +10,10 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#52) — 🧹 RECONCILE MAINTENANCE ACTION — a terminal-safe, no-`claude` hygiene job the LIVE scheduler daemon can finally fire.**
+0. **✅ DONE this run (#53) — ⏱ SCHEDULER-DAEMON HEALTH CHIP on the ⊙ AUTONOMY header — the last invisible autonomy daemon now has a glance-level surface.**
+   Step (a): re-ran the api.ts↔bridge committed-but-404 scan (programmatic: every HEAD `src/lib/api.ts` `/api/mc/*` path vs every HEAD `mission-control-bridge.py` `@app.<verb>` route) → **contract still FULLY CLOSED** (84 client paths / 111 routes; the lone "miss" `…/plugins/{}/${enable` is the ternary `enable?'enable':'disable'` — both routes exist HEAD `:3304`/`:3309`). Working-tree `api.ts` == HEAD (no new client awaits a backend). **Gap built (b):** MC runs two sibling autonomy daemons ticking in lockstep @30s — the DISPATCHER (rich UI: ▶ RUN STATE panel + run #51 ✕N tab chip) and the SCHEDULER (cron job firer), but the scheduler's `enabled`/`running`/`ticks`/`fired`/`errors`/`last_error` block from `/api/mc/cron` had **NO UI surface anywhere** — an operator could see the dispatcher faulted but was blind to whether the cron daemon was alive, held jobs, had fired, or errored. Added a glance-level **`⏱ SCHED` chip** in the ⊙ AUTONOMY header (clean HEAD-tracked `src/components/AutonomyDrawer.tsx`, 100% mine), mirroring the dispatcher signal: RED **OFF** (not running/enabled → due jobs can't fire) > RED **✕N** (fire errors, `last_error` in tooltip) > EMERALD **●N** (alive, N jobs) > dim **· idle** (alive, 0 jobs — honest drained steady state). Zero new endpoint — rides `getMcCron()` (already HEAD api.ts `:634`, returns `jobs[]`+`scheduler{}`) on the SAME poll cycle as the tab badges (added as `p4` in `Promise.all`), same graceful degrade (absent/failed scheduler block suppresses the chip — never a wrong signal). **Proven LIVE** (Vite :5219, bridge UP, `#/operations` → ⊙ AUTONOMY): chip rendered **`⏱ SCHED · idle`**, tooltip = "cron scheduler LIVE but holding 0 jobs (nothing to fire) — seed one in the ⏱ CRON modal; 0 fired" — matching `/api/mc/cron` EXACTLY (enabled+running, 0 jobs, 0 fired, 0 errors); **0 console errors**. `npm run build` ✅ (732ms); `npx eslint AutonomyDrawer.tsx` ✅ (0 issues); `graphify update .` ✅ (2021 nodes). **Step (c) DELIBERATELY NOT executed — and discovered WHY it would have backfired:** the run #52 `reconcile` maintenance action is in **HEAD only** (`mc_store.py:44 {"sweep","reconcile"}`) — the island commit left the **working tree at `{"sweep"}`** (`mc_store.py:41`), so the **LIVE bridge process runs `{"sweep"}` ONLY**. Seeding a `reconcile` cron now → `run_maintenance("reconcile")` raises (unknown action) → scheduler logs an error → my new chip shows a **FALSE `✕N`**. So the daemon genuinely has NO safe action it can fire today: `sweep`'s `promote_ready` tail feeds the dispatcher → autonomous `claude` (operator-gated), and `reconcile` isn't in the running process. **Commit: AutonomyDrawer.tsx (whole file, mine) + LOOP_STATE.**
+   **Next (run #54):** (a) re-run the api.ts↔bridge scan first — confirm CLOSED before any lane work. (b) **The scheduler daemon still cannot prove itself until the bridge is restarted on HEAD** (working-tree `mc_store.py` lacks `reconcile`; only HEAD has it). DO NOT seed a `reconcile` cron against the live process — it will fault. The honest unblock is to surface a **"⏱ SCHED chip now exists; restart bridge on HEAD to enable the terminal-safe `reconcile` cron"** operator note, OR (if a sibling lands `reconcile` into the working-tree `mc_store.py`) re-verify the live process accepts it (`run_maintenance("reconcile")` returns ok, not raise) BEFORE seeding. Ready-to-go payload once safe: `POST /api/mc/cron {kind:"maintenance", action:"reconcile", schedule:"every 1h", name:"board self-heal"}` → expect the chip to flip `idle`→`●1`, then `fired>0` after the first tick. (c) Next clean-lane observability candidate: the ⏱ SCHED chip is glance-only — a fuller **scheduler RUN-STATE panel** (ticks/last_tick age/fired history) could live inside a new ⏱ CRON tab in AutonomyDrawer, but `CronTimeline.tsx` carries sibling WIP, so prefer an AutonomyDrawer tab or an island. (d) If a sibling adds a NEW api.ts client, land its backend as the next island. NEVER `subprocess(text=True)` on a git blob (UTF-8 decode). (See DONE Run #53.) —
+   _Prior run #52 — 🧹 RECONCILE MAINTENANCE ACTION — a terminal-safe, no-`claude` hygiene job the LIVE scheduler daemon can finally fire.**
    Re-ran the committed-but-404 scan → contract still FULLY CLOSED (0 genuine pairs; the 2 raw hits are query-string/ternary false positives). No NEW api.ts client awaits a backend (working-tree `api.ts` == HEAD). Health green (bridge `uptime ~15843s`; dispatcher LIVE+ON 528 ticks/dispatched 13; scheduler
    daemon LIVE+ON 528 ticks but **0 jobs / 0 fired**). Board fully drained (`done 31 · archived 1`, zero blocked/failed/ready/running; reconcile = no stale claims; diagnostics `[]`). **Gap built:** the scheduler had nothing *safe* to fire — the only maintenance action was `sweep`, whose `promote_ready` tail feeds the
    dispatcher → autonomous `claude` turns (operator-gated). Added a `reconcile` maintenance action in `mc_store.py` (`"reconcile"` ∈ `MAINTENANCE_ACTIONS` `:41`; a `reconcile` branch in `run_maintenance` `:1684` → `self.reconcile_board(dry_run=False)`). `reconcile_board` ONLY reclaims stale *running* claims (recovers stuck
@@ -435,21 +438,21 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-19 (Run #52)** — **🧹 RECONCILE MAINTENANCE ACTION — a terminal-safe, no-`claude` hygiene job the LIVE scheduler daemon can finally fire.**
-The committed-but-404 scan still shows 0 genuine pairs (contract FULLY CLOSED) and no NEW api.ts client awaits a backend. **HEALTH green:** bridge UP
-(`uptime ~15843s`); dispatcher LIVE+ON (528 ticks, dispatched 13, errors:1 historical); scheduler daemon LIVE+ON (528 ticks, **0 jobs / 0 fired** — still
-proven nothing); gateway graceful-empty. **ORCHESTRATION (fully drained):** board `done 31 · archived 1`, zero blocked/failed/ready/running; reconcile =
-no stale claims; diagnostics `[]`. **Gap built:** the scheduler's only maintenance action was `sweep`, whose `promote_ready` tail feeds the dispatcher →
-autonomous `claude` turns (operator-gated) — so there was no terminal-safe job the daemon could fire unattended. Added a `reconcile` maintenance action
-in `mc_store.py` (`MAINTENANCE_ACTIONS` `:41` + `run_maintenance` branch `:1684` → `reconcile_board(dry_run=False)`); it ONLY reclaims stale *running*
-claims (recovers stuck work → ready), never promotes fresh `todo`, so it can't manufacture autonomous `claude` work — schedulable hands-free. Downstream
-wiring already complete (scheduler tick, `run_cron`, `create_cron`, ⏱ CRON modal all dispatch any `MAINTENANCE_ACTIONS` member). **Island vs HEAD blob**
-(UTF-8 decode; `—`/`→` bytes verified; AST-parsed; staged via `hash-object`/`update-index`; `git diff --cached -U0` = 9 ins / 3 del; working-tree WIP
-untouched). **Proven in-process** (staged island vs temp `MCStore`): `create_cron(action=reconcile)` accepted, `run_maintenance("reconcile")` →
-`{ok,action:reconcile,detail:"reconcile: no stale claims found"}`, unknown still raises, `sweep` unregressed. `npm run build` ✅ (747ms); lint N/A
-(Python-only). **Commit: mc_store.py island (9+/3−) + LOOP_STATE.** **Next (run #53): scan stays closed; highest-value idle gap = scheduler-daemon
-observability (no UI surface for `/api/mc/cron`'s `scheduler` block — asymmetric with the dispatcher's RUN STATE + ✕N chip); seeding a `reconcile` job to
-let the daemon prove itself is now SAFE.** — (superseded) Run #51 — **✕ DISPATCHER-FAULT CHIP ON THE ⊙ AUTONOMY TAB BAR.** The committed-but-404 contract is still FULLY CLOSED
+_Last run: **2026-06-19 (Run #53)** — **⏱ SCHEDULER-DAEMON HEALTH CHIP on the ⊙ AUTONOMY header — the last invisible autonomy daemon now has a glance surface.**
+Re-ran the api.ts↔bridge committed-but-404 scan → **contract FULLY CLOSED** (84 client paths / 111 routes; lone "miss" is the `enable?:disable` ternary,
+both routes HEAD `:3304`/`:3309`); working-tree `api.ts` == HEAD. **HEALTH green:** bridge UP (`uptime ~23011s`); dispatcher LIVE+ON (767 ticks, dispatched
+13, errors:1 historical); scheduler daemon LIVE+ON (768 ticks, **0 jobs / 0 fired** — still proven nothing); gateway graceful-empty. **ORCHESTRATION (fully
+drained):** board `done 31 · archived 1`, zero blocked/failed/ready/running; diagnostics `[]` — nothing to claim/unblock/reassign. **Gap built:** the
+scheduler daemon (`/api/mc/cron` `scheduler{}` block) had NO UI surface — asymmetric with the dispatcher (▶ RUN STATE + run #51 ✕N chip). Added a glance
+**`⏱ SCHED` chip** to the ⊙ AUTONOMY header (clean HEAD-tracked `AutonomyDrawer.tsx`, 100% mine): RED **OFF** > RED **✕N** (last_error tooltip) > EMERALD
+**●N** (N jobs) > dim **· idle** (alive, 0 jobs). Zero new endpoint — rides `getMcCron()` (HEAD api.ts `:634`) on the same poll as the tab badges (`p4`),
+same graceful degrade. **Proven LIVE** (Vite :5219): chip = **`⏱ SCHED · idle`**, tooltip "cron scheduler LIVE but holding 0 jobs … 0 fired" matching
+`/api/mc/cron` EXACTLY; **0 console errors**. `npm run build` ✅ (732ms); `npx eslint AutonomyDrawer.tsx` ✅; `graphify update .` ✅ (2021 nodes). **Step (c)
+NOT executed — found it would backfire:** run #52's `reconcile` action is **HEAD-only** (`mc_store.py:44`); the working tree (= LIVE bridge) is still
+`{"sweep"}` (`:41`), so seeding a `reconcile` cron now → `run_maintenance` raises → **false `✕N`**. The daemon has NO safe action it can fire until the
+bridge is restarted on HEAD. **Commit: AutonomyDrawer.tsx (whole file, mine) + LOOP_STATE. Next (run #54): scan stays closed; DON'T seed `reconcile`
+against the live process (HEAD-only) — restart bridge on HEAD first, OR wait for a sibling to land `reconcile` into working-tree `mc_store.py`, then
+re-verify `run_maintenance("reconcile")` returns ok before seeding `{kind:maintenance,action:reconcile,schedule:"every 1h"}`.** — (superseded) Run #52 — **🧹 RECONCILE MAINTENANCE ACTION (HEAD-only — not in the live process).** — (superseded) Run #51 — **✕ DISPATCHER-FAULT CHIP ON THE ⊙ AUTONOMY TAB BAR.** The committed-but-404 contract is still FULLY CLOSED
 (re-ran run #50's scan → 0 pairs). Corrected gap A′: the dispatcher's in-drawer **▶ RUN STATE** panel already exists/reachable (runs #28–#30,
 `DispatchableDrawer.tsx`); the genuinely-MISSING piece was the **glance-level** fault signal. The ⚡ DISPATCHABLE tab badge (runs #38–#40) showed
 ready-count + web-gap but nothing about a *fault*, and its emerald pill is suppressed on an empty queue — so a faulted autonomous loop was invisible
@@ -899,9 +902,16 @@ A″. ✅ **Terminal-safe maintenance action for hands-free scheduling — BUILT
    to schedule unattended. There was no narrow, no-`claude` hygiene action the operator could put on the clock. Added `reconcile` to
    `MAINTENANCE_ACTIONS` (`mc_store.py:41`) + a `reconcile` branch in `run_maintenance` (`:1684` → `reconcile_board(dry_run=False)`, which only
    reclaims stale *running* claims, never promotes fresh `todo`). Downstream wiring already complete (scheduler tick / `run_cron` / `create_cron` /
-   ⏱ CRON modal). Proven in-process (create_cron accepts it, run_maintenance returns the right shape, sweep unregressed). **Still OPEN nearby:**
-   scheduler-daemon *observability* — `/api/mc/cron`'s `scheduler` block has no UI surface (asymmetric with the dispatcher's RUN STATE + ✕N chip);
-   that's the next island. Seeding an hourly `reconcile` job to let the daemon prove itself is now a SAFE orchestration move.
+   ⏱ CRON modal). Proven in-process (create_cron accepts it, run_maintenance returns the right shape, sweep unregressed). **⚠ CAVEAT found run #53:
+   the `reconcile` action is HEAD-ONLY** — the island commit left the working-tree `mc_store.py:41` at `{"sweep"}`, so the LIVE bridge process does NOT
+   have it; seeding a `reconcile` cron against the running bridge would raise → false scheduler error. It only becomes fireable after the bridge is
+   restarted on HEAD (or a sibling lands `reconcile` into the working-tree `mc_store.py`).
+A‴. ✅ **Scheduler-daemon glance observability — BUILT run #53.** `/api/mc/cron`'s `scheduler{}` block (enabled/running/ticks/fired/errors/last_error)
+   had NO UI surface — the dispatcher had both a ▶ RUN STATE panel and a ✕N tab chip, but its sibling cron daemon was invisible. Added the **`⏱ SCHED`
+   chip** to the ⊙ AUTONOMY header (`AutonomyDrawer.tsx`, clean whole-file commit, 100% mine): OFF / ✕N / ●N / · idle, riding the existing `getMcCron()`
+   poll (`p4`), graceful-degrade. Proven LIVE (`⏱ SCHED · idle` matching `/api/mc/cron` exactly, 0 console errors). **Still OPEN nearby:** the daemon
+   remains 0-fired (proven nothing) — it cannot prove itself until the bridge runs HEAD's `reconcile` action (see A″ caveat); and a deeper scheduler
+   RUN-STATE *panel* (a ⏱ CRON tab inside AutonomyDrawer, last_tick age / fired history) is a fair next clean-lane island.
 0. ✅ **Dispatch-queue legibility (BUILT run #27).** The dispatcher was LIVE-but-OFF and FED (`dispatchable`=8) but the
    readiness queue had no UI home — the operator couldn't see what would fire next without curling `/api/mc/dispatcher`.
    Built `DispatchableDrawer.tsx` (⚡ DISPATCHABLE), pure-frontend (`getDispatcher()` already in HEAD), listing the queue
@@ -1184,6 +1194,48 @@ A″. ✅ **Terminal-safe maintenance action for hands-free scheduling — BUILT
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-19 — Run #53 (⏱ SCHEDULER-DAEMON HEALTH CHIP on the ⊙ AUTONOMY header — the last invisible autonomy daemon gets a glance surface)
+
+**Orient + scan (step a).** Re-ran the committed-but-404 scan programmatically (every HEAD `src/lib/api.ts` `/api/mc/*` client path vs every HEAD
+`mission-control-bridge.py` `@app.<verb>` route): **84 client paths / 111 routes, 0 genuine pairs** — the lone "miss" `…/plugins/{}/${enable` is the
+`enable ? 'enable' : 'disable'` ternary, and both routes are served (HEAD bridge `:3304` enable, `:3309` disable). Working-tree `src/lib/api.ts` is byte-identical
+to HEAD (`git diff --stat HEAD` empty), so no NEW client awaits a backend. **Contract stays FULLY CLOSED.**
+
+**Health (green).** Bridge UP (`/api/ping` `uptime ~23011s` ≈ 6.4h, no restart). Dispatcher LIVE+ON (`/api/mc/dispatcher` `enabled:true running:true`, 767
+ticks, **dispatched 13**, in_flight empty, `errors:1` historical). Scheduler daemon LIVE+ON (`/api/mc/cron` `scheduler.enabled:true running:true`, 768 ticks,
+**0 jobs, 0 fired** — still proven nothing). Gateway graceful-empty (expected post-Hermes).
+
+**Orchestration (fully drained — nothing to do).** Board `by_status: {done:31, archived:1}`, zero blocked/failed/ready/running; `oldest_ready_age` null;
+`/api/mc/kanban/diagnostics` = `[]`. Nothing to claim/unblock/reassign/reclaim/promote.
+
+**Gap built (step b) — scheduler-daemon glance observability.** MC runs two sibling autonomy daemons ticking in lockstep @30s: the DISPATCHER (rich UI —
+the ▶ RUN STATE panel in ⚡ DISPATCHABLE + the run #51 ✕N tab chip) and the SCHEDULER (cron firer). The scheduler's `enabled`/`running`/`ticks`/`fired`/
+`errors`/`last_error` block from `/api/mc/cron` had **NO UI surface anywhere** — an operator could see the dispatcher faulted but was blind to whether the
+cron daemon was alive, held jobs, had fired, or errored. Added a glance-level **`⏱ SCHED` chip** in the ⊙ AUTONOMY header (clean HEAD-tracked
+`src/components/AutonomyDrawer.tsx`, 100% mine — last touched by run #51), mirroring the dispatcher signal with a strict priority: RED **`⏱ SCHED OFF`**
+(not running/enabled → due jobs can't fire) > RED **`⏱ SCHED ✕N`** (fire errors, `last_error` in tooltip) > EMERALD **`⏱ SCHED ●N`** (alive, N jobs) >
+dim **`⏱ SCHED · idle`** (alive, 0 jobs — honest drained steady state). Implementation (all in `AutonomyDrawer.tsx`): import `getMcCron`; a `Sched` state
+type; a 4th poll leg `p4 = getMcCron()` added to the existing badge-poll cycle (and to its `Promise.all` freshness stamp) with the same graceful degrade (a
+rejected fetch or an absent `scheduler` block keeps the prior value / suppresses the chip — never a wrong signal); a `schedChip` resolver computed beside
+`ageLabel`/`stale`; and the chip rendered before the run #41 freshness `↻` chip in the header. **Zero new endpoint** — `getMcCron()` (HEAD api.ts `:634`,
+returns `jobs[]` + the `scheduler{}` block typed `CronSchedulerStatus` `:107`) already existed.
+
+**Step (c) deliberately NOT executed — and discovered why it would have backfired.** The run #52 handoff suggested seeding a `reconcile` maintenance cron
+to let the daemon prove itself. Checked the live process first: **working-tree `mc_store.py:41` is `MAINTENANCE_ACTIONS = {"sweep"}`** — the run #52 island
+landed `reconcile` into **HEAD only** (`git show HEAD:mc_store.py` → `:44 {"sweep", "reconcile"}`), leaving the working tree (= the running bridge)
+unchanged. So `POST /api/mc/cron {action:"reconcile"}` would fire → `run_maintenance("reconcile")` raises (unknown action) → the scheduler logs an error →
+my new chip shows a **FALSE `✕N`**. The daemon therefore has NO action it can safely fire today (`sweep`'s `promote_ready` tail → autonomous `claude`,
+operator-gated; `reconcile` not in the running process). Honest call: ship the verified chip, do not manufacture a fault. Logged the precise unblock in TO-DO.
+
+**Verify.** `npm run build` ✅ (tsc + vite, 732ms); `npx eslint src/components/AutonomyDrawer.tsx` ✅ (0 issues). **Proven LIVE** (Vite :5219 via
+`preview_start`, bridge UP; `#/operations` → clicked ⊙ AUTONOMY): the header chip rendered **`⏱ SCHED · idle`** with tooltip "cron scheduler LIVE but
+holding 0 jobs (nothing to fire) — seed one in the ⏱ CRON modal; 0 fired" — matching `/api/mc/cron` EXACTLY (`enabled:true running:true`, 0 jobs, 0 fired,
+0 errors); `preview_console_logs level=error` = **No console logs** (0 errors). `graphify update .` ✅ (2021 nodes, 3811 edges).
+
+**Files touched:** `src/components/AutonomyDrawer.tsx` (run #53 comment block + `getMcCron` import + `Sched` state + `p4` poll leg + `schedChip` resolver +
+header chip render), `.mc/LOOP_STATE.md` (this entry + TO-DO/STATUS/GAPS rewrite). **Commit: AutonomyDrawer.tsx (whole file, 100% mine) + LOOP_STATE** on
+`auto/loop-reconcile-20260615`, local only. Sibling-loop WIP (the ~30 other modified files) left untouched.
 
 ### 2026-06-19 — Run #52 (🧹 RECONCILE MAINTENANCE ACTION — a terminal-safe, no-`claude` hygiene job the scheduler daemon can finally fire)
 

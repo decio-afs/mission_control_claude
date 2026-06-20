@@ -76,12 +76,29 @@
 // last_error ride the SAME getDispatcher poll the badge already runs (both are on
 // DispatcherStatus in HEAD's api.ts). Read-only — it surfaces the fault; clearing/retrying a
 // timed-out dispatch is the operator's action inside the RUN STATE panel.
+//
+// Run #53: a SCHEDULER-DAEMON health chip in the surface header. Mission Control runs two
+// sibling autonomy daemons that tick in lockstep every 30s — the DISPATCHER (fires claude
+// turns for ready tasks) and the SCHEDULER (fires due cron jobs). The dispatcher's health is
+// now richly surfaced (the ▶ RUN STATE panel in ⚡ DISPATCHABLE + the run #51 ✕N tab chip),
+// but the scheduler daemon — its enabled/running/ticks/fired/errors/last_error block from
+// /api/mc/cron — had NO UI surface anywhere: an operator glancing at ⊙ AUTONOMY could see the
+// dispatcher had faulted but was blind to whether the cron daemon was even alive, how many
+// jobs it held, whether it had ever fired, or whether it had errored. This adds a glance-level
+// "⏱ SCHED" chip next to the ● LIVE toggle, mirroring the dispatcher signal: RED "OFF" when the
+// daemon isn't running/enabled (due jobs will never fire), RED "✕N" when it has logged fire
+// errors (last_error in the tooltip), EMERALD "●N" when alive with N jobs registered, and a dim
+// "idle" when alive but holding zero jobs (the honest drained-scheduler steady state — alive,
+// nothing to fire). Zero new endpoint — it rides getMcCron() (already in HEAD's api.ts, returns
+// jobs[] + the scheduler{} liveness block) on the SAME poll cycle as the tab badges, with the
+// same graceful degrade (a failed/absent scheduler block suppresses the chip, never a wrong
+// signal). Read-only — seeding/fixing cron jobs is the operator's action in the ⏱ CRON modal.
 import { useState, useEffect } from 'react';
 import EventFeedDrawer from './EventFeedDrawer';
 import BlockedTasksDrawer from './BlockedTasksDrawer';
 import WebAccessDrawer from './WebAccessDrawer';
 import DispatchableDrawer from './DispatchableDrawer';
-import { getWebAccessAudit, getMcTasks, getDispatcher } from '../lib/api';
+import { getWebAccessAudit, getMcTasks, getDispatcher, getMcCron } from '../lib/api';
 
 type Tab = 'activity' | 'blocked' | 'webaccess' | 'dispatch';
 
@@ -144,6 +161,11 @@ export default function AutonomyDrawer({
   // Run #51: the dispatcher's most recent run error (status.last_error), shown in the ⚡
   // DISPATCHABLE fault chip's tooltip. null when the loop is clean or not yet loaded.
   const [lastError, setLastError] = useState<string | null>(null);
+  // Run #53: scheduler-daemon liveness for the header ⏱ SCHED chip. null = not yet loaded /
+  // fetch failed / no scheduler block in the response (chip suppressed — never a wrong signal).
+  // `jobs` is the count of registered cron jobs; the rest mirror /api/mc/cron's scheduler{}.
+  type Sched = { running: boolean; enabled: boolean; jobs: number; fired: number; errors: number; lastError: string | null; lastFiredId: string | null };
+  const [sched, setSched] = useState<Sched | null>(null);
   // ● LIVE (default) vs ⏸ PAUSED — the operator can stop the badge poll (e.g. to stop the
   // network churn while reading). Pausing keeps the last-fetched counts on screen.
   const [paused, setPaused] = useState(false);
@@ -175,10 +197,25 @@ export default function AutonomyDrawer({
           if (!cancelled) setLastError(d.status.last_error);
         })
         .catch(() => { /* keep prior dispatchable / webGap / errors */ });
+      // Run #53: the scheduler daemon's liveness for the header ⏱ SCHED chip. Same graceful
+      // degrade — a rejected fetch or an absent scheduler block keeps the prior value (steady
+      // chip), and the FIRST load leaving it null simply suppresses the chip (never a wrong signal).
+      const p4 = getMcCron()
+        .then((c) => {
+          if (cancelled) return;
+          const s = c.scheduler;
+          if (!s) { setSched(null); return; }
+          setSched({
+            running: s.running, enabled: s.enabled, jobs: c.jobs.length,
+            fired: s.fired, errors: s.errors,
+            lastError: s.last_error ?? null, lastFiredId: s.last_fired_id ?? null,
+          });
+        })
+        .catch(() => { /* keep prior sched */ });
       // Stamp freshness once the whole cycle has settled (each leg's .catch resolves, so
       // allSettled-equivalent — a fully-failed cycle still stamps, marking "we tried just now"
       // while the badges honestly keep their last good values).
-      Promise.all([p1, p2, p3]).then(() => { if (!cancelled) setLastRefresh(Date.now()); });
+      Promise.all([p1, p2, p3, p4]).then(() => { if (!cancelled) setLastRefresh(Date.now()); });
     };
     fetchOnce(); // immediate snapshot on open / resume
     // Only spin the interval when live; pausing tears it down (keyed on `paused` below).
@@ -204,6 +241,25 @@ export default function AutonomyDrawer({
     : ageSeconds < 60 ? `${ageSeconds}s`
     : `${Math.floor(ageSeconds / 60)}m${ageSeconds % 60}s`;
   const stale = ageSeconds != null && now - (lastRefresh ?? 0) > REFRESH_MS * 2;
+
+  // Run #53: resolve the header ⏱ SCHED chip — a glance-level health signal for the cron
+  // scheduler daemon, mirroring the dispatcher's fault chip. null suppresses the chip (status
+  // not yet loaded / no scheduler block). Priority: OFF (down — due jobs can't fire) > ✕N
+  // (fired-error) > ●N (alive, N jobs) > idle (alive, zero jobs registered — honest steady state).
+  const schedChip: { label: string; tone: string; title: string } | null = (() => {
+    if (!sched) return null;
+    const red = 'border-red-400/40 bg-red-400/15 text-red-300';
+    const emerald = 'border-emerald-400/40 bg-emerald-400/15 text-emerald-300';
+    const dim = 'border-white/10 bg-white/[0.04] text-[#888]';
+    const firedNote = `${sched.fired} fired${sched.lastFiredId ? ` (last ${sched.lastFiredId})` : ''}`;
+    if (!sched.running || !sched.enabled)
+      return { label: '⏱ SCHED OFF', tone: red, title: `cron scheduler daemon is ${sched.enabled ? 'enabled but not running' : 'disabled'} — due jobs will not fire (${sched.jobs} job${sched.jobs === 1 ? '' : 's'} registered)` };
+    if (sched.errors > 0)
+      return { label: `⏱ SCHED ✕${sched.errors}`, tone: red, title: `cron scheduler logged ${sched.errors} fire error${sched.errors === 1 ? '' : 's'}${sched.lastError ? ` — last: ${sched.lastError}` : ''} — ${sched.jobs} job${sched.jobs === 1 ? '' : 's'}, ${firedNote}` };
+    if (sched.jobs > 0)
+      return { label: `⏱ SCHED ●${sched.jobs}`, tone: emerald, title: `cron scheduler LIVE — ${sched.jobs} job${sched.jobs === 1 ? '' : 's'} registered, ${firedNote}` };
+    return { label: '⏱ SCHED · idle', tone: dim, title: `cron scheduler LIVE but holding 0 jobs (nothing to fire) — seed one in the ⏱ CRON modal; ${firedNote}` };
+  })();
 
   // Resolve a tab's badge: a count + tone (+ an optional amber `warn` segment), or null to
   // render no badge. Suppressed when the count is unknown (fetch pending/failed) or zero
@@ -288,6 +344,16 @@ export default function AutonomyDrawer({
             })}
           </div>
           <div className="flex items-center gap-2">
+            {/* run #53: scheduler-daemon health chip — the cron daemon's liveness at a glance,
+                the sibling signal to the dispatcher's ✕N tab chip. Suppressed until the first
+                poll resolves a scheduler block. */}
+            {schedChip && (
+              <span
+                title={schedChip.title}
+                className={`px-1 rounded-sm border text-[9px] leading-none tracking-[0.1em] tabular-nums ${schedChip.tone}`}>
+                {schedChip.label}
+              </span>
+            )}
             {/* run #41: freshness chip — age of the last completed poll cycle. Dim when
                 fresh; amber once provably stale (paused or the poll wedged). */}
             {ageLabel && (
