@@ -62,6 +62,7 @@ import {
   getMcCron,
   getMcTasks,
   promoteReady,
+  getWebAccessAudit,
   errMessage,
   type DispatcherStatus,
   type DispatchablePlan,
@@ -111,6 +112,13 @@ export default function DispatchableDrawer({
   const [promoting, setPromoting] = useState(false);
   const [promotePreview, setPromotePreview] = useState<PromoteReadyResult | null>(null);
   const [promoteMsg, setPromoteMsg] = useState<string | null>(null);
+  // Run #58: names of agents that need the live web but have no web MCP (the
+  // ⚿ WEB-ACCESS audit's `gap` rows), fetched best-effort alongside the dry-run
+  // preview. `promote_ready` does NOT skip web-gapped tasks (web-gap is not its
+  // concern), so a web-gapped-but-otherwise-promotable task lands in the preview's
+  // `promoted` list — confirming it lets the dispatcher claim it, then it bounces.
+  // This set lets the preview strip WARN which promotions would hit that gap.
+  const [promoteWebGapAgents, setPromoteWebGapAgents] = useState<string[]>([]);
   // Holds the latest resolved titles so the polling closure can decide whether a
   // task-list re-fetch is needed without re-subscribing the effect on every change.
   const titlesRef = useRef<Record<string, string>>({});
@@ -162,6 +170,16 @@ export default function DispatchableDrawer({
   }, [open, paused]);
 
   const webGaps = useMemo(() => plan.filter((p) => p.web_gap).length, [plan]);
+  // Which previewed promotions would land in a web-gap — their assignee is on the
+  // audit's `gap` list (needs the live web, no web MCP). Mirrors the per-row web_gap
+  // ⚠ the ready queue already shows, but for the todo → ready promote *preview* (the
+  // dispatchable plan only covers `ready` tasks, so the promote candidates carried no
+  // such signal until now). Empty when the audit was unavailable → no false warning.
+  const promoteWebGapSet = useMemo(() => new Set(promoteWebGapAgents), [promoteWebGapAgents]);
+  const promoteWebGapHits = useMemo(
+    () => (promotePreview?.promoted ?? []).filter((t) => promoteWebGapSet.has(t.assignee)),
+    [promotePreview, promoteWebGapSet],
+  );
   // Resolve an id to its title (falling back to the raw id if the task is gone).
   const titleOf = (id: string) => titles[id] || id;
 
@@ -180,16 +198,27 @@ export default function DispatchableDrawer({
     setPromoting(true);
     setPromoteMsg(null);
     try {
+      // The dry-run is the core (must succeed). The web-access audit is a best-effort
+      // overlay so the preview can warn which promotions would land in a web-gap; an
+      // older bridge that 404s the audit just yields no warning (the promote still works).
       const res = await promoteReady({ dryRun: true });
       if (res.promoted.length === 0) {
         // Nothing to promote — report the honest no-op, skip the confirm step.
         setPromotePreview(null);
+        setPromoteWebGapAgents([]);
         setPromoteMsg(res.message || 'promote: no actionable todo tasks');
       } else {
+        let gapped: string[] = [];
+        try {
+          const audit = await getWebAccessAudit();
+          gapped = audit.agents.filter((a) => a.gap).map((a) => a.name);
+        } catch { /* audit unavailable → no overlay; the preview is still valid */ }
+        setPromoteWebGapAgents(gapped);
         setPromotePreview(res);
       }
     } catch (e) {
       setPromotePreview(null);
+      setPromoteWebGapAgents([]);
       setPromoteMsg(errMessage(e));
     } finally {
       setPromoting(false);
@@ -202,6 +231,7 @@ export default function DispatchableDrawer({
     try {
       const res = await promoteReady();
       setPromotePreview(null);
+      setPromoteWebGapAgents([]);
       setPromoteMsg(res.message || `promoted ${res.promoted.length}`);
     } catch (e) {
       setPromoteMsg(errMessage(e));
@@ -284,19 +314,34 @@ export default function DispatchableDrawer({
         {(promotePreview != null || promoteMsg != null) && (
           <div className="shrink-0 px-3 py-2 border-b border-white/10 bg-sky-500/[0.04] text-[10px] leading-relaxed">
             {promotePreview != null ? (
-              <div className="flex items-start gap-2">
-                <span className="shrink-0 text-sky-300/90">▲ would promote {promotePreview.promoted.length} todo → ready:</span>
-                <span className="flex-1 min-w-0 text-[#c8c8c8]" title={promotePreview.promoted.map((t) => t.title || t.id).join(', ')}>
-                  {promotePreview.promoted.map((t) => t.title || t.id).join(', ')}
-                </span>
-                <button onClick={applyPromote} disabled={promoting}
-                  className="shrink-0 border border-emerald-400/40 text-emerald-300/90 px-2 py-0.5 rounded-sm hover:border-emerald-400/70 disabled:opacity-40">
-                  {promoting ? '…' : '✓ CONFIRM'}
-                </button>
-                <button onClick={() => { setPromotePreview(null); setPromoteMsg(null); }} disabled={promoting}
-                  className="shrink-0 border border-white/15 text-[#aaa] px-2 py-0.5 rounded-sm hover:border-white/30 disabled:opacity-40">
-                  ✕ CANCEL
-                </button>
+              <div className="space-y-1">
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 text-sky-300/90">▲ would promote {promotePreview.promoted.length} todo → ready:</span>
+                  <span className="flex-1 min-w-0 text-[#c8c8c8]" title={promotePreview.promoted.map((t) => t.title || t.id).join(', ')}>
+                    {promotePreview.promoted.map((t) => t.title || t.id).join(', ')}
+                  </span>
+                  <button onClick={applyPromote} disabled={promoting}
+                    className="shrink-0 border border-emerald-400/40 text-emerald-300/90 px-2 py-0.5 rounded-sm hover:border-emerald-400/70 disabled:opacity-40">
+                    {promoting ? '…' : '✓ CONFIRM'}
+                  </button>
+                  <button onClick={() => { setPromotePreview(null); setPromoteWebGapAgents([]); setPromoteMsg(null); }} disabled={promoting}
+                    className="shrink-0 border border-white/15 text-[#aaa] px-2 py-0.5 rounded-sm hover:border-white/30 disabled:opacity-40">
+                    ✕ CANCEL
+                  </button>
+                </div>
+                {/* Web-gap warning (run #58): some of the would-promote set are assigned to
+                    agents that need the live web but have no web MCP — promoting them lets the
+                    dispatcher claim them, then they bounce. Surface it BEFORE confirm so the
+                    operator can CANCEL and provision web access (⚿ WEB-ACCESS) first. */}
+                {promoteWebGapHits.length > 0 && (
+                  <div className="flex items-start gap-2 text-amber-300/90">
+                    <span className="shrink-0">⚠ {promoteWebGapHits.length} of these would land in a web-gap:</span>
+                    <span className="flex-1 min-w-0 text-amber-200/70"
+                      title={promoteWebGapHits.map((t) => `${t.title || t.id} → ${t.assignee}`).join(', ')}>
+                      {promoteWebGapHits.map((t) => `${t.title || t.id} (${t.assignee})`).join(', ')} — assignee needs the live web but has no web MCP; the dispatcher will claim then bounce them. Provision web-brave-free / BRAVE_SEARCH_API_KEY (⚿ WEB-ACCESS) first, or CANCEL and promote the rest per-task.
+                    </span>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-2">
