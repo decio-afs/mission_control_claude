@@ -10,7 +10,26 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
-0. **✅ DONE this run (#50) — ⤴ LANDED THE PROMOTE-READY ENDPOINT ISLAND INTO HEAD — closed the LAST committed-but-404 pair; api.ts↔bridge contract now COMPLETE.**
+0. **✅ DONE this run (#51) — ✕ DISPATCHER-FAULT CHIP ON THE ⊙ AUTONOMY TAB BAR — the at-a-glance autonomy-failure signal that was missing now the dispatcher is LIVE+ON+erroring.**
+   First re-ran run #50's full programmatic scan (every HEAD `src/lib/api.ts` `/api/mc/*` path vs every HEAD `mission-control-bridge.py` `@app.<verb>` route): **0 committed-but-404 pairs** — the contract is still
+   FULLY CLOSED. Then corrected a stale gap-A′ assumption: the dispatcher's in-drawer **▶ RUN STATE** panel (`in_flight`/`dispatched`/`errors`/`last_error`/`last_dispatched_id`) ALREADY exists and is reachable in HEAD
+   (built runs #28–#30 inside `DispatchableDrawer.tsx`, mounted via AutonomyDrawer→OperationsCenter). What was genuinely MISSING was the **glance-level** fault signal: the ⚡ DISPATCHABLE *tab badge* (runs #38–#40)
+   surfaced ready-count + web-gap split but NOTHING about a *fault* — and its emerald count pill is suppressed on an empty queue (the drained-board steady state), so it couldn't carry the signal even if it tried.
+   Now that the dispatcher is **ON and has errored** (`/api/mc/dispatcher` `errors:1`, `last_error:"t_a33fad25: claude timed out after 900s"`), an operator glancing at ⊙ AUTONOMY couldn't see the autonomous loop had
+   faulted without opening the tab. **Built** a SEPARATE red `✕N` chip on the ⚡ DISPATCHABLE tab button in `src/components/AutonomyDrawer.tsx` (a CLEAN HEAD-tracked file — only `OperationsCenter.tsx` carries sibling WIP
+   now; the drawer lane has quieted), decoupled from the ready-count gate so it shows even with an empty queue, with the live `last_error` in its tooltip. **Zero new dep / endpoint** — `status.errors`/`status.last_error`
+   ride the SAME `getDispatcher` poll the badge already runs (both on `DispatcherStatus` in HEAD api.ts `:189`/`:191`); extended the `Badges` type + added a `lastError` state. **Proven LIVE** (Vite :5219, bridge UP,
+   `#/operations` → ⊙ AUTONOMY → ⚡ DISPATCHABLE): tab rendered **`⚡ DISPATCHABLE✕1`** with the emerald count pill correctly SUPPRESSED (`dispatchable:0`), tooltip = `"dispatcher has logged 1 run error — last: t_a33fad25:
+   claude timed out after 900s — open ⚡ DISPATCHABLE → ▶ RUN STATE"` — matching the live endpoint EXACTLY; **0 console errors** (`preview_screenshot` timed out — same renderer hiccup as runs #34–#40; DOM/data/tooltip
+   proof via `preview_eval` is conclusive). **HEALTH: bridge UP** (`/api/ping` `uptime ~8593s`); dispatcher LIVE+ON (287 ticks, **dispatched 13**, in_flight empty, errors:1 historical); scheduler daemon LIVE (287 ticks,
+   **0 jobs**, 0 fired); gateway graceful-empty. **ORCHESTRATION (clean, drained):** board `done 31 · archived 1`, **zero** blocked/failed/ready/running; `reconcile` = "no stale claims found"; diagnostics empty — nothing
+   to claim/unblock/reassign. **VERIFY:** `npm run build` ✅ (706ms, 163 mods); `npx eslint AutonomyDrawer.tsx` ✅ (0 issues); `graphify update .` ✅. **Commit: AutonomyDrawer.tsx island + LOOP_STATE.**
+   **Next (run #52):** (a) the api.ts↔bridge committed-but-404 class stays CLOSED — re-run the scan to confirm before any island-lane work. (b) The single biggest IDLE gap is now **the content pipeline: cron has 0 jobs
+   registered**, so sentinel (7:00) + content-engine (7:30) never fire on their own (the live scheduler daemon has fired 0 times — it's proven nothing). Seeding them needs `claude`-kind prompt jobs whose exact prompts
+   aren't documented (only `sweep` is a `maintenance` action) → treat as an **operator-gated** switch (like the dispatcher OFF gate was), do NOT force daily autonomous `claude` jobs unattended; surface it, let the operator
+   seed via the ⏱ CRON modal (it already supports both kinds). A safe, in-lane BUILD candidate if you want the daemon to prove itself: add a `reconcile`-style **maintenance action** (board self-heal beyond `sweep`) so a
+   no-`claude` hygiene job is schedulable. (c) If a sibling adds a NEW api.ts client, land its backend as the next island. NEVER `subprocess(text=True)` on a git blob (UTF-8 decode bytes). (See DONE Run #51.) —
+   _Prior run #50 — ⤴ LANDED THE PROMOTE-READY ENDPOINT ISLAND INTO HEAD — closed the LAST committed-but-404 pair; api.ts↔bridge contract now COMPLETE.**
    Discharged run #49's handoff. Ran the full scan (programmatic diff of every `/api/mc/*` path in HEAD `src/lib/api.ts` against every `@app.<verb>` route in HEAD
    `mission-control-bridge.py`): **exactly ONE** committed-but-404 pair remained — `POST /api/mc/kanban/promote`. Run #49's note guessed "no `promoteReady` in HEAD api.ts" —
    that was **WRONG**: HEAD `src/lib/api.ts:596` ships `export async function promoteReady(...)` → `POST /api/mc/kanban/promote` (`:600`), so a clean checkout = `promoteReady` → 404.
@@ -405,7 +424,21 @@ below. `## DONE` is append-only history.
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
 
-_Last run: **2026-06-19 (Run #50)** — **⤴ LANDED THE PROMOTE-READY ENDPOINT ISLAND INTO HEAD — the LAST committed-but-404 pair; the
+_Last run: **2026-06-19 (Run #51)** — **✕ DISPATCHER-FAULT CHIP ON THE ⊙ AUTONOMY TAB BAR.** The committed-but-404 contract is still FULLY CLOSED
+(re-ran run #50's scan → 0 pairs). Corrected gap A′: the dispatcher's in-drawer **▶ RUN STATE** panel already exists/reachable (runs #28–#30,
+`DispatchableDrawer.tsx`); the genuinely-MISSING piece was the **glance-level** fault signal. The ⚡ DISPATCHABLE tab badge (runs #38–#40) showed
+ready-count + web-gap but nothing about a *fault*, and its emerald pill is suppressed on an empty queue — so a faulted autonomous loop was invisible
+at the tab bar. Now the dispatcher is **ON and erroring** (`/api/mc/dispatcher` `errors:1`, `last_error` = a 900s `claude` timeout), I added a separate
+red **`✕N`** chip on the ⚡ DISPATCHABLE tab button in `src/components/AutonomyDrawer.tsx` (clean HEAD-tracked file), decoupled from the count gate so it
+shows on an empty queue, with the live `last_error` in its tooltip. Zero new dep/endpoint (`status.errors`/`last_error` on the existing `getDispatcher`
+poll; both in HEAD api.ts `:189`/`:191`). **Proven LIVE** (Vite :5219): tab = `⚡ DISPATCHABLE✕1`, emerald count correctly suppressed (`dispatchable:0`),
+tooltip carries the exact live `last_error`; 0 console errors (`preview_screenshot` timed out — runs #34–#40 renderer hiccup; DOM/data proof conclusive).
+**HEALTH: bridge UP** (`/api/ping` `uptime ~8593s`); dispatcher LIVE+ON (287 ticks, **dispatched 13**, in_flight empty, errors:1 historical); scheduler
+daemon LIVE (287 ticks, **0 jobs**, 0 fired); gateway graceful-empty. **ORCHESTRATION (clean, fully drained):** board `done 31 · archived 1`, **zero**
+blocked/failed/ready/running; `reconcile` = no stale claims; diagnostics empty — nothing to orchestrate. **PIPELINES:** content chain IDLE — cron 0 jobs
+(sentinel/content-engine unseeded; operator-gated, NOT force-seeded). **VERIFY:** `npm run build` ✅ (706ms, 163 mods); `npx eslint AutonomyDrawer.tsx` ✅;
+`graphify update .` ✅. **Commit: AutonomyDrawer.tsx island + LOOP_STATE.** **Next (run #52): scan stays closed; biggest idle gap = unseeded content
+cron (operator-gated); optional safe build = a no-`claude` maintenance hygiene action.** — (superseded) Run #50 — **⤴ LANDED THE PROMOTE-READY ENDPOINT ISLAND INTO HEAD — the LAST committed-but-404 pair; the
 api.ts↔bridge route contract is now COMPLETE (0 remaining).** A full programmatic scan (every HEAD api.ts `/api/mc/*` path vs every HEAD
 bridge `@app.<verb>` route) left exactly one 404: `POST /api/mc/kanban/promote`. HEAD `src/lib/api.ts:596` ships `promoteReady()` → that path,
 but HEAD bridge served neither `class PromoteReadyPayload` nor the route (store dep `promote_ready` was already in HEAD `mc_store.py:1319`). Clean
@@ -828,13 +861,14 @@ A. ✅ **Committed-frontend↔unserved-backend route gaps — CLASS FULLY CLOSED
    programmatic scan (every HEAD api.ts `/api/mc/*` path vs every HEAD bridge `@app.<verb>` route) now shows ZERO committed-but-404
    pairs remaining.** Re-run that scan at the top of run #51 to confirm before declaring the class re-opened. The island lane should
    now pivot (see gap A′ below).
-A′. ⬜ **Dispatcher RUN-HEALTH has no reachable UI surface (NEW — highest-value MISSING, surfaced run #50).** The dispatcher went
-   LIVE-AND-ON this run (`/api/mc/dispatcher` `enabled:true running:true`, dispatched:8, in_flight, errors:1, last_error). The
-   AutonomyDrawer's ⚡ DISPATCHABLE tab shows only the *plan* (what would fire next); nothing reachable shows actual RUN STATE —
-   `in_flight` / `dispatched` / `errors` / `last_error` / `last_dispatched_id`. Now that real `claude` turns fire (and one timed
-   out + self-healed this run), the operator can't see live throughput or failures without curling. Build: a RUN-HEALTH strip/tab
-   reading `/api/mc/dispatcher` (`getDispatcher` already in HEAD api.ts). Caveat: lives in the sibling-congested
-   `OperationsCenter`/`AutonomyDrawer` lane — weigh an isolated island (proven `hash-object` technique) vs. waiting for the tree to quiet.
+A′. ✅ **Dispatcher RUN-HEALTH observability — CLOSED (run #50 premise was partly stale; finished run #51).** Run #50's note said "nothing
+   reachable shows actual RUN STATE" — **that was wrong**: `DispatchableDrawer.tsx`'s **▶ RUN STATE** panel (built runs #28–#30) already
+   renders `in_flight` (deep-linked) + last-dispatch outcome + `ticks`/`dispatched`/`errors`/`last_error`, and it IS reachable in HEAD
+   (AutonomyDrawer ⚡ DISPATCHABLE tab → OperationsCenter ⊙ AUTONOMY button, mounted HEAD `OperationsCenter:314`). The only genuinely-MISSING
+   piece was the **glance-level** signal — the tab badge (runs #38–#40) showed ready-count + web-gap but no *fault*, and its emerald pill is
+   suppressed on a drained board. **Run #51** added the red **`✕N` dispatcher-fault chip** on the ⚡ DISPATCHABLE tab button
+   (`AutonomyDrawer.tsx`, clean-island commit), decoupled from the count gate, `last_error` in tooltip — proven LIVE against `errors:1`.
+   So both the deep view (RUN STATE panel) and the glance view (fault chip) now exist. Nothing left here.
 0. ✅ **Dispatch-queue legibility (BUILT run #27).** The dispatcher was LIVE-but-OFF and FED (`dispatchable`=8) but the
    readiness queue had no UI home — the operator couldn't see what would fire next without curling `/api/mc/dispatcher`.
    Built `DispatchableDrawer.tsx` (⚡ DISPATCHABLE), pure-frontend (`getDispatcher()` already in HEAD), listing the queue
@@ -1117,6 +1151,49 @@ A′. ⬜ **Dispatcher RUN-HEALTH has no reachable UI surface (NEW — highest-v
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-19 — Run #51 (✕ DISPATCHER-FAULT CHIP ON THE ⊙ AUTONOMY TAB BAR — the missing glance-level autonomy-failure signal)
+
+**Orient + scan.** Re-ran run #50's full programmatic scan (every HEAD `src/lib/api.ts` `/api/mc/*` path vs every HEAD `mission-control-bridge.py`
+`@app.<verb>` route): **0 committed-but-404 pairs** — the api.ts↔bridge contract is still FULLY CLOSED. Health green: bridge UP (`/api/ping`
+`uptime ~8593s`), dispatcher LIVE+ON (`/api/mc/dispatcher` `enabled:true running:true`, 287 ticks, **dispatched 13**, in_flight empty, `errors:1`,
+`last_error:"t_a33fad25: claude timed out after 900s"` — historical), scheduler daemon LIVE (287 ticks, **0 jobs**, 0 fired), gateway graceful-empty.
+
+**Orchestration (clean, fully drained).** Board `done 31 · archived 1` — **zero** blocked/failed/ready/running; `reconcile` (live) = "no stale claims
+found"; `kanban/diagnostics` = `[]`. Nothing to claim, unblock, reassign, or reclaim — the dispatcher drained the board autonomously (one task timed
+out @900s → auto-requeued → re-claimed → completed; the requeue-on-timeout self-heal is working).
+
+**Gap (corrected).** Run #50's gap-A′ claimed "nothing reachable shows the dispatcher's RUN STATE." Inspecting `DispatchableDrawer.tsx` showed that was
+**stale**: the **▶ RUN STATE** panel (built runs #28–#30) already renders `in_flight` (deep-linked) + last-dispatch outcome + `ticks`/`dispatched`/`errors`/
+`last_error`, reachable via AutonomyDrawer ⚡ DISPATCHABLE → OperationsCenter ⊙ AUTONOMY (HEAD `OperationsCenter:314`). The genuinely-MISSING piece was the
+**glance-level** signal: the ⚡ DISPATCHABLE *tab badge* (runs #38–#40) carried ready-count + web-gap split but nothing about a *fault*, and its emerald
+count pill is suppressed on an empty queue — so now that the dispatcher is ON and has errored, a faulted autonomous loop was invisible at the tab bar.
+
+**Build (clean island — drawer lane has quieted).** `git status` showed `AutonomyDrawer.tsx` is **HEAD-tracked AND clean** (only `OperationsCenter.tsx`
+carries sibling WIP now — a change from runs #37–#45 when the drawer was congested), so this is a direct committable edit, not a `hash-object` island.
+Added to `src/components/AutonomyDrawer.tsx`: (1) extended the `Badges` type with `errors: number | null` + a `lastError` state; (2) the existing
+`getDispatcher` poll leg now also sets `errors: d.status.errors` and `setLastError(d.status.last_error)` (guarded by the same `cancelled` flag); (3) a
+SEPARATE red `✕N` chip on the ⚡ DISPATCHABLE tab button, rendered whenever `badges.errors > 0` — **decoupled from the ready-count gate** so it shows even
+on a drained board — with `last_error` in its tooltip pointing to the ▶ RUN STATE panel. **Zero new dep / endpoint** (`status.errors`/`last_error` are on
+`DispatcherStatus` in HEAD api.ts `:189`/`:191`, already polled). Read-only — surfaces the fault; clearing/retrying a timed-out dispatch stays an operator
+action in the RUN STATE panel.
+
+**Verify.** `npm run build` ✅ (706ms, 163 modules); `npx eslint src/components/AutonomyDrawer.tsx` ✅ (0 issues). **Proven LIVE** (Vite :5219, bridge UP,
+`#/operations` → ⊙ AUTONOMY → ⚡ DISPATCHABLE via `preview_eval`): tab text = **`⚡ DISPATCHABLE✕1`**, emerald count pill correctly SUPPRESSED
+(`dispatchable:0`), `outerHTML` confirms the red chip span, tooltip = `"dispatcher has logged 1 run error — last: t_a33fad25: claude timed out after 900s
+— open ⚡ DISPATCHABLE → ▶ RUN STATE"` — matching the live `/api/mc/dispatcher` (`errors:1`, identical `last_error`, `dispatchable:0`) EXACTLY; console
+clean (0 errors, only vite/React-DevTools info). `preview_screenshot` timed out (same renderer hiccup as runs #34–#40; DOM/data/tooltip proof conclusive).
+`graphify update .` ✅.
+
+**Files touched:** `src/components/AutonomyDrawer.tsx` (Badges type + `lastError` state + poll leg + tab-button chip + run #51 header comment),
+`.mc/LOOP_STATE.md` (this entry + TO-DO + OPERATIONAL STATUS + gap A′ tick). **Commit:** `AutonomyDrawer.tsx` + `LOOP_STATE.md` on the `auto/loop-*`
+branch, local only — staged ONLY these two files (working tree carries 30 sibling-WIP files, left untouched).
+
+**Next (run #52).** (a) Re-run the committed-but-404 scan (expected: still 0). (b) Biggest IDLE gap = the content pipeline: **cron has 0 jobs**, so
+sentinel (7:00) + content-engine (7:30) never fire — the live scheduler daemon has fired 0 times. Seeding needs `claude`-kind prompt jobs (only `sweep`
+is a `maintenance` action) whose exact prompts aren't documented → **operator-gated, do NOT force unattended**; the ⏱ CRON modal already supports both
+kinds. (c) Safe in-lane BUILD if you want the daemon to prove itself: add a no-`claude` **maintenance hygiene action** (e.g. `reconcile`) to
+`MAINTENANCE_ACTIONS`/`run_maintenance` so a board-self-heal job is schedulable without a `claude` turn. NEVER `subprocess(text=True)` on a git blob.
 
 ### 2026-06-19 — Run #50 (⤴ LANDED THE PROMOTE-READY ENDPOINT ISLAND INTO HEAD — the LAST committed-but-404 pair; api.ts↔bridge contract COMPLETE)
 

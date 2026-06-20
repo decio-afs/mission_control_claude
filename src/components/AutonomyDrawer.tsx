@@ -62,6 +62,20 @@
 // provably stale — paused, or the poll stopped). Pure-frontend, no new dep, no new endpoint;
 // it reads only the timing of the existing run #39 poll. The designated (b') increment — the
 // in_flight pulse (a) stays gated until the dispatcher fires (dispatched:0, TO-DO #1 unrun).
+//
+// Run #51: a DISPATCHER-ERROR attention marker on the ⚡ DISPATCHABLE tab. The dispatcher is
+// now LIVE and ON (run #50) and genuinely firing real claude turns — which means it can FAIL
+// (a task that times out increments status.errors and stamps last_error). Runs #38–#40 gave
+// the tab badge a ready-count + web-gap split, but a *fault* in the autonomous loop was
+// invisible at the tab bar: the operator only saw it after opening ⚡ DISPATCHABLE and reading
+// the ▶ RUN STATE panel. And the existing emerald count pill is suppressed when the queue is
+// empty (the drained-board steady state), so it couldn't carry the signal even if it tried.
+// This adds a SEPARATE red "✕N" chip on the ⚡ DISPATCHABLE tab button, rendered whenever
+// status.errors > 0 — decoupled from the ready-count gate so it shows even with an empty queue
+// — with the live last_error in its tooltip. Zero new dep / endpoint: status.errors and
+// last_error ride the SAME getDispatcher poll the badge already runs (both are on
+// DispatcherStatus in HEAD's api.ts). Read-only — it surfaces the fault; clearing/retrying a
+// timed-out dispatch is the operator's action inside the RUN STATE panel.
 import { useState, useEffect } from 'react';
 import EventFeedDrawer from './EventFeedDrawer';
 import BlockedTasksDrawer from './BlockedTasksDrawer';
@@ -74,7 +88,9 @@ type Tab = 'activity' | 'blocked' | 'webaccess' | 'dispatch';
 // Live attention badges, fetched once per open. null = not yet loaded / fetch failed for
 // that field (badge suppressed). Each field is independently degradable. `webGap` is the
 // subset of `dispatchable` whose next-to-fire row needs a web MCP its agent lacks (run #40).
-type Badges = { missing: number | null; blocked: number | null; dispatchable: number | null; webGap: number | null };
+// `errors` is the dispatcher's cumulative run-error count (status.errors) — surfaced as a red
+// "✕N" fault chip on the ⚡ DISPATCHABLE tab, independent of the ready-count gate (run #51).
+type Badges = { missing: number | null; blocked: number | null; dispatchable: number | null; webGap: number | null; errors: number | null };
 
 // Persist the operator's last-open tab across sessions (run #34). The parent keys this
 // component on `open`, so every open is a fresh mount — without this the surface always
@@ -124,7 +140,10 @@ export default function AutonomyDrawer({
   // the three fetches degrades independently — on the FIRST load a failure leaves that field
   // null so its badge simply doesn't render (never a wrong number); on a LATER poll a failure
   // leaves the prior value untouched (the badge stays steady rather than flickering to absent).
-  const [badges, setBadges] = useState<Badges>({ missing: null, blocked: null, dispatchable: null, webGap: null });
+  const [badges, setBadges] = useState<Badges>({ missing: null, blocked: null, dispatchable: null, webGap: null, errors: null });
+  // Run #51: the dispatcher's most recent run error (status.last_error), shown in the ⚡
+  // DISPATCHABLE fault chip's tooltip. null when the loop is clean or not yet loaded.
+  const [lastError, setLastError] = useState<string | null>(null);
   // ● LIVE (default) vs ⏸ PAUSED — the operator can stop the badge poll (e.g. to stop the
   // network churn while reading). Pausing keeps the last-fetched counts on screen.
   const [paused, setPaused] = useState(false);
@@ -146,11 +165,16 @@ export default function AutonomyDrawer({
         .then((r) => set({ blocked: r.tasks.filter((t) => t.status === 'blocked').length }))
         .catch(() => { /* keep prior blocked */ });
       const p3 = getDispatcher()
-        .then((d) => set({
-          dispatchable: d.dispatchable.length,
-          webGap: d.dispatchable.filter((r) => r.web_gap).length,
-        }))
-        .catch(() => { /* keep prior dispatchable / webGap */ });
+        .then((d) => {
+          set({
+            dispatchable: d.dispatchable.length,
+            webGap: d.dispatchable.filter((r) => r.web_gap).length,
+            // Run #51: cumulative run-error count for the ⚡ DISPATCHABLE fault chip.
+            errors: d.status.errors,
+          });
+          if (!cancelled) setLastError(d.status.last_error);
+        })
+        .catch(() => { /* keep prior dispatchable / webGap / errors */ });
       // Stamp freshness once the whole cycle has settled (each leg's .catch resolves, so
       // allSettled-equivalent — a fully-failed cycle still stamps, marking "we tried just now"
       // while the badges honestly keep their last good values).
@@ -247,6 +271,16 @@ export default function AutonomyDrawer({
                     <span className={`ml-0.5 px-1 rounded-sm border text-[9px] leading-none tabular-nums ${badge.tone}`}>
                       {badge.count}
                       {badge.warn ? <span className="ml-0.5 text-amber-300">· {badge.warn}⚠</span> : null}
+                    </span>
+                  )}
+                  {/* run #51: dispatcher-fault chip — separate from the ready-count pill (which
+                      is suppressed on an empty queue) so an errored autonomous loop is visible
+                      at the tab bar even when nothing is queued. last_error in the tooltip. */}
+                  {t.key === 'dispatch' && badges.errors != null && badges.errors > 0 && (
+                    <span
+                      title={`dispatcher has logged ${badges.errors} run error${badges.errors === 1 ? '' : 's'}${lastError ? ` — last: ${lastError}` : ''} — open ⚡ DISPATCHABLE → ▶ RUN STATE`}
+                      className="ml-0.5 px-1 rounded-sm border text-[9px] leading-none tabular-nums border-red-400/40 bg-red-400/15 text-red-300">
+                      ✕{badges.errors}
                     </span>
                   )}
                 </button>
