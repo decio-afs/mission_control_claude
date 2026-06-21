@@ -89,6 +89,9 @@ export default function EventFeedDrawer({ open, onClose, onOpenTask, embedded }:
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState<Category | 'all'>('all');
+  // Free-text search (run #66): isolate one task's / one agent's events out of a
+  // 100+ row feed when the coarse category chips are too broad.
+  const [query, setQuery] = useState('');
   // True while showing the coarse /api/mc/activity fallback (older bridge).
   const [fallback, setFallback] = useState(false);
 
@@ -119,16 +122,27 @@ export default function EventFeedDrawer({ open, onClose, onOpenTask, embedded }:
     return () => { live = false; clearInterval(id); };
   }, [open, paused]);
 
+  // Free-text search applied FIRST, then the coarse category filter (AND), so
+  // the chip counts below reflect the searched subset (not the whole feed). A
+  // case-insensitive substring over each event's title + assignee + task_id +
+  // kind — pure view state over the already-fetched events, no new endpoint/poll.
+  const needle = query.trim().toLowerCase();
+  const searched = useMemo(
+    () => (needle === ''
+      ? events
+      : events.filter((e) => `${e.title} ${e.assignee ?? ''} ${e.task_id} ${e.kind}`.toLowerCase().includes(needle))),
+    [events, needle],
+  );
   // Per-category counts (for the chip badges) + the filtered slice, recomputed
-  // only when the event list or active filter changes.
+  // only when the searched list or active filter changes.
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: events.length, lifecycle: 0, dependency: 0, orchestration: 0 };
-    for (const e of events) { const cat = CATEGORY_OF[e.kind]; if (cat) c[cat] += 1; }
+    const c: Record<string, number> = { all: searched.length, lifecycle: 0, dependency: 0, orchestration: 0 };
+    for (const e of searched) { const cat = CATEGORY_OF[e.kind]; if (cat) c[cat] += 1; }
     return c;
-  }, [events]);
+  }, [searched]);
   const shown = useMemo(
-    () => (filter === 'all' ? events : events.filter((e) => CATEGORY_OF[e.kind] === filter)),
-    [events, filter],
+    () => (filter === 'all' ? searched : searched.filter((e) => CATEGORY_OF[e.kind] === filter)),
+    [searched, filter],
   );
 
   if (!open) return null;
@@ -168,6 +182,24 @@ export default function EventFeedDrawer({ open, onClose, onOpenTask, embedded }:
           </div>
         </div>
 
+        {/* free-text search over title · assignee · task_id · kind (run #66) */}
+        <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border-b border-white/[0.07]">
+          <span className="text-[#666] text-[11px]">⌕</span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="search title · assignee · task · kind…"
+            className="flex-1 min-w-0 bg-transparent border-none outline-none text-[11px] text-white placeholder:text-[#555]" />
+          {query && (
+            <button
+              onClick={() => setQuery('')}
+              title="clear search"
+              className="shrink-0 border border-white/10 text-[#888] hover:border-white/30 hover:text-[#b8b8b8] px-1 rounded-sm text-[10px]">
+              ✕
+            </button>
+          )}
+        </div>
+
         {/* filter chips — coarse categories over the fine event taxonomy */}
         <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border-b border-white/[0.07] text-[10px]">
           {FILTERS.map((f) => (
@@ -190,7 +222,16 @@ export default function EventFeedDrawer({ open, onClose, onOpenTask, embedded }:
             </div>
           )}
           {!loading && !error && events.length > 0 && shown.length === 0 && (
-            <div className="p-3 text-[#777]">No {filter} events in the last {events.length}.</div>
+            <div className="p-3 text-[#777]">
+              No {filter === 'all' ? '' : `${filter} `}events{needle ? <> match <span className="text-[#b8b8b8]">"{query.trim()}"</span></> : ` in the last ${events.length}`}.
+              {(needle || filter !== 'all') && (
+                <button
+                  onClick={() => { setQuery(''); setFilter('all'); }}
+                  className="ml-2 border border-white/10 px-1.5 py-0.5 rounded-sm text-[10px] text-[#888] hover:border-white/30 hover:text-[#b8b8b8]">
+                  ✕ clear
+                </button>
+              )}
+            </div>
           )}
           {shown.map((e, i) => {
             const { label, icon } = labelFor(e.kind);
