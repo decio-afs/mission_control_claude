@@ -72,6 +72,19 @@ import {
 
 const POLL_MS = 5000;
 
+// Run #68: compact human duration ("just now" / "42s" / "3m 7s" / "5h 12m" / "2d 4h"),
+// seconds-domain (the dispatcher's epoch fields are in SECONDS). Used by the ▶ RUN STATE
+// LIVENESS row for last-tick age + uptime — mirrors the helper the ⏱ SCHEDULER panel
+// (AutonomyDrawer) already uses, so the two daemons read the same way. Module-level
+// (no per-render allocation).
+function fmtDuration(secs: number): string {
+  if (secs < 1) return 'just now';
+  if (secs < 60) return `${Math.round(secs)}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+  return `${Math.floor(secs / 86400)}d ${Math.floor((secs % 86400) / 3600)}h`;
+}
+
 export default function DispatchableDrawer({
   open,
   onClose,
@@ -102,6 +115,12 @@ export default function DispatchableDrawer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  // Run #68: wall-clock captured each poll so the ▶ RUN STATE LIVENESS row's last-tick
+  // age + uptime advance against a fresh `now` even while `last_tick`/`started_at` are
+  // frozen in the payload. Advancing in the poll (not a separate ticker) is what catches
+  // a WEDGE: if the dispatcher tick thread dies, the FastAPI poll keeps answering (so
+  // fetchOnce still bumps `now`) while `last_tick` stops → the age grows → amber fires.
+  const [now, setNow] = useState(() => Date.now());
   // ▲ PROMOTE READY (run #56): wire the committed-but-uncalled `promoteReady` client
   // (landed run #50, never surfaced anywhere) to the one place it belongs — this queue,
   // which `promote_ready` feeds (todo → ready). Two-step + dry-run-first so it stays
@@ -137,6 +156,7 @@ export default function DispatchableDrawer({
         // getMcTasks, below). Cron feeds autonomy gate ②.
         const [info, cron] = await Promise.all([getDispatcher(), getMcCron()]);
         if (!live) return;
+        setNow(Date.now());
         setStatus(info.status);
         setCronJobs(cron.jobs.length);
         setScheduler(cron.scheduler ?? null);
@@ -422,6 +442,41 @@ export default function DispatchableDrawer({
                 {status.ticks} tick{status.ticks === 1 ? '' : 's'} · dispatched {status.dispatched} · errors {status.errors}
               </span>
             </div>
+
+            {/* LIVENESS (run #68) — the last-tick age is the ONLY proof the dispatcher
+                tick thread is actually alive. With the board drained and nothing in
+                flight, `running:true` + a raw tick count look identical whether the
+                thread is ticking or has WEDGED (the FastAPI route keeps answering while
+                `last_tick` freezes). This is the symmetric signal run #54 gave the
+                ⏱ SCHEDULER panel; the dispatcher — the more critical daemon — never had
+                it. Amber once the age exceeds 2× the tick interval (the wedge window). */}
+            {(() => {
+              const nowS = now / 1000;
+              const tickAge = status.last_tick != null ? Math.max(0, nowS - status.last_tick) : null;
+              const tickStale = tickAge != null && tickAge > status.tick_seconds * 2;
+              const uptime = status.started_at != null ? fmtDuration(nowS - status.started_at) : null;
+              return (
+                <div className={`mb-1.5 px-1 py-0.5 rounded-sm ${tickStale ? 'border border-amber-400/30 bg-amber-400/[0.08]' : ''}`}>
+                  <div className="flex items-center gap-2 text-[9px]">
+                    <span className="text-[#888] tracking-[0.12em]">LIVENESS</span>
+                    <span className={`tabular-nums ${tickStale ? 'text-amber-300' : tickAge == null ? 'text-[#777]' : 'text-emerald-300'}`}
+                      title={tickStale
+                        ? `last tick is older than 2× the ${status.tick_seconds}s interval — the dispatcher tick thread may be wedged even though it still reports ${status.running ? 'running' : 'stopped'}`
+                        : `the dispatcher tick thread is alive (tick interval ${status.tick_seconds}s)`}>
+                      {tickAge == null ? 'never ticked' : `⟳ ticked ${fmtDuration(tickAge)} ago`}
+                    </span>
+                    {uptime && (
+                      <span className="ml-auto tabular-nums text-[#666]" title="dispatcher uptime since it started">up {uptime}</span>
+                    )}
+                  </div>
+                  {tickStale && (
+                    <div className="mt-1 text-amber-300/80 text-[9px] leading-snug">
+                      ⚠ last tick is older than 2× the {status.tick_seconds}s interval — the dispatcher tick thread may be wedged even though it still reports {status.running ? 'running' : 'stopped'}.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* in-flight: tasks running right now */}
             {status.in_flight.length === 0 ? (
