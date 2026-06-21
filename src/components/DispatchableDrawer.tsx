@@ -499,6 +499,32 @@ export default function DispatchableDrawer({
               );
             })()}
 
+            {/* CADENCE (run #70) — completes the dispatcher-health triad: LIVENESS proves
+                the tick thread is ALIVE, SUCCESS-RATE proves dispatches have been
+                OUTCOME-healthy, and this proves the loop's THROUGHPUT — the mean
+                wall-clock between dispatches over the dispatcher's lifetime
+                (uptime ÷ dispatched). Pure derivation off the SAME poll — no new
+                endpoint/dep. On a drained board the dispatcher idles by design, so a
+                long mean interval is EXPECTED (work-availability bound, not dispatcher
+                speed) — kept neutral/dim, never alarmed. Suppressed when dispatched==0
+                or started_at is unknown (nothing to average — honest). */}
+            {status.dispatched > 0 && status.started_at != null && (() => {
+              const uptimeS = Math.max(0, now / 1000 - status.started_at);
+              const meanS = uptimeS / status.dispatched;
+              return (
+                <div className="mb-1.5 flex items-center gap-2 text-[9px]">
+                  <span className="text-[#888] tracking-[0.12em]">CADENCE</span>
+                  <span className="tabular-nums text-[#9a9a9a]"
+                    title={`mean throughput over the dispatcher's lifetime: ${status.dispatched} dispatch${status.dispatched === 1 ? '' : 'es'} across ${fmtDuration(uptimeS)} of uptime ≈ one every ${fmtDuration(meanS)}. Work-availability bound, NOT dispatcher speed — on a drained board the dispatcher idles, so a long interval is expected, not a fault.`}>
+                    ◷ ~1 dispatch / {fmtDuration(meanS)}
+                  </span>
+                  <span className="ml-auto tabular-nums text-[#666]" title="total dispatches over the dispatcher's uptime">
+                    {status.dispatched} in {fmtDuration(uptimeS)}
+                  </span>
+                </div>
+              );
+            })()}
+
             {/* in-flight: tasks running right now */}
             {status.in_flight.length === 0 ? (
               <div className="text-[10px] text-[#6a6a6a]">
