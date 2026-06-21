@@ -19,6 +19,16 @@
 // "unattributed" bucket for files dispatch wrote without a task_id). Purely a view over the
 // same `items` — the newest-first order, the artifact→task jump, and every honest empty
 // state are unchanged; a filter that matches nothing shows its own honest "no match" note.
+//
+// Run #63: a free-text SEARCH box at the top of the filter bar. The root chips answer
+// "which root" and the task selector answers "which producing task", but neither finds a
+// file by name or extension — at 24+ files (md/json/csv/png, growing every dispatch) you
+// still had to eyeball the column to locate "the carousel md" or "all the json". The search
+// box is a single case-insensitive substring match over each file's name, its path within
+// the root, and its task_id, so typing "carousel", ".json", "csv", or a partial task id all
+// narrow the list. It composes with (AND) the root + task filters, shares the same header
+// count / "no match" / CLEAR affordances, and — like them — is pure view state over the
+// already-fetched `items`: no new endpoint, no new poll, no new dependency.
 import { useEffect, useMemo, useState } from 'react';
 import { listDeliverables, readDeliverable, deliverableRawUrl, errMessage, type DeliverableEntry, type DeliverableFile } from '../lib/api';
 
@@ -58,6 +68,8 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
   // wrote without a task_id). Both are pure view state — they never refetch.
   const [rootFilter, setRootFilter] = useState<string | null>(null);
   const [taskFilter, setTaskFilter] = useState<string | null>(null);
+  // Run #63: free-text search over name / path / task_id (case-insensitive substring).
+  const [query, setQuery] = useState('');
 
   // Run #62: derive the filter facets + the filtered list from the fetched items. Recomputed
   // only when items or a filter changes. Root facets come from the `roots` the bridge reports
@@ -80,13 +92,17 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
     const tasks = [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     return { tasks, none };
   }, [items]);
+  // Run #63: the search needle — trimmed + lowercased once, so an all-whitespace query is
+  // treated as no filter and the per-item match is a cheap substring test.
+  const needle = query.trim().toLowerCase();
   const filtered = useMemo(() => items.filter((d) => {
     if (rootFilter && d.root !== rootFilter) return false;
     if (taskFilter === NONE) return !d.task_id;
     if (taskFilter && d.task_id !== taskFilter) return false;
+    if (needle && !(`${d.name} ${d.rel_to_root} ${d.task_id ?? ''}`.toLowerCase().includes(needle))) return false;
     return true;
-  }), [items, rootFilter, taskFilter]);
-  const filterActive = rootFilter != null || taskFilter != null;
+  }), [items, rootFilter, taskFilter, needle]);
+  const filterActive = rootFilter != null || taskFilter != null || needle.length > 0;
 
   // Mounted fresh each time the drawer opens (parent keys on `open`), so the
   // effect only needs to fetch + set results inside async callbacks — no
@@ -139,6 +155,22 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
                 over the fetched list. Only shown once there's something to filter. */}
             {!loading && !error && items.length > 0 && (
               <div className="shrink-0 border-b border-white/10 px-2 py-1.5 space-y-1.5 bg-white/[0.015]">
+                {/* run #63: free-text search over name / path / task_id. Composes (AND) with
+                    the chips + selector below; the trailing ✕ clears just the query. */}
+                <div className="relative">
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="search name · path · task…"
+                    title="filter by file name, path, or producing task id (substring)"
+                    className="w-full bg-[#0c0c0c] border border-white/10 text-[#cfcfcf] text-[9px] tracking-[0.04em] pl-5 pr-5 py-0.5 rounded-sm placeholder:text-[#555] focus:border-amber-400/40 focus:outline-none"
+                  />
+                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[#666] text-[9px] pointer-events-none">⌕</span>
+                  {query && (
+                    <button onClick={() => setQuery('')} title="clear search"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 text-[#888] hover:text-white text-[10px] leading-none">✕</button>
+                  )}
+                </div>
                 <div className="flex items-center gap-1 flex-wrap">
                   <button onClick={() => setRootFilter(null)}
                     className={`px-1.5 py-0.5 rounded-sm border text-[9px] tracking-[0.08em] ${rootFilter == null ? 'border-white/40 text-white bg-white/[0.06]' : 'border-white/10 text-[#888] hover:border-white/30'}`}>
@@ -163,7 +195,7 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
                     {taskFacets.none > 0 && <option value={NONE}>unattributed ({taskFacets.none})</option>}
                   </select>
                   {filterActive && (
-                    <button onClick={() => { setRootFilter(null); setTaskFilter(null); }}
+                    <button onClick={() => { setRootFilter(null); setTaskFilter(null); setQuery(''); }}
                       title="clear all filters"
                       className="shrink-0 border border-white/10 px-1.5 py-0.5 text-[9px] text-[#999] hover:border-white/30 hover:text-white rounded-sm">✕ CLEAR</button>
                   )}
@@ -176,7 +208,7 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
             {!loading && !error && items.length > 0 && filtered.length === 0 && (
               <div className="p-3 text-[#777] leading-relaxed">
                 No deliverables match this filter.{' '}
-                <button onClick={() => { setRootFilter(null); setTaskFilter(null); }}
+                <button onClick={() => { setRootFilter(null); setTaskFilter(null); setQuery(''); }}
                   className="text-emerald-400/80 hover:text-emerald-300 underline underline-offset-2">clear it</button>
                 {' '}to see all {items.length}.
               </div>
