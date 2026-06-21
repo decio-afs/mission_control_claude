@@ -7,7 +7,19 @@
 // newest-first and opens any text file inline, read-only. Honest empty state when
 // nothing has been produced yet. All reads are confined by the bridge to the two
 // known roots.
-import { useEffect, useState } from 'react';
+//
+// Run #62: a FILTER bar. The deliverables drawer is the single reachable home for ALL
+// autonomous-agent output, and that output now accumulates faster than a flat scroll can
+// serve — 24 files across 14 producing tasks and two roots (deliverables/ + research/) at
+// the time of writing, growing every dispatch. Answering "what did task X produce" or
+// "show me only research, not the content deliverables" meant eyeballing the whole list.
+// This adds two client-side filters over the already-fetched list (zero new endpoint, no
+// new poll): root chips (All / deliverables / research, each with a live count) and a
+// producing-task selector (every task_id that produced output, with counts, plus an
+// "unattributed" bucket for files dispatch wrote without a task_id). Purely a view over the
+// same `items` — the newest-first order, the artifact→task jump, and every honest empty
+// state are unchanged; a filter that matches nothing shows its own honest "no match" note.
+import { useEffect, useMemo, useState } from 'react';
 import { listDeliverables, readDeliverable, deliverableRawUrl, errMessage, type DeliverableEntry, type DeliverableFile } from '../lib/api';
 
 // Media the JSON `/file` endpoint flags as "binary, not shown" but the browser
@@ -41,6 +53,40 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
   const [file, setFile] = useState<DeliverableFile | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
+  // Run #62: active filters over the fetched list. null = no filter (show all). The task
+  // filter's special sentinel '__none__' selects the unattributed bucket (files dispatch
+  // wrote without a task_id). Both are pure view state — they never refetch.
+  const [rootFilter, setRootFilter] = useState<string | null>(null);
+  const [taskFilter, setTaskFilter] = useState<string | null>(null);
+
+  // Run #62: derive the filter facets + the filtered list from the fetched items. Recomputed
+  // only when items or a filter changes. Root facets come from the `roots` the bridge reports
+  // (so an empty root still shows a 0-count chip); task facets are every distinct producing
+  // task_id with its count, ordered by count desc then id for a stable, useful list.
+  const NONE = '__none__';
+  const rootCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of roots) m.set(r, 0);
+    for (const d of items) m.set(d.root, (m.get(d.root) ?? 0) + 1);
+    return m;
+  }, [items, roots]);
+  const taskFacets = useMemo(() => {
+    const m = new Map<string, number>();
+    let none = 0;
+    for (const d of items) {
+      if (d.task_id) m.set(d.task_id, (m.get(d.task_id) ?? 0) + 1);
+      else none += 1;
+    }
+    const tasks = [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return { tasks, none };
+  }, [items]);
+  const filtered = useMemo(() => items.filter((d) => {
+    if (rootFilter && d.root !== rootFilter) return false;
+    if (taskFilter === NONE) return !d.task_id;
+    if (taskFilter && d.task_id !== taskFilter) return false;
+    return true;
+  }), [items, rootFilter, taskFilter]);
+  const filterActive = rootFilter != null || taskFilter != null;
 
   // Mounted fresh each time the drawer opens (parent keys on `open`), so the
   // effect only needs to fetch + set results inside async callbacks — no
@@ -80,7 +126,7 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
         <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/10">
           <span className="tracking-[0.2em] text-white font-bold">📄 DELIVERABLES</span>
           <div className="flex items-center gap-2 text-[10px] text-[#777]">
-            <span>{items.length} file{items.length === 1 ? '' : 's'}</span>
+            <span>{filterActive ? `${filtered.length} of ${items.length}` : items.length} file{(filterActive ? filtered.length : items.length) === 1 ? '' : 's'}</span>
             {roots.length > 0 && <span className="text-[#545454]">· {roots.join(' · ')}/</span>}
             <button onClick={onClose} className="ml-2 border border-white/10 px-2 py-0.5 text-[#b8b8b8] hover:border-white/30">✕ CLOSE</button>
           </div>
@@ -88,9 +134,53 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
 
         <div className="flex-1 min-h-0 flex">
           {/* list */}
-          <div className="w-[320px] shrink-0 border-r border-white/10 overflow-y-auto">
+          <div className="w-[320px] shrink-0 border-r border-white/10 flex flex-col">
+            {/* run #62: filter bar — root chips + producing-task selector, both pure views
+                over the fetched list. Only shown once there's something to filter. */}
+            {!loading && !error && items.length > 0 && (
+              <div className="shrink-0 border-b border-white/10 px-2 py-1.5 space-y-1.5 bg-white/[0.015]">
+                <div className="flex items-center gap-1 flex-wrap">
+                  <button onClick={() => setRootFilter(null)}
+                    className={`px-1.5 py-0.5 rounded-sm border text-[9px] tracking-[0.08em] ${rootFilter == null ? 'border-white/40 text-white bg-white/[0.06]' : 'border-white/10 text-[#888] hover:border-white/30'}`}>
+                    ALL <span className="tabular-nums">{items.length}</span>
+                  </button>
+                  {roots.map((r) => (
+                    <button key={r} onClick={() => setRootFilter((cur) => (cur === r ? null : r))}
+                      title={`show only ${r}/ deliverables`}
+                      className={`px-1.5 py-0.5 rounded-sm border text-[9px] tracking-[0.08em] ${rootFilter === r ? 'border-cyan-400/50 text-cyan-300 bg-cyan-400/10' : 'border-white/10 text-[#888] hover:border-white/30'}`}>
+                      {r}/ <span className="tabular-nums">{rootCounts.get(r) ?? 0}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  <select value={taskFilter ?? ''} onChange={(e) => setTaskFilter(e.target.value || null)}
+                    title="filter by producing task"
+                    className="flex-1 min-w-0 bg-[#0c0c0c] border border-white/10 text-[#bbb] text-[9px] tracking-[0.04em] px-1 py-0.5 rounded-sm focus:border-emerald-400/40 focus:outline-none">
+                    <option value="">all tasks ({taskFacets.tasks.length})</option>
+                    {taskFacets.tasks.map(([id, n]) => (
+                      <option key={id} value={id}>⬡ {id} ({n})</option>
+                    ))}
+                    {taskFacets.none > 0 && <option value={NONE}>unattributed ({taskFacets.none})</option>}
+                  </select>
+                  {filterActive && (
+                    <button onClick={() => { setRootFilter(null); setTaskFilter(null); }}
+                      title="clear all filters"
+                      className="shrink-0 border border-white/10 px-1.5 py-0.5 text-[9px] text-[#999] hover:border-white/30 hover:text-white rounded-sm">✕ CLEAR</button>
+                  )}
+                </div>
+              </div>
+            )}
+            <div className="flex-1 min-h-0 overflow-y-auto">
             {loading && <div className="p-3 text-[#777]">loading…</div>}
             {error && <div className="p-3 text-red-400">⚠ {error}</div>}
+            {!loading && !error && items.length > 0 && filtered.length === 0 && (
+              <div className="p-3 text-[#777] leading-relaxed">
+                No deliverables match this filter.{' '}
+                <button onClick={() => { setRootFilter(null); setTaskFilter(null); }}
+                  className="text-emerald-400/80 hover:text-emerald-300 underline underline-offset-2">clear it</button>
+                {' '}to see all {items.length}.
+              </div>
+            )}
             {!loading && !error && items.length === 0 && (
               <div className="p-3 text-[#777] leading-relaxed">
                 No deliverables yet. Dispatched agents write output to{' '}
@@ -98,7 +188,7 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
                 <span className="text-[#b8b8b8]">research/</span> — files appear here once produced.
               </div>
             )}
-            {items.map((d) => (
+            {filtered.map((d) => (
               <button key={d.path} onClick={() => openFile(d)}
                 className={`w-full text-left px-3 py-2 border-b border-white/[0.05] hover:bg-white/[0.03] ${selected?.path === d.path ? 'bg-white/[0.06] border-l-2 border-l-[#f64e6e]' : ''}`}>
                 <div className="text-white truncate">{d.name}</div>
@@ -121,6 +211,7 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
                 </div>
               </button>
             ))}
+            </div>
           </div>
 
           {/* viewer */}
