@@ -73,6 +73,10 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
   const [taskFilter, setTaskFilter] = useState<string | null>(null);
   // Run #63: free-text search over name / path / task_id (case-insensitive substring).
   const [query, setQuery] = useState('');
+  // Run #65: sort order over the (filtered) list. 'newest' is the default and matches the
+  // bridge's own newest-first order; 'name' (A→Z) finds a known file fast, 'size' (largest
+  // first) surfaces the heavy artifacts. Pure view state — never refetches.
+  const [sort, setSort] = useState<'newest' | 'name' | 'size'>('newest');
 
   // Run #62: derive the filter facets + the filtered list from the fetched items. Recomputed
   // only when items or a filter changes. Root facets come from the `roots` the bridge reports
@@ -106,6 +110,16 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
     return true;
   }), [items, rootFilter, taskFilter, needle]);
   const filterActive = rootFilter != null || taskFilter != null || needle.length > 0;
+  // Run #65: apply the chosen sort over the filtered list. A fresh copy so the source order
+  // (and the useMemo deps) stay clean; 'newest' is explicit (modified desc) so it holds even
+  // if the bridge ever changes its default ordering.
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    if (sort === 'name') arr.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sort === 'size') arr.sort((a, b) => b.size - a.size);
+    else arr.sort((a, b) => b.modified - a.modified);
+    return arr;
+  }, [filtered, sort]);
 
   // Mounted fresh each time the drawer opens (parent keys on `open`), so the
   // effect only needs to fetch + set results inside async callbacks — no
@@ -212,6 +226,18 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
                       className="shrink-0 border border-white/10 px-1.5 py-0.5 text-[9px] text-[#999] hover:border-white/30 hover:text-white rounded-sm">✕ CLEAR</button>
                   )}
                 </div>
+                {/* run #65: sort toggle — newest (default, matches the bridge order) / name (A→Z)
+                    / size (largest first). Pure view state over the same filtered list. */}
+                <div className="flex items-center gap-1 text-[9px]">
+                  <span className="text-[#666] tracking-[0.08em] mr-0.5">SORT</span>
+                  {([['newest', '↻ newest'], ['name', 'A·Z name'], ['size', '⇕ size']] as const).map(([key, label]) => (
+                    <button key={key} onClick={() => setSort(key)}
+                      title={`sort by ${key === 'newest' ? 'most recently modified' : key === 'name' ? 'file name (A→Z)' : 'size (largest first)'}`}
+                      className={`px-1.5 py-0.5 rounded-sm border tracking-[0.04em] ${sort === key ? 'border-amber-400/50 text-amber-300 bg-amber-400/10' : 'border-white/10 text-[#888] hover:border-white/30'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             <div className="flex-1 min-h-0 overflow-y-auto">
@@ -232,7 +258,7 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
                 <span className="text-[#b8b8b8]">research/</span> — files appear here once produced.
               </div>
             )}
-            {filtered.map((d) => (
+            {sorted.map((d) => (
               <button key={d.path} onClick={() => openFile(d)}
                 className={`w-full text-left px-3 py-2 border-b border-white/[0.05] hover:bg-white/[0.03] ${selected?.path === d.path ? 'bg-white/[0.06] border-l-2 border-l-[#f64e6e]' : ''}`}>
                 <div className="text-white truncate">{d.name}</div>
