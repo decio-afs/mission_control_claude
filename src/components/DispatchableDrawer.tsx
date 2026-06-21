@@ -441,6 +441,27 @@ export default function DispatchableDrawer({
               <span className="text-[9px] text-[#666]">
                 {status.ticks} tick{status.ticks === 1 ? '' : 's'} · dispatched {status.dispatched} · errors {status.errors}
               </span>
+              {/* SUCCESS RATE (run #69) — the counters line shows `dispatched N · errors M`
+                  but never their RATIO, so a lone `errors 1` reads the same whether it's
+                  1-in-19 (a healthy 95% loop) or 1-in-2 (an alarming one). LIVENESS proves
+                  the tick thread is alive; this proves the loop has been OUTCOME-healthy over
+                  its lifetime. Pure derivation off the same poll (errors ⊆ dispatched — the
+                  dispatcher's error counter increments on a dispatched task's failure, format
+                  `<task_id>: <msg>`). Suppressed when dispatched==0 (nothing to rate — honest);
+                  emerald ≥90% · amber 50–89% · red <50%. */}
+              {status.dispatched > 0 && (() => {
+                const ok = Math.max(0, status.dispatched - status.errors);
+                const pct = Math.round((ok / status.dispatched) * 100);
+                const tone = pct >= 90 ? 'border-emerald-400/30 text-emerald-300/90'
+                  : pct >= 50 ? 'border-amber-400/30 text-amber-300/90'
+                  : 'border-red-400/40 text-red-300';
+                return (
+                  <span className={`ml-auto px-1 rounded-sm border text-[9px] leading-none tabular-nums ${tone}`}
+                    title={`${ok} of ${status.dispatched} lifetime dispatch${status.dispatched === 1 ? '' : 'es'} completed without erroring (${pct}% success); ${status.errors} error${status.errors === 1 ? '' : 's'} total over the dispatcher's uptime`}>
+                    ✓ {ok}/{status.dispatched} · {pct}%
+                  </span>
+                );
+              })()}
             </div>
 
             {/* LIVENESS (run #68) — the last-tick age is the ONLY proof the dispatcher
