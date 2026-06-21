@@ -63,6 +63,9 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
   const [file, setFile] = useState<DeliverableFile | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
+  // Run #64: transient "copied" feedback for the ⎘ COPY PATH toolbar action. Reset on every
+  // file open so a stale ✓ never lingers on the next selection.
+  const [copied, setCopied] = useState(false);
   // Run #62: active filters over the fetched list. null = no filter (show all). The task
   // filter's special sentinel '__none__' selects the unattributed bucket (files dispatch
   // wrote without a task_id). Both are pure view state — they never refetch.
@@ -117,10 +120,19 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
     return () => { live = false; };
   }, [open]);
 
+  // Run #64: copy a deliverable's on-disk path to the clipboard so the operator can reference
+  // it elsewhere (feed a script, cite in a handoff) without re-typing it. Falls back silently
+  // if the clipboard API is unavailable (older/insecure context) — the path is still visible.
+  function copyPath(path: string) {
+    const done = () => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); };
+    try { navigator.clipboard?.writeText(path).then(done, () => {}); } catch { /* no clipboard */ }
+  }
+
   function openFile(d: DeliverableEntry) {
     setSelected(d);
     setFile(null);
     setImgFailed(false);
+    setCopied(false);
     // Images render straight from the raw-bytes endpoint via <img>; no need to
     // fetch the JSON `/file` (which would only return the "binary, not shown"
     // note and force the bridge to read the whole image into memory).
@@ -255,7 +267,26 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
             )}
             {selected && (
               <>
-                <div className="shrink-0 px-3 py-1.5 border-b border-white/10 text-[10px] text-[#b8b8b8] truncate">{selected.path}</div>
+                {/* run #64: viewer toolbar — every selected deliverable is now retrievable, not
+                    just binaries. ⎘ COPY PATH works for all files; text files (the bulk of output:
+                    md/json/csv) gain the ↗ OPEN / ⬇ DOWNLOAD links that previously only binaries
+                    and failed-image loads had. Pure links over the existing /raw bytes endpoint —
+                    no new endpoint, no new fetch. */}
+                <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-white/10">
+                  <span className="flex-1 min-w-0 text-[10px] text-[#b8b8b8] truncate" title={selected.path}>{selected.path}</span>
+                  <button onClick={() => copyPath(selected.path)} title="copy this deliverable's on-disk path"
+                    className={`shrink-0 border px-1.5 py-0.5 text-[9px] rounded-sm ${copied ? 'border-emerald-400/40 text-emerald-300' : 'border-white/10 text-[#999] hover:border-white/30 hover:text-white'}`}>
+                    {copied ? '✓ COPIED' : '⎘ COPY PATH'}
+                  </button>
+                  {!isImage(selected.ext) && !isPdf(selected.ext) && !file?.binary && (
+                    <>
+                      <a href={deliverableRawUrl(selected.path)} target="_blank" rel="noreferrer" title="open the raw file in a new tab"
+                        className="shrink-0 border border-white/10 px-1.5 py-0.5 text-[9px] text-[#999] hover:border-white/30 hover:text-white rounded-sm">↗ OPEN</a>
+                      <a href={deliverableRawUrl(selected.path)} download={selected.name} title={`download ${selected.name} (${human(selected.size)})`}
+                        className="shrink-0 border border-emerald-400/25 px-1.5 py-0.5 text-[9px] text-emerald-300/90 hover:bg-emerald-400/10 rounded-sm">⬇ DOWNLOAD</a>
+                    </>
+                  )}
+                </div>
                 <div className="flex-1 min-h-0 overflow-auto p-3">
                   {isImage(selected.ext) ? (
                     imgFailed ? (
