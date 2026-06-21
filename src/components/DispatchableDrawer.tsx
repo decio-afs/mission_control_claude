@@ -441,20 +441,55 @@ export default function DispatchableDrawer({
               </div>
             )}
 
-            {/* last dispatch outcome */}
+            {/* last dispatch outcome — run #61: HONEST live-vs-historical attribution.
+                `last_error` is the dispatcher's CUMULATIVE last error and may belong to an
+                EARLIER, different task than the one most recently dispatched (e.g. an old
+                900s timeout on t_a33fad25, then a clean dispatch of t_35e26338). The prior
+                code pinned that error directly under "last fired: <last_dispatched title>",
+                making a dispatch that actually SUCCEEDED read as failed — the exact crying-
+                wolf conflation the run #60 faultChip fixed at the tab bar, but left intact in
+                this detail panel the chip points to ("open ⚡ DISPATCHABLE → ▶ RUN STATE").
+                Now: the error is attributed by parsing its leading "<task_id>:" token — if it
+                names the last dispatch, that dispatch FAILED (red, pinned); otherwise the last
+                dispatch is marked ✓ OK and the cumulative error is shown SEPARATELY, muted and
+                tagged to its own earlier task (the dispatcher recovered). */}
             <div className="mt-1.5 text-[10px] leading-relaxed">
               {status.last_dispatched_id == null ? (
                 <span className="text-[#6a6a6a]"><span className="text-[#555]">◷</span> No dispatch yet — nothing has been fired this session.</span>
-              ) : (
-                <button onClick={() => onOpenTask(status.last_dispatched_id!)}
-                  className="text-left w-full hover:bg-white/[0.03] px-1 py-0.5 rounded-sm">
-                  <span className="text-[#777]">last fired:</span>{' '}
-                  <span className="text-[#c8c8c8]">{titleOf(status.last_dispatched_id)}</span>
-                  {status.last_error && (
-                    <span className="block text-red-400/90 mt-0.5" title={status.last_error}>⚠ {status.last_error}</span>
-                  )}
-                </button>
-              )}
+              ) : (() => {
+                // `last_error` is formatted "<task_id>: <message>" — the leading token is the
+                // errored task. lastFailed = that task IS the most recent dispatch.
+                const erroredId = status.last_error ? status.last_error.split(':')[0].trim() : null;
+                const lastFailed = erroredId != null && erroredId === status.last_dispatched_id;
+                return (
+                  <>
+                    <button onClick={() => onOpenTask(status.last_dispatched_id!)}
+                      className="text-left w-full hover:bg-white/[0.03] px-1 py-0.5 rounded-sm">
+                      <span className="text-[#777]">last fired:</span>{' '}
+                      <span className="text-[#c8c8c8]">{titleOf(status.last_dispatched_id)}</span>{' '}
+                      {lastFailed ? (
+                        <span className="text-red-400/90" title={status.last_error!}>✕ FAILED</span>
+                      ) : (
+                        <span className="text-emerald-400/80" title="this dispatch completed without erroring">✓ OK</span>
+                      )}
+                      {lastFailed && status.last_error && (
+                        <span className="block text-red-400/90 mt-0.5" title={status.last_error}>⚠ {status.last_error}</span>
+                      )}
+                    </button>
+                    {/* A cumulative error belonging to an EARLIER, different task — the
+                        dispatcher has since recovered (the last dispatch is a different id and
+                        did not error). Surfaced muted + attributed to its own task, NOT pinned
+                        to last-fired, so the panel agrees with the run #60 "recovered" chip. */}
+                    {!lastFailed && status.last_error && (
+                      <button onClick={() => { if (erroredId) onOpenTask(erroredId); }}
+                        className="block text-left w-full hover:bg-white/[0.03] px-1 py-0.5 rounded-sm mt-0.5 text-[#7a7a7a]"
+                        title={`a historical run error from an earlier dispatch — recovered since (the last fired task ${status.last_dispatched_id} did not error): ${status.last_error}`}>
+                        <span className="text-[#555]">↩</span> historical{erroredId ? ` (${erroredId})` : ''}: {status.last_error.replace(/^[^:]*:\s*/, '')}
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
