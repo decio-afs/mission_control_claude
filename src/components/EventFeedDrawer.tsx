@@ -92,6 +92,12 @@ export default function EventFeedDrawer({ open, onClose, onOpenTask, embedded }:
   // Free-text search (run #66): isolate one task's / one agent's events out of a
   // 100+ row feed when the coarse category chips are too broad.
   const [query, setQuery] = useState('');
+  // Fetch depth (run #67): the board's event store can hold MORE events than the
+  // default newest-100 slice (total comes back from the endpoint). Without a way
+  // to raise this, the oldest events past the cap are unreachable in the UI even
+  // though the count honestly reads "100 of 126". This lets the operator pull the
+  // full history on demand — pure limit bump on the SAME endpoint, no new client.
+  const [limit, setLimit] = useState(100);
   // True while showing the coarse /api/mc/activity fallback (older bridge).
   const [fallback, setFallback] = useState(false);
 
@@ -101,10 +107,10 @@ export default function EventFeedDrawer({ open, onClose, onOpenTask, embedded }:
   // resuming re-runs the effect (immediate refetch). The `live` guard drops
   // in-flight results after unmount/close so we never set state on a dead view.
   useEffect(() => {
-    if (!open || paused) return;
+    if (!open) return;
     let live = true;
     const fetchOnce = () => {
-      getRecentEvents(100)
+      getRecentEvents(limit)
         .then((r) => { if (live) { setEvents(r.events); setTotal(r.total); setFallback(false); setError(null); } })
         .catch(() =>
           // Full taxonomy endpoint unavailable (bridge predates /api/mc/events →
@@ -117,10 +123,14 @@ export default function EventFeedDrawer({ open, onClose, onOpenTask, embedded }:
         )
         .finally(() => { if (live) setLoading(false); });
     };
+    // Always fetch once on open / depth change so a "load all" bump applies even
+    // while paused; the 5s live interval only runs when not paused (pause still
+    // freezes the auto-refresh).
     fetchOnce();
+    if (paused) return () => { live = false; };
     const id = setInterval(fetchOnce, POLL_MS);
     return () => { live = false; clearInterval(id); };
-  }, [open, paused]);
+  }, [open, paused, limit]);
 
   // Free-text search applied FIRST, then the coarse category filter (AND), so
   // the chip counts below reflect the searched subset (not the whole feed). A
@@ -178,6 +188,18 @@ export default function EventFeedDrawer({ open, onClose, onOpenTask, embedded }:
           </div>
           <div className="flex items-center gap-2 text-[10px] text-[#777]">
             <span>{shown.length}{total > shown.length ? ` of ${total}` : ''} event{total === 1 ? '' : 's'}</span>
+            {/* load-all depth control (run #67): the endpoint holds more events
+                than the fetched slice — pull the full history so the oldest rows
+                past the cap are reachable. Only shown when the server total
+                exceeds what we've fetched (never in coarse fallback mode). */}
+            {!fallback && events.length < total && (
+              <button
+                onClick={() => setLimit(total)}
+                title={`fetching the newest ${events.length} of ${total} events — load the full history`}
+                className="border border-amber-400/30 text-amber-300/90 hover:border-amber-400/60 hover:text-amber-200 px-1.5 py-0.5 rounded-sm tracking-[0.1em]">
+                ↧ all {total}
+              </button>
+            )}
             {!embedded && <button onClick={onClose} className="ml-2 border border-white/10 px-2 py-0.5 text-[#b8b8b8] hover:border-white/30">✕ CLOSE</button>}
           </div>
         </div>
