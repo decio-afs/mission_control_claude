@@ -217,6 +217,17 @@ export default function AutonomyDrawer({
     jobList: McCronJob[];
   };
   const [sched, setSched] = useState<Sched | null>(null);
+  // Run #71: dispatcher-daemon liveness for the header ▶ DISP chip — the glance-level twin of
+  // the run #53 ⏱ SCHED chip. The dispatcher's run-state (LIVENESS/uptime) lives INSIDE the
+  // ⚡ DISPATCHABLE → ▶ RUN STATE panel (run #68), so at the ⊙ AUTONOMY header an operator could
+  // see whether the SCHEDULER daemon had wedged but was blind to the DISPATCHER daemon — the
+  // exact inverse of the blind spot run #53 closed. null = not yet loaded / fetch failed (chip
+  // suppressed — never a wrong signal). Rides the SAME getDispatcher poll the badges already run.
+  type Disp = {
+    running: boolean; enabled: boolean;
+    lastTick: number | null; tickSeconds: number; ticks: number;
+  };
+  const [disp, setDisp] = useState<Disp | null>(null);
   // Run #55: the maintenance actions the *running* bridge can fire (e.g. ['sweep'] or
   // ['reconcile','sweep']), read off the live process via getMaintenanceActions. null =
   // not yet loaded / the bridge predates the endpoint (404) / the fetch failed — in every
@@ -258,6 +269,12 @@ export default function AutonomyDrawer({
             // Run #60: latch the error count seen on the first poll after open as the
             // "already-known" baseline. Any later increase = a NEW fault while watching.
             setErrorsBaseline((b) => (b == null ? d.status.errors : b));
+            // Run #71: dispatcher-daemon liveness for the header ▶ DISP chip (twin of ⏱ SCHED).
+            setDisp({
+              running: d.status.running, enabled: d.status.enabled,
+              lastTick: d.status.last_tick ?? null, tickSeconds: d.status.tick_seconds,
+              ticks: d.status.ticks,
+            });
           }
         })
         .catch(() => { /* keep prior dispatchable / webGap / errors */ });
@@ -352,6 +369,26 @@ export default function AutonomyDrawer({
       title: `${errs} historical run error${errs === 1 ? '' : 's'} — the dispatcher has since recovered (later dispatch ${lastDispatchedId} succeeded${erroredId ? `; the error was ${erroredId}` : ''}); no new errors since you opened this view — open ⚡ DISPATCHABLE → ▶ RUN STATE for detail`,
     };
   }, [badges.errors, errorsBaseline, lastError, lastDispatchedId]);
+
+  // Run #71: resolve the header ▶ DISP chip — glance-level health for the task-dispatcher
+  // daemon, the twin of ⏱ SCHED. Like the scheduler chip it must catch a WEDGE the boolean
+  // `running` can't: a daemon flagged running:true whose tick thread died (last_tick frozen)
+  // while the FastAPI route keeps answering. Priority: OFF (down — ready tasks won't dispatch)
+  // > WEDGED (running but last_tick older than 2× the tick interval) > ⟳ live (alive, ticking).
+  // The errors/fault signal stays on the ⚡ DISPATCHABLE tab's ✕N chip — this is liveness only.
+  // null suppresses the chip (status not yet loaded). Uses `now` (the 1s ticker) for tick-age.
+  const dispChip: { label: string; tone: string; title: string } | null = (() => {
+    if (!disp) return null;
+    const red = 'border-red-400/40 bg-red-400/15 text-red-300';
+    const amber = 'border-amber-400/40 bg-amber-400/15 text-amber-300';
+    const emerald = 'border-emerald-400/40 bg-emerald-400/15 text-emerald-300';
+    if (!disp.running || !disp.enabled)
+      return { label: '▶ DISP OFF', tone: red, title: `task dispatcher daemon is ${disp.enabled ? 'enabled but not running' : 'disabled'} — ready tasks will not be dispatched (${disp.ticks.toLocaleString()} ticks logged)` };
+    const tickAge = disp.lastTick != null ? Math.max(0, now / 1000 - disp.lastTick) : null;
+    if (tickAge != null && tickAge > disp.tickSeconds * 2)
+      return { label: '▶ DISP WEDGED', tone: amber, title: `dispatcher reports running but its last tick was ${fmtDuration(tickAge)} ago (> 2× the ${disp.tickSeconds}s interval) — the tick thread may be wedged even though the route still answers` };
+    return { label: tickAge != null ? `▶ DISP ⟳ ${fmtDuration(tickAge)}` : '▶ DISP ●', tone: emerald, title: `task dispatcher LIVE — ${tickAge != null ? `last ticked ${fmtDuration(tickAge)} ago, ` : ''}${disp.ticks.toLocaleString()} ticks @ ${disp.tickSeconds}s` };
+  })();
 
   // Run #53: resolve the header ⏱ SCHED chip — a glance-level health signal for the cron
   // scheduler daemon, mirroring the dispatcher's fault chip. null suppresses the chip (status
@@ -457,6 +494,18 @@ export default function AutonomyDrawer({
             })}
           </div>
           <div className="flex items-center gap-2">
+            {/* run #71: dispatcher-daemon liveness chip — the glance-level twin of ⏱ SCHED.
+                The dispatcher's full run-state lives inside ⚡ DISPATCHABLE → ▶ RUN STATE, so
+                without this the header could show a wedged SCHEDULER but never a wedged
+                DISPATCHER. Catches the tick-thread wedge the boolean `running` can't. Suppressed
+                until the first getDispatcher poll resolves. */}
+            {dispChip && (
+              <span
+                title={dispChip.title}
+                className={`px-1 rounded-sm border text-[9px] leading-none tracking-[0.1em] tabular-nums ${dispChip.tone}`}>
+                {dispChip.label}
+              </span>
+            )}
             {/* run #53: scheduler-daemon health chip — the cron daemon's liveness at a glance,
                 the sibling signal to the dispatcher's ✕N tab chip. Suppressed until the first
                 poll resolves a scheduler block. */}
