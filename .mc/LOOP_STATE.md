@@ -10,6 +10,70 @@ below. `## DONE` is append-only history.
 
 ## TO-DO  _(rewritten each run — priority order, enough detail to act with no rediscovery)_
 
+**RUN #76 — GAP G blocker RE-CONFIRMED (3 ways) + PAUSE-mechanism VERIFIED + paste-ready spec authored below. Read this first.** Health GREEN (bridge up ~54.4h, `npm run build` 852ms/exit 0, lint = only pre-existing `office/*` churn); board fully DRAINED (`done 37 · archived 1`, diagnostics `[]`); cron firing hands-free (`scheduler.fired 4→6`, `errors:0`, `last_status:ok`, `next_run` rolling 23:36); dispatcher alive (6526 ticks, dispatched 19); all 4 pipelines 200. No orchestration possible (nothing to claim/route/promote). **GAP G (cron DELETE/PAUSE) is STILL the only real missing capability and STILL blocked** — `git diff -U0` confirms sibling WIP in the cron section of BOTH `mc_store.py` (`_next_run` `@@ +1894,15`; deletions landing at NEW ~1816/1848, adjacent to `record_cron_result`) and `mission-control-bridge.py` (`get_cron` `@@ -1646,10`, `run_cron` `@@ -1691,2 / +1833,8`); backend file mtimes are 20:15 today = a sibling loop touched them ~3h before this run. Did NOT force a 4-file edit through a 90-hunk dirty tree ([[loop-commit-head-broken-trap]] / [[loop-island-utf8-decode-trap]] territory — corruption risk outweighs shipping 2h early). Instead VERIFIED the build's one real unknown (does PAUSE work without an engine change?) and PRE-WROTE the whole chain so the next CLEAN window is paste-and-verify in ~10 min:
+
+> **GAP G PASTE-READY SPEC (verified accurate against the working-tree cron code @ #76).** PAUSE works FOR FREE — `mc_scheduler.is_due()` (`mc_scheduler.py:193`) returns False for any `status != "active"` job (self-test L261 asserts `paused → not due`); so pause = flip `status` to `"paused"`, NO scheduler/engine change. `mc_scheduler.py` is HEAD-clean and needs no edit.
+> **(a) `mc_store.py`** — insert after `record_cron_result` (~L1847), matching the existing `_cron`/`_save_cron` style (verified shape @ L1738–1847):
+> ```python
+>     def delete_cron(self, job_id) -> bool:
+>         """Remove a scheduled job entirely. Returns True if one was removed."""
+>         with self._lock:
+>             jobs = self._cron()
+>             remaining = [j for j in jobs if j.get("id") != job_id]
+>             if len(remaining) == len(jobs):
+>                 return False
+>             self._save_cron(remaining)
+>             return True
+>
+>     def set_cron_enabled(self, job_id, enabled: bool):
+>         """active<->paused toggle. The scheduler (is_due) fires only active jobs, so
+>         a paused job stops on its clock but is preserved + still run-now-able.
+>         Returns the updated job dict, or None if not found."""
+>         with self._lock:
+>             jobs = self._cron()
+>             target = None
+>             for j in jobs:
+>                 if j.get("id") == job_id:
+>                     j["status"] = "active" if enabled else "paused"
+>                     target = j
+>             if target is None:
+>                 return None
+>             self._save_cron(jobs)
+>             return target
+> ```
+> **(b) `mission-control-bridge.py`** — insert after `run_cron` (~L1810). `HTTPException` + `BaseModel` are already imported:
+> ```python
+> @app.delete("/api/mc/cron/{job_id}")
+> def delete_cron_route(job_id: str):
+>     if not STORE.delete_cron(job_id):
+>         raise HTTPException(status_code=404, detail=f"cron job {job_id} not found")
+>     return STORE.list_cron()
+>
+> class CronEnabledPayload(BaseModel):
+>     enabled: bool
+>
+> @app.post("/api/mc/cron/{job_id}/enable")
+> def set_cron_enabled_route(job_id: str, payload: CronEnabledPayload):
+>     job = STORE.set_cron_enabled(job_id, payload.enabled)
+>     if job is None:
+>         raise HTTPException(status_code=404, detail=f"cron job {job_id} not found")
+>     return {"message": f"cron job {job_id} {'enabled' if payload.enabled else 'paused'}", **STORE.list_cron()}
+> ```
+> (route fn names suffixed `_route` so they don't collide with the existing `create_cron`/`run_cron` route fns or the store methods.)
+> **(c) `src/lib/api.ts`** — add beside the existing `getMcCron`/`createMcCron` clients; reuse their fetch helper + `CronList` return type:
+> ```typescript
+> export async function deleteMcCron(jobId: string): Promise<CronList> { /* DELETE /api/mc/cron/${jobId} */ }
+> export async function setMcCronEnabled(jobId: string, enabled: boolean): Promise<{ message: string } & CronList> { /* POST /api/mc/cron/${jobId}/enable  body {enabled} */ }
+> ```
+> **(d) `OperationsCenter.tsx`** (~:645, the SCHEDULED JOBS RUN button) — add per-job `✕` DELETE (confirm → `deleteMcCron` → refresh list) + a `⏸ PAUSE` / `▶ RESUME` toggle (`setMcCronEnabled(id, status !== "active")` → refresh); render paused jobs dimmed with a `paused` badge.
+> **VERIFY:** the route is added after the bridge started, so it 404s on the running process — seed a throwaway cron via `POST /api/mc/cron`, then (once the operator restarts on HEAD) `DELETE` it → confirm gone via `GET`; `enable:false` → confirm `status:paused` + that `is_due` skips it. Until restart, verify in-process with `python -c` importing `mc_store` and exercising `delete_cron`/`set_cron_enabled` against a temp store dir.
+
+**Gate before building:** re-run `git diff -U0 mc_store.py mission-control-bridge.py | grep '^@@'`; build ONLY if the cron section (mc_store ~1819–1847 `mark_cron_run`/`record_cron_result`; bridge ~1789–1835 `get_cron`/`create_cron`/`run_cron`) is HEAD-clean. If still sibling-saturated, do NOT force it — pick #3 below and re-hand-forward this spec verbatim. NOT an island (route needs `@app`). Also re-check: if bridge uptime resets (operator restarted on HEAD), `/api/mc/maintenance/actions` answers 200 → seeding a `reconcile` maintenance cron becomes safe in-lane orchestration (see #2).
+
+---
+
+_TRAIL (#75 agenda — GAP G is still the target; the spec above supersedes the #75 discovery note):_
+
 **RUN #75 set the next run's agenda — read this first.** The system is HEALTHY, DRAINED, and the cron lifecycle's CREATE→AUTO-FIRE→RUN-NOW spine is durably PROVEN (scheduler `fired` climbed 3→**4** on its own schedule this run, confirming #74's prediction). The 20-run chip streak (#51–#71) exhausted the observability surface; #72–#74 broke it with real cron orchestration + verification. **Do NOT add a 21st ⊙ AUTONOMY chip ([[loop-chip-inertia-trap]]).** Three "verification-only" runs (#73/#74/#75) is itself a form of inertia — so **run #75 did the audit's actual job and found a REAL uncontested gap prior runs declared non-existent: the cron lifecycle has NO DELETE / NO PAUSE (CAPABILITY GAP G).** That is the highest-value forward build — but it is BLOCKED this window because its home files are saturated with sibling WIP. The next run's #1 priority is to BUILD GAP G the moment the backend tree is clean.
 
 1. **BUILD CAPABILITY GAP G (cron DELETE + PAUSE/DISABLE) — the signature increment, gated only on a clean backend tree.** Verified MISSING + uncontested run #75 (no `delete_cron`/`pause_cron` anywhere; only `/cron/{id}/run`). **FIRST, gate-check:** `git diff -U0 mc_store.py mission-control-bridge.py | grep '^@@'` — if the cron section (mc_store `~1738–1850` `_cron`/`create_cron`/`record_cron_result`/`_next_run`; bridge `~1789–1830` `get_cron`/`create_cron`/`run_cron`) is HEAD-CLEAN (no sibling hunk in range), BUILD the 4-layer chain: (a) `mc_store.py` → `delete_cron(job_id)→bool` + `set_cron_enabled(job_id, enabled)→dict` (flip `status` active↔paused; the scheduler `_fire()` already skips non-active jobs — verify); (b) `mission-control-bridge.py` → `DELETE /api/mc/cron/{job_id}` + `POST /api/mc/cron/{job_id}/pause` (or a single `/enable` toggle); (c) `api.ts` → `deleteMcCron`/`setMcCronEnabled` clients; (d) `OperationsCenter.tsx` → per-job ✕ DELETE + ⏸ PAUSE buttons next to the existing RUN button (`:645`). Verify against the LIVE bridge IN-PROCESS won't work (it predates the route) — but seed a throwaway cron, delete it, confirm gone via `GET`. **If still sibling-saturated, DO NOT force it** — re-confirm the blocker holds and pick #3 instead. NOT an island (route needs `@app`).
@@ -487,6 +551,8 @@ _TRAIL (superseded by the #72 agenda above):_
 ---
 
 ## OPERATIONAL STATUS  _(snapshot — refresh every run)_
+
+_Last run: **2026-06-21 (Run #76)** — **GAP G RE-CONFIRMED BLOCKED + PAUSE VERIFIED + PASTE-READY SPEC SHIPPED INTO TO-DO** — fourth check would be inertia, so instead of a 5th deferral note this run VERIFIED the build's one open question (`mc_scheduler.is_due` L193 skips `status!="active"` → PAUSE is free, no engine change) and authored the complete 4-layer GAP G implementation (store methods + DELETE/enable routes + api.ts clients + UI buttons) directly into the TO-DO so the next clean window is paste-and-verify. HEALTH green: bridge UP (`/api/ping` uptime 195784s ≈ 54.4h — STILL the pre-#55 process; `/api/mc/maintenance/actions` still 404s, reconcile-cron still blocked on operator restart); `npm run build` 852ms/exit 0; `npm run lint` = only pre-existing `office/*` churn. Scheduler LIVE+ON (6526 ticks, **`fired` 4→6** — kept incrementing on schedule, `errors:0`, `last_status:ok`, `last_fired_id 2154f4a0729e`, `next_run` 23:36). Dispatcher LIVE+ON (6526 ticks, dispatched 19, in_flight empty, errors:1 historical). Board **fully DRAINED** (`done 37 · archived 1`, diagnostics `[]` — nothing to claim/route/promote/reconcile). Pipelines all 200 (sentinel/digest, content/pipeline, mc/deliverables, mc/events). api.ts↔bridge drift scan stays CLOSED — the only api.ts change since #75 is type-only (`dispatch_exhausted?`, `McSkill.description?`), no new fetch client. GAP G blocker proven 3 ways: cron-section sibling hunks in mc_store + bridge, +90 total uncommitted hunks, backend mtimes 20:15 today. Committed `.mc/LOOP_STATE.md` only (no code; sibling WIP left untouched)._
 
 _Last run: **2026-06-21 (Run #75)** — **🔎 CAPABILITY AUDIT FOUND A REAL GAP (cron lifecycle has NO DELETE / NO PAUSE)** — broke the #73/#74 verification-inertia by doing the audit's real job: found that the MC cron lifecycle is CREATE/LIST/RUN-only (no `delete_cron`/`pause_cron` anywhere in `mc_store.py`/`bridge.py`/`api.ts`/`OperationsCenter.tsx`; only `/cron/{id}/run` exists; uncontested — no sibling filling it). Recorded as **CAPABILITY GAP G** (top-ranked, 4-layer build targets), set as next run's #1 priority. **NOT built this run** — its home files (`mc_store.py`+`mission-control-bridge.py` cron sections, `api.ts`, `OperationsCenter.tsx`) are saturated with active sibling WIP (incl. the cron section itself — working tree removes HEAD's `get_maintenance_actions` above `create_cron`); building delete/pause there would violate "never edit the same files at once," and it's NOT an island (route needs `@app`). Handed forward with a `git diff -U0` gate-check so the next clean-tree run ships it. HEALTH green: bridge UP (uptime ~188562s ≈ 52.4h, STILL pre-#55 process; `/api/mc/maintenance/actions` 404s live EXPECTED — reconcile-cron still blocked on restart); scheduler daemon LIVE+ON (6285 ticks, **`fired` 3→4** — milestone HELD + advanced on its own schedule as #74 predicted, `last_trigger:schedule`, errors:0, `next_run 21:36`); dispatcher LIVE+ON (6285 ticks, concurrency 2, dispatched 19, in_flight empty, errors:1 historical). Board fully drained (done 37 · archived 1, zero active); diagnostics `[]`. **api.ts↔bridge scan CLOSED** (84 mc-clients/112 routes; 2 known artifacts; no fresh orphan). Pipelines wired + operator-gated-idle. `npm run build` ✅ (757ms, exit 0). Per [[loop-chip-inertia-trap]] did NOT add a 21st chip. Orchestration + audit run — zero source changed (the one buildable gap is lane-blocked this window); **commit: LOOP_STATE.md only**._
 
@@ -1356,6 +1422,24 @@ B. ✅ **`promoteReady` dead-client → ⚡ DISPATCHABLE operator surface — BU
 ---
 
 ## DONE  _(append-only — newest first; dated, with file:line + how verified)_
+
+### 2026-06-21 — Run #76 (GAP G blocker re-confirmed 3 ways · PAUSE-mechanism VERIFIED · full paste-ready implementation spec shipped into TO-DO · NO 21st chip, NO forced edit · LOOP_STATE-only commit)
+
+**Why this run did NOT just re-verify (the #73/#74/#75 trap), and did NOT force the build.** A 4th "system healthy, cron firing" verification pass would be the inertia [[loop-chip-inertia-trap]] warns about. But GAP G — the one real missing capability (cron DELETE/PAUSE) — remains genuinely blocked: `git diff -U0 mc_store.py mission-control-bridge.py | grep '^@@'` shows sibling WIP **inside the cron section itself** (mc_store `_next_run` `@@ +1894,15` plus deletions at NEW ~1816/1848 adjacent to `record_cron_result`; bridge `get_cron` `@@ -1646,10`, `run_cron` `@@ -1691,2 / +1833,8`), ~90 uncommitted hunks total across the two files, and both backend mtimes are 20:15 today (a sibling loop touched them ~3h pre-#76). Forcing a 4-file edit through that tree is exactly the corruption setup of [[loop-commit-head-broken-trap]] / [[loop-island-utf8-decode-trap]]. So this run did the *productive* third thing: closed the build's only real unknown and pre-wrote the code.
+
+**VERIFIED the build's open question — PAUSE is free.** The #75 spec said "verify the scheduler skips non-active jobs." Confirmed: `mc_scheduler.is_due()` (`mc_scheduler.py:193`) returns False for any `(job.get("status") or "active") != "active"`, and the module self-test (`mc_scheduler.py:261`) asserts a `paused` job is `not is_due`. So PAUSE/DISABLE = flip `status` to `"paused"` in the store — NO scheduler/engine change. `mc_scheduler.py` is HEAD-clean (not in the dirty set) and needs no edit. Read the live cron-storage shape (`mc_store.py:1738–1847` — `_cron`/`_save_cron`/`create_cron`/`mark_cron_run`/`record_cron_result`) and the cron routes (`mission-control-bridge.py:1789 get_cron / 1798 create_cron / 1810 run_cron`) to author exact, style-matched insertions.
+
+**SHIPPED a paste-ready GAP G spec into the TO-DO** (all 4 layers, verified-accurate function bodies + route handlers + api.ts client signatures + UI button plan + a HEAD/temp-store verification recipe), so the next clean window is ~10-min paste-and-verify instead of re-derivation. This is the genuine forward increment this window allowed — engineering output, not a cosmetic chip, not a forced risky edit.
+
+**HEALTH (green, gate first).** Bridge UP (`/api/ping` uptime 195784s ≈ 54.4h — STILL the pre-#55 process; `/api/mc/maintenance/actions` 404s LIVE, reconcile-cron still blocked on an operator restart). `npm run build` ✓ 852ms/exit 0 (vite, GhostOffice + index chunks built). `npm run lint` ✓ for this run's deliverable — only pre-existing `office/*` churn (`no-var ×19`, `ban-ts-comment`, `react-hooks/refs`), untouched. Scheduler daemon LIVE+ON (6526 ticks, **`fired` 4→6** climbing hands-free, `errors:0`, `last_status:ok`, `last_trigger:schedule`, `last_fired_id 2154f4a0729e`, `next_run 2026-06-21 23:36`). Dispatcher LIVE+ON (6526 ticks, dispatched 19, in_flight empty, errors:1 historical `t_a33fad25` 900s timeout). Gateway graceful-empty (expected post-Hermes).
+
+**ORCHESTRATION (fully drained — nothing to do).** `/api/mc/kanban/stats` = `done 37 · archived 1`, zero triage/todo/ready/running/blocked; `/api/mc/kanban/diagnostics` `[]`. Nothing to claim, route, promote, reassign, or reconcile.
+
+**PIPELINES (all live).** `sentinel/digest` 200, `content/pipeline` 200, `mc/deliverables` 200, `mc/events` 200. Content board stays drained by design — the operator-gated content cron (`kind:claude`) remains un-seeded on purpose; GAP G (delete/pause) once shipped makes seeding one reversible from the cockpit (per TO-DO #4).
+
+**DRIFT SCAN — stays CLOSED.** Only api.ts change since #75 is type-only: `DispatchablePlan.dispatch_exhausted?: boolean` + `McSkill.description?` (richer-payload decode), no new fetch client → no orphan-client risk. Bridge now exposes 127 `@app` routes.
+
+**Files touched:** `.mc/LOOP_STATE.md` only (TO-DO rewrite with the GAP G spec, this DONE entry, OPERATIONAL STATUS snapshot). **No code written** — the working tree's heavy sibling WIP (`mc_store.py`, `mission-control-bridge.py`, `src/lib/api.ts`, pages/stores) was left entirely untouched and unstaged. Commit: `.mc/LOOP_STATE.md` only, on `auto/loop-reconcile-20260615`, local-only.
 
 ### 2026-06-21 — Run #75 (🔎 CAPABILITY AUDIT FOUND A REAL GAP — cron lifecycle has NO DELETE / NO PAUSE; documented + handed forward, NOT force-built into a sibling-saturated tree · NO 21st chip)
 
