@@ -24,8 +24,10 @@ export interface NotifyEvent {
   taskId: string;
   title: string;
   assignee: string | null;
-  /** Normalized outcome for display tinting. */
-  outcome: 'done' | 'failed';
+  /** Normalized outcome for display tinting. `blocked` is the live adverse
+   *  sink (the store never sets `failed`); kept distinct so the operator can
+   *  tell a block from a (vestigial) hard failure. */
+  outcome: 'done' | 'failed' | 'blocked';
   /** epoch ms when the transition was observed. */
   at: number;
 }

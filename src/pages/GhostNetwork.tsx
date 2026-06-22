@@ -61,7 +61,7 @@ export interface NexAgent {
   squad: string; tags: string[]; glyph: string;
 }
 
-export interface FeedLine { id: string; ts: number; ag: string; kind: string; text: string; jarvis: boolean; fresh: boolean; }
+export interface FeedLine { id: string; ts: number; ag: string; kind: string; text: string; jarvis: boolean; fresh: boolean; stuck?: boolean; }
 
 function deriveStatus(n: GhostNode): Status {
   const online = n.status === 'active' || n.status === 'online';
@@ -239,7 +239,15 @@ export default function GhostNetwork() {
   const onlinePct = total ? Math.round((onlineCount / total) * 100) : 0;
 
   // ── selection helpers ──
-  const select = useCallback((id: string | null) => setSelectedId((cur) => (cur === id ? null : id)), []);
+  // Select an agent (toggle off if it's already selected). Resetting the reroute
+  // control here keeps a target/confirmation chosen for one agent from carrying
+  // over to the next — rerouting is a real kanban reassign, so a stale target
+  // could silently misroute the new agent's pending queue.
+  const select = useCallback((id: string | null) => {
+    setSelectedId((cur) => (cur === id ? null : id));
+    setRerouteTo('');
+    setRerouteMsg(null);
+  }, []);
 
   // ── command directive → shared Mc chat session ──
   const runDirective = useCallback((textRaw: string) => {
@@ -274,11 +282,32 @@ export default function GhostNetwork() {
     const norm = (t: number) => (t < 1e12 ? t * 1000 : t);
     const acts: FeedLine[] = activities.map((a) => {
       const s = (a.status || '').toLowerCase(), act = (a.action || '').toLowerCase();
-      const kind = s.includes('fail') || s.includes('error') || act.includes('block') ? 'warn'
-        : s.includes('complete') || s.includes('done') || act.includes('complete') ? 'ok'
+      // Classify on the STRUCTURED status first (the /api/mc/activity vocabulary:
+      // created / running / complete / blocked / failed) — the same field War Room's
+      // STATUS_COLORS keys on, so the two surfaces colour the same event identically
+      // by construction. The action-TEXT keywords are only a fallback for an
+      // unknown/missing status: matching `action` first mis-coloured any row whose
+      // TITLE contained a verb substring — e.g. a *completed* "…blocking queue…" task
+      // hit `act.includes('block')` and rendered as a red error. (BUGHUNT GN-FEEDCOLOR)
+      const kind =
+          s.includes('fail') || s.includes('error') || s.includes('block') ? 'warn'
+        : s.includes('complete') || s.includes('done') ? 'ok'
+        : s.includes('run') || s.includes('claim') ? 'exec'
+        : s.includes('creat') ? 'data'
+        : act.includes('block') || act.includes('fail') || act.includes('error') ? 'warn'
+        : act.includes('complete') || act.includes('done') ? 'ok'
         : act.includes('spawn') || act.includes('start') || act.includes('claim') ? 'exec'
-        : act.includes('creat') || act.includes('updat') ? 'data' : 'info';
-      return { id: a.id, ts: norm(a.timestamp), ag: (a.agent || 'SYS').toUpperCase().slice(0, 10), kind, text: a.action + (a.status ? ` · ${a.status}` : ''), jarvis: false, fresh: false };
+        : act.includes('creat') || act.includes('updat') ? 'data'
+        : 'info';
+      // An operator-critical stuck row (blocked/failed) carries its OLD
+      // blocked/started timestamp, so the newest-CAP slice below can evict it
+      // behind a burst of recent chat/activity — silently re-dropping the very
+      // rows the backend's cap-priority partition (iter #58) reserved budget to
+      // keep, and hiding the "needs attention now" signal from the operator's
+      // main Activity Stream. Flag them so the merge preserves them, mirroring
+      // War Room's signalLog (iter #60). (BUGHUNT GN-FEEDCAP, iter #61)
+      const stuck = s === 'blocked' || s === 'failed';
+      return { id: a.id, ts: norm(a.timestamp), ag: (a.agent || 'SYS').toUpperCase().slice(0, 10), kind, text: a.action + (a.status ? ` · ${a.status}` : ''), jarvis: false, fresh: false, stuck };
     });
     const chat: FeedLine[] = chatMessages.map((m) => ({
       id: m.id,
@@ -289,7 +318,16 @@ export default function GhostNetwork() {
       jarvis: m.role !== 'system',
       fresh: false,
     }));
-    return [...acts, ...chat].sort((x, y) => x.ts - y.ts).slice(-80);
+    // Reserve the CAP budget for every stuck row first, then fill with the
+    // most-recent others, and finally re-sort ascending for the scroll-to-bottom
+    // feed. Sort newest-first for the partition so `slice(0, N)` keeps the newest
+    // and never hits the `slice(-0)===whole-array` trap. (BUGHUNT GN-FEEDCAP)
+    const CAP = 80;
+    const merged = [...acts, ...chat].sort((x, y) => y.ts - x.ts);
+    const critical = merged.filter((l) => l.stuck);
+    const rest = merged.filter((l) => !l.stuck);
+    return [...critical.slice(0, CAP), ...rest.slice(0, Math.max(0, CAP - critical.length))]
+      .sort((x, y) => x.ts - y.ts);
   }, [activities, chatMessages]);
 
   useEffect(() => { if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [feed.length, sending]);
@@ -587,7 +625,7 @@ export default function GhostNetwork() {
                   <div className="di" style={cssVars({ '--c': selected.color })}><svg viewBox="0 0 24 24"><path d={selected.glyph} /></svg></div>
                   <div className="dt"><b>{selected.name}</b><span>{selected.role.toUpperCase()} · {selected.squad}</span></div>
                   <button className="dclose" onClick={() => openDrilldown(selected.name)} title="Open full agent drill-down">▦ INSPECT</button>
-                  <button className="dclose" onClick={() => setSelectedId(null)}>▢ CLOSE</button>
+                  <button className="dclose" onClick={() => select(null)}>▢ CLOSE</button>
                 </div>
                 <div className="dtask">
                   <div className="tl">Current Directive · {STLABEL[selected.status]}</div>

@@ -18,8 +18,12 @@ export interface EventLabel {
   icon: string;
 }
 
-// Kinds Mc emits across the store (create/claim/complete/block/fail/route/
-// promote/escalate/reassign/reconcile/dependency/workspace/cron). Keep the
+// Kinds Mc emits across the store (create/claim/complete/block/fail/assign/
+// reassign/requeue/route/promote/escalate/reconcile/dependency/workspace/cron).
+// Keep this in lock-step with EventFeedDrawer's CATEGORY_OF, which categorizes
+// the same kinds — `assigned`/`requeued` were added to that filter map in iter
+// #49 but were missing here, so they fell to the bare `•` unknown-kind fallback
+// in both the per-task EVENT TIMELINE and the board-wide ACTIVITY feed. Keep the
 // labels short — the timeline row is a 10px mono line.
 const EVENT_LABELS: Record<string, EventLabel> = {
   created: { label: 'created', icon: '✦' },
@@ -29,9 +33,11 @@ const EVENT_LABELS: Record<string, EventLabel> = {
   blocked: { label: 'blocked', icon: '⛔' },
   unblocked: { label: 'unblocked', icon: '◌' },
   failed: { label: 'failed', icon: '✕' },
+  assigned: { label: 'assigned', icon: '◎' },
   reassigned: { label: 'reassigned', icon: '♻' },
   reclaimed: { label: 'reclaimed', icon: '⟳' },
   reconciled: { label: 'reconciled', icon: '⟳' },
+  requeued: { label: 'requeued', icon: '⟲' },
   routed: { label: 'routed', icon: '⤵' },
   promoted: { label: 'promoted', icon: '▲' },
   escalated: { label: 'escalated', icon: '⚑' },

@@ -37,7 +37,7 @@ export default function Arsenal() {
   const filteredSkills = useMemo(() => {
     const q = skillFilter.trim().toLowerCase();
     if (!q) return skills;
-    return skills.filter((s) => s.name.includes(q) || s.category.includes(q) || s.source.includes(q));
+    return skills.filter((s) => s.name.includes(q) || s.category.includes(q) || s.source.includes(q) || (s.description ?? '').toLowerCase().includes(q));
   }, [skills, skillFilter]);
 
   const skillsByCategory = useMemo(() => {
@@ -133,7 +133,7 @@ export default function Arsenal() {
                   {list.map((s) => (
                     <span
                       key={s.name}
-                      title={`${s.name} · ${s.source} · ${s.trust}${s.enabled ? '' : ' · DISABLED'}`}
+                      title={`${s.name}${s.description ? ` — ${s.description}` : ''} · ${s.source} · ${s.trust}${s.enabled ? '' : ' · DISABLED'}`}
                       className={`font-mono text-[10px] px-1.5 py-0.5 border truncate max-w-[180px] ${
                         s.enabled ? 'border-white/10 text-[#b8b8b8]' : 'border-red-400/30 text-red-400/70 line-through'
                       } ${s.source !== 'builtin' ? 'bg-white/[0.03]' : ''}`}

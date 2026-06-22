@@ -8,6 +8,29 @@ import { getAiDigest, generateAiDigest, errMessage, type AiDigest } from '../lib
 const sevTone: Record<string, 'brand' | 'warn' | 'info'> = { HIGH: 'brand', WARN: 'warn', INFO: 'info' };
 const sevColor: Record<string, string> = { HIGH: '#f64e6e', WARN: '#f59e0b', INFO: '#38bdf8' };
 
+// Sentinel stories come from uncontrolled external RSS feeds; a feed that omits
+// <link> ships an empty/relative url (sentinel_news_pipeline.py defaults to "").
+// `new URL("")` throws, and with no error boundary that one bad story would crash
+// the whole SentinelFeed render. Degrade to no host label instead of blanking.
+function safeHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+// `generated_at` comes from the same uncontrolled Sentinel cache (the bridge's
+// _load_sentinel_digest returns latest.json raw, no schema validation). A
+// truthy-but-unparseable value makes `new Date(x).toISOString()` throw a
+// RangeError — and with no error boundary (see safeHost note) that one bad
+// field would blank the whole Sentinel feed. Guard the parse like safeHost
+// guards new URL; keep the existing YYYY.MM.DD format for valid dates.
+function safeStamp(raw: string): string {
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? '—' : d.toISOString().slice(0, 10).replace(/-/g, '.');
+}
+
 function useTypewriterLines(lineCount: number, speed = 60) {
   const [revealed, setRevealed] = useState(0);
   useEffect(() => {
@@ -43,7 +66,7 @@ function SentinelFeed() {
           <>
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-mono text-[#545454]">
-                {sentinel.generated_at ? new Date(sentinel.generated_at).toISOString().slice(0, 10).replace(/-/g, '.') : '—'} · {sentinel.total_stories} STORIES
+                {sentinel.generated_at ? safeStamp(sentinel.generated_at) : '—'} · {sentinel.total_stories} STORIES
               </span>
               <span className="text-[10px] font-mono text-[#38bdf8]">
                 {sentinel.sources.length} SOURCES
@@ -55,10 +78,14 @@ function SentinelFeed() {
               ))}
             </div>
             <div className="flex flex-col gap-2">
-              {sentinel.stories.map((story, i) => (
+              {sentinel.stories.map((story, i) => {
+                const host = safeHost(story.url);
+                return (
                 <a
                   key={i}
-                  href={story.url}
+                  // host is non-empty only when story.url parses — falls back to a
+                  // non-navigating anchor rather than reloading the app at href="".
+                  href={host ? story.url : undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="group block border border-white/[0.06] bg-[#0a0a12] hover:border-[#f64e6e]/30 hover:bg-[#f64e6e]/[0.03] transition-colors p-2"
@@ -76,10 +103,11 @@ function SentinelFeed() {
                   </div>
                   <div className="flex items-center gap-2 mt-1 min-w-0">
                     <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[#545454]">{story.source}</span>
-                    <span className="min-w-0 truncate text-[10px] font-mono text-[#363636]">{new URL(story.url).hostname.replace(/^www\./, '')}</span>
+                    {host && <span className="min-w-0 truncate text-[10px] font-mono text-[#363636]">{host}</span>}
                   </div>
                 </a>
-              ))}
+                );
+              })}
             </div>
           </>
         )}

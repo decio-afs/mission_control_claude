@@ -13,8 +13,11 @@ import type { McTask } from './api';
 const DONE = new Set(['done', 'complete', 'completed']);
 // Statuses that are "closed" (no longer outstanding work) for the open-backlog
 // count. Everything else (triage/todo/ready/running/blocked/pending/review/…)
-// counts as open WIP.
-const CLOSED = new Set(['done', 'complete', 'completed', 'failed', 'cancelled', 'canceled', 'archived']);
+// counts as open WIP. Kept in lock-step with agingWip's TERMINAL set so the two
+// queue views (this burn-down's `openBacklog` and the Aging-WIP panel's
+// `openCount`, shown together in the War Room) agree on what's still in-flight —
+// `error` is closed here too (a failed run is resolved, not outstanding WIP).
+const CLOSED = new Set(['done', 'complete', 'completed', 'failed', 'cancelled', 'canceled', 'archived', 'error']);
 const HOUR_SEC = 3600;
 
 export interface BacklogPoint {

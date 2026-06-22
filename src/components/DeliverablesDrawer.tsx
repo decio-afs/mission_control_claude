@@ -31,14 +31,15 @@
 // already-fetched `items`: no new endpoint, no new poll, no new dependency.
 import { useEffect, useMemo, useState } from 'react';
 import { listDeliverables, readDeliverable, deliverableRawUrl, errMessage, type DeliverableEntry, type DeliverableFile } from '../lib/api';
+import { mediaKind, isImageExt, isPdfExt, isInlineMediaExt } from '../lib/media';
 
 // Media the JSON `/file` endpoint flags as "binary, not shown" but the browser
-// can render directly from the raw-bytes endpoint.
-const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
-const isImage = (ext: string) => IMAGE_EXTS.has((ext || '').toLowerCase());
-// PDFs can embed inline straight from the raw-bytes endpoint; other non-image
-// binaries (zip, audio, video, …) get open/download links instead.
-const isPdf = (ext: string) => (ext || '').toLowerCase() === 'pdf';
+// can render directly from the raw-bytes endpoint. Classification lives in
+// ../lib/media so the deliverables drawer and the per-task workspace browser stay
+// in lockstep (image / video / audio / pdf all render inline; everything else is
+// text or open/download links).
+const isImage = isImageExt;
+const isPdf = isPdfExt;
 
 function human(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -147,10 +148,11 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
     setFile(null);
     setImgFailed(false);
     setCopied(false);
-    // Images render straight from the raw-bytes endpoint via <img>; no need to
-    // fetch the JSON `/file` (which would only return the "binary, not shown"
-    // note and force the bridge to read the whole image into memory).
-    if (isImage(d.ext)) { setFileLoading(false); return; }
+    // Images/video/audio render straight from the raw-bytes endpoint via the
+    // matching media element; no need to fetch the JSON `/file` (which would only
+    // return the "binary, not shown" note and force the bridge to read the whole
+    // clip into memory). Video/audio also stream with Range so they seek.
+    if (isInlineMediaExt(d.ext)) { setFileLoading(false); return; }
     setFileLoading(true);
     readDeliverable(d.path)
       .then(setFile)
@@ -314,7 +316,35 @@ export default function DeliverablesDrawer({ open, onClose, onOpenTask }: { open
                   )}
                 </div>
                 <div className="flex-1 min-h-0 overflow-auto p-3">
-                  {isImage(selected.ext) ? (
+                  {mediaKind(selected.ext) === 'video' ? (
+                    // Clip — stream from /raw straight into a player (Range-seekable).
+                    // A failed load (codec the browser can't decode, transient bridge
+                    // error) degrades to open/download so the clip is never unreachable.
+                    imgFailed ? (
+                      <div className="space-y-3">
+                        <div className="text-amber-400">video couldn't be played here (unsupported codec?) — open or download it instead</div>
+                        <div className="flex items-center gap-3 text-[10px]">
+                          <a href={deliverableRawUrl(selected.path)} target="_blank" rel="noreferrer"
+                            className="border border-white/15 px-2 py-1 text-[#b8b8b8] hover:border-white/40 hover:text-white">↗ OPEN IN NEW TAB</a>
+                          <a href={deliverableRawUrl(selected.path)} download={selected.name}
+                            className="border border-emerald-400/30 px-2 py-1 text-emerald-300 hover:bg-emerald-400/10">⬇ DOWNLOAD ({human(selected.size)})</a>
+                        </div>
+                      </div>
+                    ) : (
+                      <video
+                        src={deliverableRawUrl(selected.path)}
+                        controls
+                        onError={() => setImgFailed(true)}
+                        className="max-w-full max-h-full border border-white/10 bg-black"
+                      />
+                    )
+                  ) : mediaKind(selected.ext) === 'audio' ? (
+                    <div className="space-y-2">
+                      <audio src={deliverableRawUrl(selected.path)} controls className="w-full" />
+                      <a href={deliverableRawUrl(selected.path)} download={selected.name}
+                        className="inline-block text-[10px] border border-emerald-400/25 px-2 py-1 text-emerald-300/90 hover:bg-emerald-400/10 rounded-sm">⬇ DOWNLOAD ({human(selected.size)})</a>
+                    </div>
+                  ) : isImage(selected.ext) ? (
                     imgFailed ? (
                       // The <img> couldn't load (oversized image, transient bridge
                       // error, or a bridge that predates /raw) — degrade to the same

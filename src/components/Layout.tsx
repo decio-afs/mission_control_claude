@@ -5,6 +5,8 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useSystemStore } from '../stores/useSystemStore';
 import { useTaskStore } from '../stores/useTaskStore';
 import { MODULES } from '../lib/nav';
+import { BRIDGE_BASE_URL } from '../lib/api';
+import ErrorBoundary from './ErrorBoundary';
 import CommandPalette from './CommandPalette';
 import TaskSearch from './TaskSearch';
 import BridgeDiagnostics from './BridgeDiagnostics';
@@ -13,6 +15,17 @@ import AgentDrillDown from './AgentDrillDown';
 import TaskNotifier from './TaskNotifier';
 import NotifyCenter from './NotifyCenter';
 import ShortcutsHelp from './ShortcutsHelp';
+
+// Port shown in the topbar bridge status line — derived from the real bridge
+// URL (api.ts, VITE_BRIDGE_URL || :8767) so it stays accurate when the bridge
+// runs elsewhere, instead of a hardcoded ":8767" literal.
+const BRIDGE_PORT = (() => {
+  try {
+    return new URL(BRIDGE_BASE_URL).port || '8767';
+  } catch {
+    return '8767';
+  }
+})();
 
 // const ACCENT_OPTIONS: Record<string, string> = {
 //   coral:  '#f64e6e',
@@ -200,7 +213,7 @@ export default function Layout() {
         <div className="border-t border-white/10 px-3 py-2 shrink-0 text-[10px] font-mono text-[#363636] leading-relaxed">
           claude bridge<br/>
           {vitals.mcVersion}<br/>
-          <span className={vitals.mcOnline ? 'text-emerald-400' : 'text-red-400'}>● BRIDGE :8767</span>
+          <span className={vitals.mcOnline ? 'text-emerald-400' : 'text-red-400'}>● BRIDGE :{BRIDGE_PORT}</span>
           {(systemError || ghostError || taskError) && (
             <div className="mt-1 text-red-400 truncate">
               {systemError && `⚠ ${systemError}`}
@@ -326,7 +339,11 @@ export default function Layout() {
         </header>
 
         <main className="flex-1 relative overflow-hidden">
-          <Outlet />
+          {/* Keyed on pathname so a crashed route resets to a fresh mount when
+              the operator navigates elsewhere — see ErrorBoundary header. */}
+          <ErrorBoundary key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
           {scanClass && (
             <div className={`pointer-events-none absolute inset-0 z-50 ${scanClass}`} style={{
               backgroundImage: `repeating-linear-gradient(0deg, rgba(255,255,255,${tweaks.scanlines === 'hard' ? 0.05 : 0.02}) 0px, transparent 1px, transparent 2px, rgba(0,0,0,${tweaks.scanlines === 'hard' ? 0.15 : 0.08}) 3px)`,

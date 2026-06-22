@@ -390,7 +390,12 @@ class CronScheduler:
                 if not prompt:
                     return
                 resp = run_claude(prompt, timeout=CRON_JOB_TIMEOUT)
-                STORE.record_cron_result(job_id, True, resp.get("result", ""), trigger="schedule")
+                result = resp.get("result", "")
+                # Persist the FULL turn output as a retrievable deliverable — the
+                # 280-char `last_detail` below is only a health excerpt, so without
+                # this the job's actual product (e.g. a morning brief) was discarded.
+                _write_cron_deliverable(job, result)
+                STORE.record_cron_result(job_id, True, result, trigger="schedule")
             self.fired += 1
             self.last_fired_id = job_id
         except Exception as e:
@@ -400,21 +405,84 @@ class CronScheduler:
             print(f"[mc-bridge] cron job {job_id} failed: {e}", flush=True)
 
 
+def _write_cron_deliverable(job: dict, result: str) -> Optional[str]:
+    """Persist a scheduled `claude` job's FULL output as a retrievable deliverable.
+
+    `record_cron_result` keeps only a 280-char `last_detail` excerpt (a health
+    signal, shown in a hover-tooltip on the Scheduled-Jobs list), so the actual
+    product of a scheduled job — e.g. a "morning brief" that PRODUCES a brief —
+    had no home in the UI and was effectively a lost deliverable. Writing the full
+    result to `deliverables/cron/<job_id>/<stamp>.md` lands it in the existing
+    Deliverables browser (`list_deliverables` rglobs the `deliverables` root;
+    `DeliverablesDrawer` renders text/markdown inline), giving every scheduled run
+    a visible, retrievable artifact. Best-effort: a write failure must NEVER break
+    the daemon's fire loop, so it is caught and logged. Returns the relative path
+    written, or None if there was nothing to persist / the write failed."""
+    text = (result or "").strip()
+    if not text:
+        return None
+    job_id = str(job.get("id") or "job")
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", job_id) or "job"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    try:
+        out_dir = _DELIVERABLE_DIR / "deliverables" / "cron" / safe_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dest = out_dir / f"{stamp}.md"
+        header = (
+            f"# {job.get('name') or job_id}\n\n"
+            f"- job: `{job_id}`\n"
+            f"- schedule: `{job.get('schedule') or ''}`\n"
+            f"- fired: {stamp}\n\n"
+            "---\n\n"
+        )
+        dest.write_text(header + text, encoding="utf-8")
+        return dest.relative_to(_DELIVERABLE_DIR).as_posix()
+    except Exception as e:  # never let a write failure kill the fire loop
+        print(f"[mc-bridge] cron deliverable write failed for {job_id}: {e}", flush=True)
+        return None
+
+
 SCHEDULER = CronScheduler()
 
 
 def _build_dispatch_prompt(task: dict, agent: dict) -> tuple[str, str]:
-    """Compose the (prompt, system_prompt) for one task's Claude turn."""
+    """Compose the (prompt, system_prompt) for one task's Claude turn.
+
+    Hard-wires the agent's specialization into the turn: its role persona PLUS an
+    explicit directive to USE its assigned skills (via the Skill tool) and its MCP
+    tool integrations — not just a passive label. The turn runs with
+    bypassPermissions so every loaded skill/MCP is callable; this tells the agent
+    which ones are *its* and to reach for them instead of improvising.
+    """
     title = task.get("title") or "(untitled task)"
     body = (task.get("body") or "").strip()
-    skills = ", ".join(agent.get("skills") or []) or "general operations"
+    name = agent.get("name") or "agent"
     role = agent.get("role") or "autonomous Mission Control operator"
-    system_prompt = (
-        f"You are {agent.get('name')}, a Mission Control agent. Role: {role}. "
-        f"Skills: {skills}. You are executing one assigned kanban task end-to-end, "
-        f"unattended. Do the work, then return a concise summary of what you "
-        f"produced and where any deliverable lives."
+    skills = agent.get("skills") or []
+    mcps = agent.get("mcps") or []
+    lines = [
+        f"You are {name}, a specialist Mission Control agent. Role: {role}",
+        "You are executing ONE assigned kanban task end-to-end, unattended.",
+    ]
+    if skills:
+        lines.append(
+            "Your specialist skills — invoke them with the Skill tool whenever the "
+            "task calls for what they do, rather than reinventing the work: "
+            f"{', '.join(skills)}."
+        )
+    if mcps:
+        lines.append(
+            "Your tool integrations are available — use them when the task needs that "
+            f"capability (e.g. media generation, messaging, docs): {', '.join(mcps)}. "
+            "If an integration is not reachable in this run, say so and fall back."
+        )
+    lines.append(
+        "Use the live web (WebSearch/WebFetch) for anything time-sensitive or "
+        "external, and cite sources. Write any substantive deliverable to a file "
+        "in your current working directory (your per-task workspace), then return "
+        "a concise summary of what you produced and the exact filename."
     )
+    system_prompt = " ".join(lines)
     prompt = f"# Task: {title}" + (f"\n\n{body}" if body else "")
     return prompt, system_prompt
 
@@ -437,9 +505,13 @@ def dispatch_task(task_id: str) -> dict:
     if agent is None:
         raise ClaudeError(f"task {task_id} has no live agent ({assignee!r}) to dispatch to")
     prompt, system_prompt = _build_dispatch_prompt(task, agent)
+    # Per-task workspace as cwd → the agent's file output is task-linked +
+    # collision-safe under concurrent dispatch (run #16). Created before the
+    # claim so a failure after claiming still leaves a browsable workspace.
+    cwd = STORE.ensure_workspace(task_id)
     STORE.claim_task(task_id)                  # → running, started_at stamped
     try:
-        resp = run_claude(prompt, system_prompt=system_prompt,
+        resp = run_claude(prompt, system_prompt=system_prompt, cwd=cwd,
                           model=agent.get("model"), timeout=DISPATCH_TIMEOUT)
     except Exception as e:
         STORE.record_task_run(task_id, status="error", error=str(e), trigger="dispatch")
@@ -518,7 +590,7 @@ class TaskDispatcher:
                 with self._lock:
                     free = DISPATCH_CONCURRENCY - len(self._in_flight)
                 if free > 0:
-                    for task in STORE.dispatchable_tasks(limit=free * 3):
+                    for task in STORE.dispatchable_tasks(limit=free * 3, skip_exhausted=True):
                         if self._stop.is_set():
                             break
                         with self._lock:
@@ -793,9 +865,18 @@ def spawn_agent_on_task(agent_id: str, payload: SpawnOnTaskPayload):
     except ClaudeError as e:
         raise HTTPException(status_code=502, detail=f"Claude: {e}")
 
-    # Record the run on the task so the result is visible in the drawer.
+    # Record the spawn as a task RUN so its deliverable reaches the canonical
+    # home — RESULT / SUMMARY (`latest_summary`) + the RUNS list + the board's
+    # `has_deliverable` marker — exactly like `dispatch_task`. (It was stored
+    # only as a comment, which lights NONE of those: a spawned specialist's
+    # deliverable was invisible on the board and in the RESULT panel, findable
+    # only by scrolling the COMMENTS thread.) Status `ok` keeps it off the
+    # retry-exhaustion counter; the task status is intentionally left unchanged
+    # (a spawn is an assist, not a completion).
     try:
-        STORE.comment_task(payload.task_id, resp["result"], author=agent_id)
+        STORE.record_task_run(payload.task_id, status="ok", summary=resp["result"],
+                              session_id=resp.get("session_id"),
+                              cost_usd=resp.get("cost_usd"), trigger="spawn")
     except Exception:
         pass
     return {"message": resp["result"], "agent_id": agent_id, "task_id": payload.task_id,
@@ -864,18 +945,69 @@ def get_activity():
         created = t.get("created_at")
         started = t.get("started_at")
         completed = t.get("completed_at")
+        has_completion = isinstance(completed, (int, float))
+        # A task that reached a blocked/failed dead-end WITHOUT a completion time is
+        # no longer running — its true current signal is the stuck event emitted
+        # below. Without this guard the "claimed" (status=running) event ALSO fires
+        # for it, at the SAME `started_at` timestamp, so the blocked task appears
+        # TWICE in the War Room AGENT SIGNAL feed + Ghost Network stream — once red
+        # (blocked) and once amber (running) — re-creating the exact masquerade the
+        # stuck-event branch was added to remove, and inflating the feed's running
+        # count. Every live blocked task carries a started_at, so this hit all of them.
+        stuck = (not has_completion) and t.get("status") in ("blocked", "failed")
         if isinstance(created, (int, float)):
             events.append({"id": f"{tid}-c", "agent": agent, "action": f"task created · {title}", "timestamp": created, "status": "created"})
-        if isinstance(started, (int, float)):
+        if isinstance(started, (int, float)) and not stuck:
             events.append({"id": f"{tid}-s", "agent": agent, "action": f"claimed · {title}", "timestamp": started, "status": "running"})
-        if isinstance(completed, (int, float)):
-            status = "blocked" if t.get("status") in ("blocked", "failed") else "complete"
-            verb = "blocked" if status == "blocked" else "completed"
+        if has_completion:
+            # Keep failed distinct from blocked so the live activity stream
+            # mirrors the rest of the FAIL-STATE surface (FAILED column/chip,
+            # notifier, drawer banner). Collapsing failed→blocked here made a
+            # genuine failure indistinguishable from a deliberate block in the
+            # War Room AGENT SIGNAL feed + Ghost Network Activity Stream — the
+            # exact operational-spine question. The frontend activity vocab
+            # already renders `failed` (red) and `complete` (green).
+            st = t.get("status")
+            if st == "failed":
+                status, verb = "failed", "failed"
+            elif st == "blocked":
+                status, verb = "blocked", "blocked"
+            else:
+                status, verb = "complete", "completed"
             events.append({"id": f"{tid}-d", "agent": agent, "action": f"{verb} · {title}", "timestamp": completed, "status": status})
+        elif stuck:
+            # A task can reach the blocked/failed dead-end WITHOUT a completed_at
+            # stamp — e.g. its status was set directly, or it was blocked before a
+            # completion time was recorded (observed live: every blocked task on
+            # the board has completed_at=None). The terminal-event emission above
+            # is gated on completed_at, so for those tasks the latest synthesized
+            # event is "claimed" (status=running) — and the dead-ended task
+            # MASQUERADES as actively running in the War Room AGENT SIGNAL feed +
+            # Ghost Network Activity Stream, hiding the exact operational-spine
+            # signal the operator needs. Emit the stuck event using the best
+            # available time (started_at, else created_at) so the block/fail
+            # surfaces in the stream. Frontend vocab already renders both (red).
+            st = t.get("status")
+            ts = started if isinstance(started, (int, float)) else created
+            if isinstance(ts, (int, float)):
+                events.append({"id": f"{tid}-d", "agent": agent, "action": f"{st} · {title}", "timestamp": ts, "status": st})
 
-    # Most recent first from the source, but cap to the latest 50 events.
+    # Most recent first from the source, capped to the latest 50 events. But the
+    # blocked/failed "stuck" rows are the operator's highest-value signal (a task
+    # that needs attention RIGHT NOW), and a stuck task's event carries its OLD
+    # blocked/started time — so a burst of recent created/claimed/completed
+    # activity can push a still-stuck task off the tail of a naive `[:50]` cut,
+    # hiding it from the War Room AGENT SIGNAL feed + Ghost Network Activity
+    # Stream (observed live: 74 events → the 2 oldest of 6 blocked tasks fell
+    # past the cut, invisible). Reserve room for EVERY stuck event, then fill the
+    # rest of the budget with the most-recent other events, and re-sort by time.
+    CAP = 50
     events.sort(key=lambda e: e["timestamp"], reverse=True)
-    return {"activities": events[:50]}
+    critical = [e for e in events if e["status"] in ("blocked", "failed")]
+    rest = [e for e in events if e["status"] not in ("blocked", "failed")]
+    kept = critical[:CAP] + rest[: max(0, CAP - len(critical))]
+    kept.sort(key=lambda e: e["timestamp"], reverse=True)
+    return {"activities": kept[:CAP]}
 
 
 @app.get("/api/mc/events")
@@ -1183,16 +1315,22 @@ class SweepPayload(BaseModel):
 
 @app.post("/api/mc/kanban/sweep")
 def kanban_sweep(payload: Optional[SweepPayload] = None):
-    """One-call board self-manage macro: run the four self-heal verbs in order.
+    """One-call board self-manage macro: run the self-heal verbs in order.
 
-    reconcile (reclaim stale claims → ready) → cascade (hold/promote on deps) →
-    reassign (move dead-agent work to live owners) → escalate (block retry-burned
-    tasks). Order matters: reconcile first frees stale claims so reassign sees the
-    idle agent; cascade before reassign so a dep-held task is not moved; escalate
-    last as the final safety net. Each sub-verb is idempotent + dry-run-able, so
-    the macro is low-risk and a second pass is a no-op. `dry_run` previews the whole
-    plan without mutating. Returns each sub-result plus aggregate `counts`, `total`,
-    and a one-line `message`.
+    route (assign confident-match triage → todo) → reconcile (reclaim stale
+    claims → ready) → cascade (hold/promote on deps) → reassign (move dead-agent
+    work to live owners) → escalate (block retry-burned tasks) → promote (move
+    clean todo → ready to feed the dispatcher). Order matters: route first so a
+    freshly-assigned triage task is a clean todo by the time promote runs (this
+    is what gives triage an automatic driver — the recurring self-heal cron now
+    drains it hands-free instead of cards piling up until a manual AUTO-ROUTE);
+    reconcile frees stale claims so reassign sees the idle agent; cascade before
+    reassign so a dep-held task is not moved; escalate before promote so a
+    retry-burned task is blocked not promoted; promote last so the now-settled,
+    clean todos flow to `ready`. Each sub-verb is idempotent +
+    dry-run-able, so the macro is low-risk and a second pass is a no-op. `dry_run`
+    previews the whole plan without mutating. Returns each sub-result plus
+    aggregate `counts`, `total`, and a one-line `message`.
     """
     dry = payload.dry_run if payload else False
     return STORE.sweep_board(dry_run=dry)
@@ -1241,7 +1379,11 @@ def get_dispatcher():
     agent and executes it through one headless Claude turn. The daemon is OFF by
     default (MC_DISPATCHER_ENABLED) — `status.enabled/running` reports honestly —
     but a ready task can always be run by hand via POST /api/mc/dispatcher/dispatch.
-    `dispatchable` is the same best-first plan the daemon consumes.
+    `dispatchable` is the best-first plan in the daemon's fire order; each row
+    carries `dispatch_exhausted` (true once a task has burned its retry budget) —
+    the autonomous daemon SKIPS those, but they stay here (flagged) because an
+    operator can still force one by hand. So the list is a superset of what the
+    daemon auto-fires: filter out `dispatch_exhausted` to see the auto-fire set.
     """
     return {"status": DISPATCHER.status(),
             "dispatchable": STORE.dispatchable_tasks(limit=20)}
@@ -1316,7 +1458,16 @@ def specify_task(task_id: str):
 
 @app.get("/api/mc/tasks/{task_id}/log")
 def task_log(task_id: str, tail: Optional[int] = None):
-    """The worker log for a task — synthesized from its event history."""
+    """The worker log for a task — synthesized from its event history.
+
+    `tail`, when given, caps the response to the last N characters of the
+    joined text. Both callers (TaskDetailDrawer's DELIV-3 raw-output fallback +
+    WorkerLogStream's live tail) pass a byte budget and expect a bounded tail.
+    The cap is applied to the whole text, NOT per line: a single event line can
+    carry a large JSON payload (e.g. a `completed` event's `result_excerpt`), so
+    a per-line cap (`lines[-tail:]`) would leave the byte size unbounded. A
+    partial leading line left by the cut is dropped so the tail starts clean.
+    """
     try:
         detail = STORE.show_task(task_id)
     except KeyError:
@@ -1327,7 +1478,12 @@ def task_log(task_id: str, tail: Optional[int] = None):
         payload = e.get("payload") or {}
         extra = " " + json.dumps(payload) if payload else ""
         lines.append(f"[{ts}] {e.get('kind')}{extra}")
-    log = "\n".join(lines[-tail:] if tail else lines)
+    log = "\n".join(lines)
+    if tail and tail > 0 and len(log) > tail:
+        log = log[-tail:]
+        nl = log.find("\n")
+        if nl != -1:
+            log = log[nl + 1:]
     return {"log": log or "(no events yet)"}
 
 
@@ -1457,6 +1613,39 @@ def task_workspace(task_id: str, file: Optional[str] = None):
         out["log"] = _git_ro(ws_root, *logargs)
         out["diffstat"] = _git_ro(ws_root, "diff", "--stat")
     return out
+
+
+@app.get("/api/mc/tasks/{task_id}/workspace/raw")
+def task_workspace_raw(task_id: str, file: str):
+    """Serve RAW bytes of one workspace file (confined to the task's workspace).
+
+    The JSON `?file=` read above can only flag a binary deliverable "not shown",
+    so a task that produced media (a generated image, a rendered video/audio clip,
+    a PDF) had no viewable home in the per-task drawer — the operator saw a note
+    where the clip should play. This streams the real bytes via FileResponse
+    (content-type inferred from the extension; HTTP Range supported, so a `<video>`
+    can seek), letting the workspace browser render an <img>/<video>/<audio>/
+    <iframe> inline. Same store-derived, path-traversal-confined safety as the text
+    read: the workspace root comes from the kanban store (never the client) and the
+    resolved target must sit inside it.
+    """
+    try:
+        task = STORE.show_task(task_id)["task"]
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+    ws = (task.get("workspace_path") or "").strip()
+    if not ws:
+        raise HTTPException(status_code=404, detail="task has no workspace")
+    try:
+        ws_root = Path(ws).resolve(strict=False)
+        target = (ws_root / file).resolve(strict=False)
+    except (OSError, ValueError):
+        raise HTTPException(status_code=400, detail="invalid file path")
+    if ws_root != target and ws_root not in target.parents:
+        raise HTTPException(status_code=403, detail="path escapes workspace")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="file not found")
+    return FileResponse(target)
 
 
 # Deliverables browser. Dispatched agents are told to write any substantive
@@ -1643,16 +1832,6 @@ def get_cron():
     return out
 
 
-@app.get("/api/mc/maintenance/actions")
-def get_maintenance_actions():
-    """Report the maintenance actions this RUNNING process can fire as a cron job.
-    Read off the live bridge (not a checkout) so the UI can show whether a hygiene
-    job like `reconcile` is actually fireable here. A bridge restart on a build with
-    new actions updates the set, which reflects this process's mc_store."""
-    from mc_store import MAINTENANCE_ACTIONS
-    return {"actions": sorted(MAINTENANCE_ACTIONS)}
-
-
 @app.post("/api/mc/cron")
 def create_cron(payload: CreateCronPayload):
     """Create a scheduled job in the native store (claude or maintenance kind)."""
@@ -1688,8 +1867,14 @@ def run_cron(job_id: str):
     except ClaudeError as e:
         STORE.record_cron_result(job_id, False, str(e), trigger="manual")
         raise HTTPException(status_code=502, detail=f"Claude: {e}")
-    STORE.record_cron_result(job_id, True, resp.get("result", ""), trigger="manual")
-    return {"message": resp["result"]}
+    result = resp.get("result", "")
+    # Persist the FULL turn output as a retrievable deliverable, exactly as the
+    # scheduled `_fire` path does (DELIV-7). A manual "run now" fires the same
+    # run_claude turn, so without this its product (e.g. a morning brief) survived
+    # only as the 280-char `last_detail` excerpt + the ephemeral HTTP response.
+    _write_cron_deliverable(job, result)
+    STORE.record_cron_result(job_id, True, result, trigger="manual")
+    return {"message": result}
 
 
 @app.post("/api/mc/spawn")
@@ -1788,14 +1973,31 @@ def chat_message(payload: ChatPayload):
         status = 503 if "quota" in msg.lower() or "429" in msg else 502
         raise HTTPException(status_code=status, detail=f"Claude: {msg}")
 
-    sid = resp.get("session_id") or payload.session_id
+    # Trust run_claude's returned id verbatim — do NOT fall back to
+    # payload.session_id. On a resume-miss it drops the dead id and continues
+    # as a fresh session, returning the NEW id (or None when the fresh turn's
+    # output was non-JSON). Resurrecting payload.session_id here would re-hand
+    # the operator the same dead id and re-arm the "No conversation found"
+    # COMMS FAILURE on their next turn.
+    sid = resp.get("session_id")
     answer = resp.get("result", "")
 
     # Persist the turn so the sessions list / transcript view stay in sync.
-    if sid:
-        SESSIONS.ensure_session(sid)
-        SESSIONS.append_message(sid, "user", payload.message)
-        SESSIONS.append_message(sid, "assistant", answer)
+    # `claude` normally returns a resumable session id, but when its
+    # --output-format json output is non-JSON, run_claude falls back to raw
+    # stdout (mc_brain.py) and the envelope carries NO session_id — so on a
+    # brand-new chat `sid` is empty. Gating persistence on `if sid` then
+    # silently dropped the whole turn (operator message + answer) from the
+    # store: the reply still showed inline but never reached the sessions
+    # list / transcript view — a lost deliverable. Stash it under a local,
+    # non-resumable id instead so the transcript is always retrievable. We do
+    # NOT hand that id back as `session_id` (claude --resume <local-…> would
+    # 502 the next turn); the conversation just continues fresh.
+    import uuid
+    persist_id = sid or f"local-{uuid.uuid4().hex[:16]}"
+    SESSIONS.ensure_session(persist_id)
+    SESSIONS.append_message(persist_id, "user", payload.message)
+    SESSIONS.append_message(persist_id, "assistant", answer)
 
     return {
         "response": answer,
@@ -1886,14 +2088,20 @@ def session_get(session_id: str):
 @app.post("/api/mc/sessions/{session_id}/rename")
 def session_rename(session_id: str, payload: SessionRenamePayload):
     """Set a session's title."""
-    SESSIONS.rename(session_id, payload.title)
+    # A rename of a missing/raced id used to UPDATE 0 rows yet still report
+    # success:true — the UI then optimistically showed the new title only for the
+    # next /sessions poll to silently revert it (a phantom rename). 404 like the
+    # sibling session_get so the operator sees the real reason instead.
+    if not SESSIONS.rename(session_id, payload.title):
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     return {"id": session_id, "title": payload.title, "success": True}
 
 
 @app.delete("/api/mc/sessions/{session_id}")
 def session_delete(session_id: str):
     """Delete a session and its transcript from the native store."""
-    SESSIONS.delete(session_id)
+    if not SESSIONS.delete(session_id):
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     return {"id": session_id, "success": True}
 
 
@@ -2023,7 +2231,12 @@ def get_briefing():
     active_jobs = [j for j in cron_jobs if j.get("status") == "active"]
     job_count = len(cron_jobs)
     active_count = len(active_jobs)
-    failed_jobs = [j for j in cron_jobs if "error" in (j.get("last_run", "") or "").lower() or "failed" in (j.get("last_run", "") or "").lower()]
+    # A job's outcome lives in `last_status` ("ok"|"error"), stamped by
+    # record_cron_result. `last_run` is an epoch float (or None) — substring-
+    # searching it for "error" never matched a real failure AND threw
+    # AttributeError ('float' has no .lower()) the moment any job had run,
+    # 500-ing this whole briefing endpoint. Read the purpose-built field.
+    failed_jobs = [j for j in cron_jobs if (j.get("last_status") or "").lower() == "error"]
 
     now_str = datetime.now().strftime("%Y.%m.%d · %H:%M ZULU")
 
@@ -2119,7 +2332,7 @@ def get_content_pipeline():
 
     # Campaigns = tasks that look like active content campaigns (non-draft statuses)
     campaigns = []
-    # Drafts = pending/ready tasks
+    # Drafts = backlog/ready content work not yet shipped (todo/pending/ready/blocked/failed)
     drafts = []
     # Calendar = tasks with a scheduled date in title/body or just upcoming ready tasks
     calendar = []
@@ -2156,8 +2369,13 @@ def get_content_pipeline():
             "platform": _detect_platform(title + " " + body),
         })
 
-        # Draft queue entry
-        if status in ("pending", "ready", "blocked", "failed"):
+        # Draft queue entry. mc_store's canonical backlog status is `todo`
+        # (`pending` is the legacy Hermes-era alias); include both so a content
+        # task sitting in the todo backlog isn't silently dropped from the
+        # Content Factory drafts queue — the same pending→todo forward-migration
+        # straggler already fixed in summarize() (topbar QUEUE) and the War Room
+        # status chart. (BUGHUNT vocabulary lens)
+        if status in ("todo", "pending", "ready", "blocked", "failed"):
             drafts.append({
                 "id": task_id,
                 "title": title,
@@ -2661,7 +2879,22 @@ def add_calendar_item(payload: CalendarItemPayload):
         **payload.model_dump(exclude={"publish"}),
     }
     if payload.publish:
-        resp = _metricool_schedule(item)
+        # The Metricool hop FAILS on the common operator states — brands not
+        # synced (400), platform not connected (400), media only staged locally
+        # (400), LLM quota/error (502/503). The old order (append only AFTER a
+        # successful publish) DISCARDED the operator's whole composed post on any
+        # of those — a lost deliverable, with nothing left on the calendar to
+        # retry from. Persist it as a draft on failure, then re-raise so the
+        # operator still sees the reason; they can retry via the per-item
+        # /schedule hop (which, like this, never loses a saved item).
+        try:
+            resp = _metricool_schedule(item)
+        except HTTPException:
+            item["status"] = "draft"
+            items.append(item)
+            items.sort(key=lambda x: x.get("date", ""))
+            _save_store("calendar", items)
+            raise
         item["status"] = "scheduled"
         item["metricool_id"] = resp.get("id")
         item["scheduled_for"] = resp.get("scheduled_for")
@@ -2877,6 +3110,7 @@ def scrape_creators():
 
     items: list[dict] = []
     errors: list[str] = []
+    fetched_any = False  # did ANY platform actually return data? (vs total outage)
     by_platform: dict[str, list[str]] = {}
     for w in wl:
         by_platform.setdefault(w["platform"], []).append(w["handle"])
@@ -2898,6 +3132,7 @@ def scrape_creators():
                 f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items?token={APIFY_TOKEN}&timeout=240",
                 payload=run_input, timeout=280,
             )
+            fetched_any = True  # this source responded — empty items now mean a real result, not an outage
             raw_items = data if isinstance(data, list) else []
             # Profile-shaped objects carry their posts under latestPosts — expand.
             expanded: list[dict] = []
@@ -2920,7 +3155,7 @@ def scrape_creators():
                     continue
                 items.append({
                     "platform": platform,
-                    "creator": it.get("ownerUsername") or it.get("authorMeta", {}).get("name") or "?",
+                    "creator": it.get("ownerUsername") or (it.get("authorMeta") or {}).get("name") or "?",
                     "caption": (it.get("caption") or it.get("text") or "")[:280],
                     "url": it.get("url") or it.get("webVideoUrl") or "",
                     "likes": likes, "comments": comments, "views": views,
@@ -2949,6 +3184,17 @@ def scrape_creators():
 
     items.sort(key=lambda x: x["viral_score"], reverse=True)
     feed = {"scraped_at": datetime.now().isoformat(), "items": items[:120], "errors": errors}
+    # DELIVERABLE-DESTROY-ON-FAILURE guard (cf. Sentinel iter-#90): if EVERY source
+    # failed to return data, `items` is empty only because of the outage — not a real
+    # empty result — so overwriting would wipe the last good viral feed (shown in both
+    # ContentFactory and the Intelligence Deck). Preserve the prior feed and re-surface
+    # this run's errors against it so the deck's error banner still fires.
+    if not items and not fetched_any:
+        prior = _load_store("creators-feed", None)
+        if isinstance(prior, dict) and prior.get("items"):
+            preserved = {**prior, "errors": errors}
+            _save_store("creators-feed", preserved)
+            return preserved
     _save_store("creators-feed", feed)
     return feed
 
@@ -2977,7 +3223,16 @@ def generate_ai_digest():
     stories = json.loads(latest.read_text(encoding="utf-8")).get("stories", [])[:25]
     if not stories:
         raise HTTPException(status_code=404, detail="Sentinel cache has no stories")
-    story_lines = "\n".join(f"- {s['title']} ({s['source']}, score {s.get('score', 0)}) {s['url']}" for s in stories)
+    # Defensive .get() on EVERY field (null-guard lens, iter #67/#68/#74 class).
+    # `stories` is the same external-scraper Sentinel cache that _gather_idea_inputs
+    # guards — item shapes drift and can arrive partial. A single story missing
+    # title/source/url would raise KeyError inside this join and 500 the whole
+    # 1-3 min digest run, discarding the deliverable. `score` was already guarded;
+    # the siblings on the same line were the oversight (mirrors _gather_idea_inputs).
+    story_lines = "\n".join(
+        f"- {s.get('title', 'untitled')} ({s.get('source', '?')}, score {s.get('score', 0)}) {s.get('url', '')}"
+        for s in stories
+    )
     prompt = (
         "You are the AI-news editor for a content creator in the AI/autonomous-agents niche. "
         "From the headlines below, produce STRICT JSON (no markdown fences, no prose) with this shape: "
@@ -2990,9 +3245,24 @@ def generate_ai_digest():
     digest = {
         "generated_at": datetime.now().isoformat(),
         "summary": parsed.get("summary", ""),
-        "ideas": parsed.get("ideas", [])[:8],
+        # `(… or [])` not `.get(…, [])`: the model can emit an explicit
+        # "ideas": null (valid JSON, passes _llm_json's dict check), and
+        # None[:8] would 500 the endpoint — discarding the whole LLM run.
+        "ideas": (parsed.get("ideas") or [])[:8],
         "story_count": len(stories),
     }
+    # DELIVERABLE-DESTROY-ON-FAILURE guard (iter #90/#91 class): a degenerate but
+    # well-formed LLM reply — an empty `{}`, a bare array wrapped to `{"items": …}`
+    # by _llm_json (carries no summary/ideas), or explicit null summary+ideas —
+    # passes _llm_json's dict check yet has NO content. Persisting it would CLOBBER
+    # the last-good served digest with a blank shell (the AI Digest panel goes empty
+    # though a good one existed, and GET only re-shows what's cached). Only save a
+    # digest that actually carries a summary or >=1 idea; otherwise keep the prior
+    # cache untouched and surface the empty synthesis so the operator can retry.
+    has_summary = isinstance(digest["summary"], str) and digest["summary"].strip()
+    if not has_summary and not digest["ideas"]:
+        raise HTTPException(status_code=502,
+                            detail="LLM returned an empty digest — kept the previous one; retry")
     _save_store("ai-digest", digest)
     return {"available": True, **digest}
 
@@ -3019,12 +3289,21 @@ def _gather_idea_inputs() -> tuple[str, str, str, dict]:
     if latest.exists():
         stories = json.loads(latest.read_text(encoding="utf-8")).get("stories", [])[:12]
     brand = BRAND_DOC.read_text(encoding="utf-8", errors="replace")[:3000] if BRAND_DOC.exists() else ""
+    # Defensive .get() on EVERY field. The viral feed + Sentinel digest are
+    # persisted operator data sourced from external Apify actors / the Sentinel
+    # cache, whose item shapes drift and can arrive partial. A single item missing
+    # one key (creator/likes/caption/title/…) would otherwise raise KeyError here
+    # and crash the ENTIRE Idea Engine generation. Mirrors the frontend's `|| 0`
+    # guards + the viral_score/age_days .get()s already on the same line.
+    # (null-guard lens, iter #67/#68 class)
     viral_lines = "\n".join(
-        f"- @{v['creator']} ({v['platform']}, ⚡{v.get('viral_score', 0)} = outperformance×freshness, "
-        f"{v.get('age_days', '?')}d old, {v['likes']}L/{v['comments']}C/{v['views']}V): {v['caption'][:160]}"
+        f"- @{v.get('creator', '?')} ({v.get('platform', '?')}, ⚡{v.get('viral_score', 0)} = outperformance×freshness, "
+        f"{v.get('age_days', '?')}d old, {v.get('likes', 0)}L/{v.get('comments', 0)}C/{v.get('views', 0)}V): {(v.get('caption') or '')[:160]}"
         for v in viral
     ) or "(no creator signals scraped yet)"
-    news_lines = "\n".join(f"- {s['title']} ({s['source']}, score {s.get('score', 0)})" for s in stories) or "(no news cached)"
+    news_lines = "\n".join(
+        f"- {s.get('title', 'untitled')} ({s.get('source', '?')}, score {s.get('score', 0)})" for s in stories
+    ) or "(no news cached)"
     counts = {"viral_posts": len(viral), "news_stories": len(stories), "brand_doc": bool(brand)}
     return viral_lines, news_lines, brand, counts
 
@@ -3045,6 +3324,45 @@ def _llm_json(prompt: str, timeout: int = 240) -> dict:
     if not isinstance(obj, dict):
         raise HTTPException(status_code=502, detail="model returned non-object JSON")
     return obj
+
+
+# ── Content channel preferences ──────────────────────────────────────────
+# The operator-selectable set of social channels the Idea Engine targets. The
+# generator only proposes ideas for ENABLED channels, so it stops suggesting
+# platforms the operator doesn't use. Persisted in .mc/data/content-channels.json.
+CONTENT_CHANNELS = ["instagram", "tiktok", "linkedin", "threads",
+                    "youtube", "twitter", "facebook", "pinterest"]
+DEFAULT_ENABLED_CHANNELS = ["instagram", "tiktok", "linkedin"]
+
+
+def _enabled_channels() -> list[str]:
+    saved = _load_store("content-channels", None)
+    if isinstance(saved, dict) and isinstance(saved.get("enabled"), list):
+        valid = [c for c in saved["enabled"] if c in CONTENT_CHANNELS]
+        if valid:
+            return valid
+    return list(DEFAULT_ENABLED_CHANNELS)
+
+
+class ChannelsPayload(BaseModel):
+    enabled: list[str]
+
+
+@app.get("/api/content/channels")
+def get_content_channels():
+    """Available content channels + the operator's currently-enabled subset."""
+    return {"available": CONTENT_CHANNELS, "enabled": _enabled_channels()}
+
+
+@app.put("/api/content/channels")
+def set_content_channels(payload: ChannelsPayload):
+    """Set which channels the Idea Engine may target (must be >=1 known channel)."""
+    valid = [c for c in payload.enabled if c in CONTENT_CHANNELS]
+    if not valid:
+        raise HTTPException(status_code=400,
+                            detail=f"enabled must include at least one of: {', '.join(CONTENT_CHANNELS)}")
+    _save_store("content-channels", {"enabled": valid})
+    return {"available": CONTENT_CHANNELS, "enabled": valid}
 
 
 @app.get("/api/content/ideas")
@@ -3098,12 +3416,15 @@ def skip_content_idea(payload: ConsumeIdeaPayload):
     viral_lines, news_lines, brand, _counts = _gather_idea_inputs()
     existing = [i.get("title", "") for i in ideas.get("ideas", [])]
     avoid = skipped + [t["title"] for t in taste[-15:]]
+    chans = _enabled_channels()
+    chan_pipe = "|".join(chans)
     prompt = (
         "You are the content strategist for the brand below. The operator SKIPPED some ideas — treat those "
         "as negative taste examples and avoid similar angles. Produce STRICT JSON only (no fences): "
-        '{"idea": {"title": "<punchy working title>", "platform": "instagram|tiktok|linkedin", '
+        f'{{"idea": {{"title": "<punchy working title>", "platform": "{chan_pipe}", '
         '"format": "<reel|carousel|post|thread>", "hook": "<first 2 seconds / first line>", '
         '"why_now": "<trending-news or timing tie-in>", "pattern_source": "<viral pattern it remixes, or \'original\'>"}} '
+        f"The platform MUST be one of: {', '.join(chans)} (channels the operator actually uses); never any other. "
         "Give exactly ONE new high-viral-potential idea. It must be clearly different from ALL of these existing "
         f"titles: {json.dumps(existing)} and avoid angles similar to these SKIPPED/disliked ones: {json.dumps(avoid)}.\n\n"
         f"=== BRAND (excerpt) ===\n{brand}\n\n"
@@ -3137,15 +3458,19 @@ def generate_content_ideas():
         taste_note = ("\n\nThe operator previously SKIPPED these ideas — avoid similar angles: "
                       + json.dumps([t["title"] for t in taste[-15:]]))
 
+    chans = _enabled_channels()
+    chan_pipe = "|".join(chans)
     prompt = (
         "You are the content strategist for the brand described below. Produce STRICT JSON only "
         "(no markdown fences, no prose outside JSON) with this shape: "
         '{"strategy_note": "<2-3 sentences: this week\'s content thesis connecting the news cycle and the niche patterns to OUR positioning>", '
-        '"ideas": [{"title": "<punchy working title>", "platform": "instagram|tiktok|linkedin", '
+        f'"ideas": [{{"title": "<punchy working title>", "platform": "{chan_pipe}", '
         '"format": "<reel|carousel|post|thread>", "hook": "<the first 2 seconds / first line>", '
         '"why_now": "<the trending-news or timing tie-in>", '
         '"pattern_source": "<which viral pattern or creator signal this remixes, or \'original\'>"}]} '
-        "Give 6 ideas ranked by viral potential. Every idea must be executable by an AI agent fleet brand "
+        "Give 6 ideas ranked by viral potential. "
+        f"ONLY target channels the operator actually uses — every idea's platform MUST be one of: {', '.join(chans)}; never propose any other platform. "
+        "Every idea must be executable by an AI agent fleet brand "
         "(demos, hot takes, build-in-public, contrarian POVs) and sound like the brand voice."
         + taste_note + "\n\n"
         f"=== BRAND (excerpt) ===\n{brand}\n\n"
@@ -3156,41 +3481,31 @@ def generate_content_ideas():
     result = {
         "generated_at": datetime.now().isoformat(),
         "strategy_note": parsed.get("strategy_note", ""),
-        "ideas": parsed.get("ideas", [])[:8],
+        # `(… or [])`: guard an explicit "ideas": null from the model (see ai-digest).
+        "ideas": (parsed.get("ideas") or [])[:8],
         "inputs": counts,
         # fresh deck — nothing used or skipped yet
         "used": [],
         "skipped": [],
     }
+    # DELIVERABLE-DESTROY-ON-FAILURE guard (iter #92 ai-digest class): a degenerate but
+    # well-formed LLM reply — an empty `{}`, a bare array wrapped to `{"items": …}` by
+    # _llm_json (no strategy_note/ideas), or explicit null — passes _llm_json's dict
+    # check yet carries NO content. Saving it would CLOBBER the last-good deck with an
+    # empty shell AND reset the operator's used/skipped taste-state to []. Only deal a
+    # deck that actually carries a strategy note or >=1 idea; otherwise keep the prior
+    # deck untouched and surface the empty synthesis so the operator can retry.
+    has_note = isinstance(result["strategy_note"], str) and result["strategy_note"].strip()
+    if not has_note and not result["ideas"]:
+        raise HTTPException(status_code=502,
+                            detail="LLM returned an empty idea deck — kept the previous one; retry")
     _save_store("content-ideas", result)
     return {"available": True, **result}
 
 @app.get("/api/mc/sentinel")
 def get_mc_sentinel():
     """Alias to existing /api/sentinel/digest logic."""
-    latest_path = SENTINEL_CACHE_DIR / "latest.json"
-    if not latest_path.exists():
-        script_path = Path(__file__).parent / "scripts" / "sentinel_news_pipeline.py"
-        if script_path.exists():
-            try:
-                subprocess.run(
-                    [sys.executable, str(script_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                    creationflags=CREATE_NO_WINDOW,
-                )
-            except Exception:
-                pass
-
-    if latest_path.exists():
-        try:
-            with open(latest_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to parse digest: {str(e)}")
-
-    raise HTTPException(status_code=404, detail="No digest available. Run the Sentinel cron or wait for next cycle.")
+    return _load_sentinel_digest()
 
 
 # ---------------------------------------------------------------------------
@@ -3199,33 +3514,60 @@ def get_mc_sentinel():
 
 SENTINEL_CACHE_DIR = Path(__file__).parent / ".mc" / "cache" / "sentinel"
 
-@app.get("/api/sentinel/digest")
-def get_sentinel_digest():
-    """Return the latest Sentinel AI Daily Digest from cache."""
+
+def _load_sentinel_digest():
+    """Return the cached Sentinel digest, running the pipeline if it's missing.
+
+    Distinguishes a genuinely-empty state from a BROKEN scrape so the operator
+    isn't told to "wait for next cycle" when waiting will never help:
+    - 500 if `latest.json` exists but can't be parsed.
+    - 502 if the pipeline actually RAN and FAILED (non-zero exit / timeout /
+      crash) and still produced no digest — the detail carries the real reason
+      (surfaced to the operator via `bridgeDetail` in the Briefing Terminal).
+    - 404 only when there's nothing yet AND nothing failed (a fresh cycle).
+    """
     latest_path = SENTINEL_CACHE_DIR / "latest.json"
+    run_error = None
     if not latest_path.exists():
         # Try to run the pipeline to generate today's digest
         script_path = Path(__file__).parent / "scripts" / "sentinel_news_pipeline.py"
         if script_path.exists():
             try:
-                subprocess.run(
+                proc = subprocess.run(
                     [sys.executable, str(script_path)],
                     capture_output=True,
                     text=True,
                     timeout=120,
                     creationflags=CREATE_NO_WINDOW,
                 )
-            except Exception:
-                pass
-    
+                if proc.returncode != 0:
+                    tail = (proc.stderr or proc.stdout or "").strip()[-400:]
+                    run_error = f"exit {proc.returncode}" + (f": {tail}" if tail else "")
+            except subprocess.TimeoutExpired:
+                run_error = "pipeline timed out after 120s"
+            except Exception as e:
+                run_error = str(e)
+
     if latest_path.exists():
         try:
             with open(latest_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to parse digest: {str(e)}")
-    
+
+    if run_error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Sentinel pipeline failed — {run_error}",
+        )
+
     raise HTTPException(status_code=404, detail="No digest available. Run the Sentinel cron or wait for next cycle.")
+
+
+@app.get("/api/sentinel/digest")
+def get_sentinel_digest():
+    """Return the latest Sentinel AI Daily Digest from cache."""
+    return _load_sentinel_digest()
 
 
 @app.get("/api/sentinel/archive")
@@ -3249,6 +3591,16 @@ def get_sentinel_archive(limit: int = 30):
 @app.get("/api/sentinel/digest/{date}")
 def get_sentinel_digest_by_date(date: str):
     """Return a specific day's Sentinel digest."""
+    # Digest filenames are `digest_<YYYY-MM-DD>.json` (see /api/sentinel/archive).
+    # `{date}` is interpolated straight into the path, so a crafted value — e.g.
+    # URL-encoded `x\..\..\..\target` — would escape SENTINEL_CACHE_DIR and read
+    # an arbitrary `*.json` off disk (Windows collapses the `..` lexically even
+    # through the `digest_` prefix). With CORS `*`, any page in the operator's
+    # browser could trigger that read cross-origin. Pin `date` to the digit/dash
+    # vocabulary real dates use so nothing but a genuine digest name resolves —
+    # the same defence serve_media() already applies to its media_id param.
+    if not re.fullmatch(r"[0-9][0-9_-]{0,31}", date):
+        raise HTTPException(status_code=404, detail=f"No digest found for {date}")
     cache_path = SENTINEL_CACHE_DIR / f"digest_{date}.json"
     if not cache_path.exists():
         raise HTTPException(status_code=404, detail=f"No digest found for {date}")

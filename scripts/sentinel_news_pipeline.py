@@ -151,14 +151,22 @@ def build_and_cache_digest(
                   singularity_stories + nextjs_stories +
                   techcrunch_stories + vercel_stories + openai_stories + google_stories)
 
-    # Deduplicate
-    seen_links = set()
+    # Deduplicate by URL. An EMPTY/missing URL is NOT a duplicate signal — an
+    # Atom-style `<link href=".."/>` (its `.text` is None → url "") or a link-less
+    # RSS item yields url "", and keying dedup on that string collapses EVERY such
+    # distinct story past the first into one, silently dropping real trends from
+    # the served digest (a lost deliverable). Fall back to the title (distinct per
+    # story) when the URL is blank; keep anything with neither key.
+    seen_keys = set()
     deduped_trends = []
     for story in all_trends:
-        link = story["url"]
-        if link not in seen_links:
-            seen_links.add(link)
-            deduped_trends.append(story)
+        link = (story.get("url") or "").strip()
+        key = link or ("title:" + (story.get("title") or "").strip())
+        if key and key in seen_keys:
+            continue
+        if key:
+            seen_keys.add(key)
+        deduped_trends.append(story)
 
     digest = {
         "generated_at": datetime.now().isoformat(),
@@ -167,16 +175,29 @@ def build_and_cache_digest(
         "stories": deduped_trends
     }
 
-    # Cache the structured digest
+    if not deduped_trends:
+        # Every source returned nothing. With 9 broad sources this is almost
+        # always a transient all-sources network failure, not a genuinely empty
+        # trend day. Do NOT persist: an empty digest would clobber a previously
+        # good latest.json (the deliverable the bridge serves) and write an empty
+        # digest_<today>.json that main()'s cache-guard treats as "already done",
+        # blocking the next scheduled run from self-healing. Leave the cache as-is
+        # so the bridge keeps serving the last good digest and the next cycle retries.
+        # (ASCII-only message: a non-ASCII char would raise UnicodeEncodeError on a
+        # cp1252 stdout, e.g. the bridge's captured subprocess.)
+        print("No stories fetched (all sources empty); preserving last cached digest, not overwriting.")
+        return
+
+    # Persist the digest BEFORE any decorative output, so the deliverable write is
+    # never gated behind console encoding: the banner / checkmark prints below use
+    # non-ASCII chars that can raise UnicodeEncodeError on a cp1252 stdout (the
+    # bridge runs this via capture_output subprocess on Windows). Saving first means
+    # latest.json is on disk even if a print then crashes the process.
     save_digest_cache(digest)
 
     print("\n" + "="*50)
     print("📢 SENTINEL TRENDS DATA INGESTION OUTPUT")
     print("="*50 + "\n")
-
-    if not deduped_trends:
-        print("No rising trends detected today.")
-        return
 
     for i, story in enumerate(deduped_trends, 1):
         print(f"[{i}] Title: {story['title']}")

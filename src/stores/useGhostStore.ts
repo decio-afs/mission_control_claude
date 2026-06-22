@@ -86,12 +86,20 @@ function hash(s: string): number {
   return Math.abs(x);
 }
 
-function num(counts: Record<string, number>, ...keys: string[]): number {
+// Sum every present count across the given status keys. `counts` is keyed by a
+// task's single canonical status (mc_store `assignees()`), so a task is counted
+// under exactly one key — summing a set of DISTINCT statuses can never
+// double-count; it yields the number of tasks currently in any of those states.
+// (A first-match return would silently DROP co-occurring statuses, e.g. an
+// agent's `blocked` tasks hidden behind its `ready` count — narratrix's 5
+// blocked vanishing behind ready:2 — under-reporting queue depth.)
+function sumKeys(counts: Record<string, number>, ...keys: string[]): number {
+  let total = 0;
   for (const k of keys) {
     const v = counts?.[k];
-    if (typeof v === 'number') return v;
+    if (typeof v === 'number') total += v;
   }
-  return 0;
+  return total;
 }
 
 /**
@@ -103,8 +111,16 @@ export function mapAgentsToTopology(agents: McAgent[]): GhostNode[] {
   return agents.map((a) => {
     const lc = a.name.toLowerCase();
     const isCore = CORE_NAMES.has(lc);
-    const running = num(a.counts, 'running', 'in_progress', 'active', 'started');
-    const queue = num(a.counts, 'ready', 'queued', 'pending', 'todo', 'blocked');
+    const running = sumKeys(a.counts, 'running', 'in_progress', 'active', 'started');
+    // Queue depth = every NON-terminal, non-running task the agent holds. The mc
+    // canonical non-running/non-terminal statuses are ready/todo/blocked/review/
+    // scheduled/triage (see OperationsCenter COLUMNS); `done`/`archived`/`failed`
+    // are terminal/adverse and excluded. `review`+`scheduled`+`triage` were
+    // missing — an operator SCHEDULE-ing an assigned task (TaskDetailDrawer verb)
+    // left it `scheduled` yet invisible in its agent's queue depth, the same
+    // bucket-completeness under-count #62/#63 fixed for `blocked` (queued/pending
+    // kept as defensive legacy aliases).
+    const queue = sumKeys(a.counts, 'ready', 'queued', 'pending', 'todo', 'blocked', 'review', 'scheduled', 'triage');
     const squad = isCore ? 'CORE' : SQUADS[hash(a.name) % SQUADS.length];
     const type: GhostNode['type'] = isCore ? 'core' : hash(a.name) % 3 === 0 ? 'fixer' : 'runner';
     const status = !a.on_disk ? 'offline' : running > 0 ? 'active' : 'online';

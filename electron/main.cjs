@@ -163,8 +163,15 @@ function shutdown() {
 }
 
 app.on('window-all-closed', () => {
-  shutdown();
-  if (process.platform !== 'darwin') app.quit();
+  // On macOS the app (and its supervised bridge) conventionally stay alive in the
+  // dock after the last window closes, to be reopened via `activate`. Tearing the
+  // bridge down here — and latching `isQuitting` — would leave a dock-reopened
+  // window pointing at a dead, un-supervised backend. Let `before-quit` handle
+  // teardown on a real quit (Cmd-Q) instead.
+  if (process.platform !== 'darwin') {
+    shutdown();
+    app.quit();
+  }
 });
 app.on('before-quit', shutdown);
 process.on('exit', shutdown);

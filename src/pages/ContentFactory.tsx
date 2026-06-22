@@ -12,7 +12,8 @@ import {
   consumeContentIdea, skipContentIdea,
   uploadContentMedia, attachCalendarMedia, scheduleCalendarItem,
   predictCalendarVirality, getMetricoolBrands, syncMetricoolBrands,
-  type CreatorsResponse, type ContentIdeas, type MetricoolBrands,
+  getContentChannels, setContentChannels,
+  type CreatorsResponse, type ContentIdeas, type MetricoolBrands, type ContentChannels,
 } from '../lib/api';
 
 const statusTone: Record<string, 'good' | 'warn' | 'info' | 'neutral' | 'bad'> = {
@@ -64,11 +65,25 @@ export default function ContentFactory() {
     const running = campaigns.filter((c) => c.status === 'running').length;
     const ready = campaigns.filter((c) => c.status === 'ready').length;
     const blocked = campaigns.filter((c) => c.status === 'blocked').length;
-    return { total, done, running, ready, blocked };
+    // FAILED is a real campaign status (the backend normalizes a `failed` task to
+    // it, and the operator-facing FAIL button — iter #31 — can now drive a content
+    // task there). Without this bucket a failed campaign was invisible in the
+    // summary AND the breakdown stats stopped summing to `total` (e.g. 27 shown but
+    // only 26 across done/running/ready/blocked). (BUGHUNT bucket-completeness lens)
+    const failed = campaigns.filter((c) => c.status === 'failed').length;
+    return { total, done, running, ready, blocked, failed };
   }, [campaigns]);
 
   const upcoming = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    // LOCAL today, not UTC. Every `c.date` is a LOCAL calendar date — the bridge
+    // derives them with datetime.fromtimestamp/now() (local), and formatDate()
+    // renders them local (`+ 'T00:00:00'`). `toISOString().slice(0,10)` gave the
+    // UTC date instead, so for a negative-offset operator (UTC-7) every evening
+    // after UTC ticked past midnight, today's planned posts were filtered out of
+    // the UPCOMING list ~7h early — a hidden deliverable on the very surface meant
+    // to show imminent content. Build the local YMD to match.
+    const n = new Date();
+    const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
     // Explicitly planned posts outrank kanban-derived dates for the 7 slots.
     return [...calendar]
       .filter((c) => c.date >= today)
@@ -121,8 +136,23 @@ export default function ContentFactory() {
   const [ideasBusy, setIdeasBusy] = useState(false);
   const [ideasMsg, setIdeasMsg] = useState<string | null>(null);
   const [ideaActionBusy, setIdeaActionBusy] = useState<string | null>(null);
+  // Operator-selectable channels the Idea Engine targets (so it stops suggesting
+  // platforms you don't use). Persisted via the bridge; REGENERATE applies them.
+  const [channels, setChannels] = useState<ContentChannels | null>(null);
 
   useEffect(() => { getContentIdeas().then(setIdeas).catch(() => setIdeas(null)); }, []);
+  useEffect(() => { getContentChannels().then(setChannels).catch(() => setChannels(null)); }, []);
+
+  const toggleChannel = async (ch: string) => {
+    if (!channels) return;
+    const has = channels.enabled.includes(ch);
+    const next = has ? channels.enabled.filter((c) => c !== ch) : [...channels.enabled, ch];
+    if (next.length === 0) return; // keep at least one channel enabled
+    const prev = channels;
+    setChannels({ ...channels, enabled: next }); // optimistic
+    try { setChannels(await setContentChannels(next)); }
+    catch { setChannels(prev); }
+  };
 
   const handleGenerateIdeas = async () => {
     if (ideasBusy) return;
@@ -335,7 +365,7 @@ export default function ContentFactory() {
       {/* Main column */}
       <div className="flex flex-col gap-2 min-h-0">
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
           <Panel noPad className="p-2">
             <Stat label="CAMPAIGNS" value={summary.total} tone="brand" big />
           </Panel>
@@ -351,6 +381,9 @@ export default function ContentFactory() {
           <Panel noPad className="p-2">
             <Stat label="BLOCKED" value={summary.blocked} tone="warn" big />
           </Panel>
+          <Panel noPad className="p-2">
+            <Stat label="FAILED" value={summary.failed} tone="bad" big />
+          </Panel>
         </div>
 
         {/* IDEA ENGINE — the synthesis step: trending news × competitor viral
@@ -365,6 +398,22 @@ export default function ContentFactory() {
             </button>
           }
         >
+          {channels && (
+            <div className="flex flex-wrap items-center gap-1 mb-2">
+              <span className="text-[10px] font-mono text-[#545454] mr-1">MY CHANNELS:</span>
+              {channels.available.map((ch) => {
+                const on = channels.enabled.includes(ch);
+                return (
+                  <button key={ch} onClick={() => void toggleChannel(ch)}
+                    title={on ? `Ideas target ${ch} — click to drop it` : `Click to include ${ch} in idea generation`}
+                    className={`text-[10px] font-mono px-1.5 py-0.5 border transition-colors ${on ? 'border-[#f64e6e]/50 bg-[#f64e6e]/10 text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}>
+                    {on ? '✓ ' : ''}{ch}
+                  </button>
+                );
+              })}
+              <span className="text-[10px] font-mono text-[#545454] ml-1">— applies on REGENERATE</span>
+            </div>
+          )}
           {ideasBusy && (
             <div className="font-mono text-[11px] text-[#707070]">
               {'>'} fusing {ideas?.inputs?.viral_posts ?? 'scraped'} viral signals + trending AI news + brand strategy — 1-3 min…
@@ -585,10 +634,8 @@ export default function ContentFactory() {
           ) : (
             <div className="flex flex-col gap-1">
               {upcoming.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-2 p-2 border border-white/5 bg-[#080808]"
-                >
+                <div key={item.id} className="border border-white/5 bg-[#080808]">
+                  <div className="flex items-center gap-2 p-2">
                   <div className="w-12 text-center shrink-0">
                     <div className="text-[10px] font-mono text-[#545454]">{formatDate(item.date)}</div>
                   </div>
@@ -622,6 +669,19 @@ export default function ContentFactory() {
                         className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] px-1.5 py-0.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">
                         ⏱
                       </button>
+                    </div>
+                  )}
+                  </div>
+                  {item.virality && (item.virality.suggestions?.length ?? 0) > 0 && (
+                    <div className="px-2 pb-2 pt-1.5 flex flex-col gap-0.5 border-t border-white/5">
+                      <div className="text-[9px] font-mono text-violet-400/70 uppercase tracking-wider">
+                        🔮 virality suggestions{item.virality.verdict ? ` · verdict: ${item.virality.verdict}` : ''}
+                      </div>
+                      {item.virality.suggestions.map((s, i) => (
+                        <div key={i} className="text-[10px] font-mono text-[#9aa3b5] leading-snug pl-2 border-l border-violet-400/30">
+                          • {s}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

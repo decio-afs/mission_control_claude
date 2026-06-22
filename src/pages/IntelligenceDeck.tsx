@@ -59,6 +59,11 @@ export default function IntelligenceDeck() {
 
   const topScore = feed.length ? Math.max(...feed.map((p) => p.viral_score)) : 0;
   const totalViews = feed.reduce((s, p) => s + (p.views || 0), 0);
+  // Persisted scrape errors (per-platform Apify failures / dropped-old counts).
+  // Without surfacing these, a failed or partial scrape is indistinguishable
+  // from a never-run one — the empty state below would tell the operator to
+  // "run a scrape" they already ran.
+  const scrapeErrors = data?.feed?.errors ?? [];
 
   return (
     <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-2 p-2 relative">
@@ -81,6 +86,16 @@ export default function IntelligenceDeck() {
 
         <Panel label="VIRAL FEED · RANKED BY SCORE" right={data?.feed?.scraped_at ? `scraped ${data.feed.scraped_at}` : undefined}>
           <div className="overflow-auto h-full">
+            {!loading && !error && scrapeErrors.length > 0 && (
+              <div className="mb-2 border border-[#f59e0b]/40 bg-[#f59e0b]/5 px-2 py-1.5 text-[10px] font-mono text-[#f59e0b]">
+                <div className="font-bold mb-0.5">
+                  ⚠ LAST SCRAPE REPORTED {scrapeErrors.length} ISSUE{scrapeErrors.length === 1 ? '' : 'S'}
+                </div>
+                {scrapeErrors.map((e, i) => (
+                  <div key={i} className="text-[#f59e0b]/80 truncate" title={e}>· {e}</div>
+                ))}
+              </div>
+            )}
             {loading && (
               <div className="h-full flex items-center justify-center text-[11px] font-mono text-[#545454]">
                 loading creator intel…
@@ -91,7 +106,7 @@ export default function IntelligenceDeck() {
                 bridge error · {error}
               </div>
             )}
-            {!loading && !error && feed.length === 0 && (
+            {!loading && !error && feed.length === 0 && scrapeErrors.length === 0 && (
               <div className="h-full flex flex-col items-center justify-center gap-2 text-[11px] font-mono text-[#545454]">
                 <span className="text-[13px] opacity-40">⊘</span>
                 <span>no creator intel yet</span>

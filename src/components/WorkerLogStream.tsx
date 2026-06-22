@@ -1,7 +1,8 @@
 // WorkerLogStream — live tail of a task's worker log.
 //
 // The Mc bridge exposes `getMcTaskLog(taskId, tail)`, which returns the
-// last N bytes of the worker's log file. That's a snapshot, not a stream — so we
+// last N chars of the task's worker log (synthesized from its event timeline;
+// there is no log file post-migration). That's a snapshot, not a stream — so we
 // turn it into a live tail by re-polling on an interval while a task is running:
 // each poll replaces the buffer with the freshest tail (which already contains any
 // newly-appended lines) and, if the viewer is pinned to the bottom, auto-scrolls.

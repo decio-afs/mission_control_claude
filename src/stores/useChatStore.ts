@@ -92,6 +92,26 @@ function tsNow(): string {
   return new Date().toISOString();
 }
 
+/**
+ * Normalize a bridge session-message timestamp into the ISO string the chat UI
+ * renders (ChatTerminal's `formatTime` does `new Date(iso)`). The native session
+ * store (mc_brain.MCSessions) stamps each message with `time.time()` — epoch
+ * SECONDS as a JSON *number* — so the old `typeof === 'string'` guard always
+ * missed it and fell back to NOW, making every reopened conversation show its
+ * whole history at the load time (the real per-message send times were lost).
+ * Convert the numeric epoch (×1000; tolerate a future ms source) to ISO, keep an
+ * already-ISO string as-is, and only fall back to now for a truly absent/invalid
+ * stamp.
+ */
+function msgTime(raw: string | number | null | undefined): string {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    const d = new Date(raw > 1e12 ? raw : raw * 1000);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+  if (typeof raw === 'string' && raw.trim()) return raw;
+  return tsNow();
+}
+
 function toMessage(role: ChatMessage['role'], content: string, extra?: Partial<ChatMessage>): ChatMessage {
   return { id: uid('m'), role, content, timestamp: tsNow(), ...extra };
 }
@@ -176,7 +196,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           .filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content || '').trim())
           .map((m) =>
             toMessage(m.role as ChatMessage['role'], m.content, {
-              timestamp: typeof m.timestamp === 'string' ? m.timestamp : tsNow(),
+              timestamp: msgTime(m.timestamp),
             }),
           );
         set((s) => ({ transcripts: { ...s.transcripts, [id]: msgs }, loadingTranscript: false }));
@@ -232,7 +252,11 @@ export const useChatStore = create<ChatState>((set, get) => {
         persist();
         void get().fetchSessions();
       } catch (e) {
-        appendMessage(get().activeId || DRAFT_KEY, toMessage('system', `COMMS FAILURE: ${bridgeDetail(e)}`, { error: true }));
+        // Pin the error to the SAME transcript as the user message (`key`), not a
+        // freshly re-derived activeId: if the operator switched conversations
+        // (selectSession/newSession) while this send was in flight, activeId has
+        // moved on and the COMMS FAILURE would otherwise land in the wrong chat.
+        appendMessage(key, toMessage('system', `COMMS FAILURE: ${bridgeDetail(e)}`, { error: true }));
       } finally {
         set({ sending: false });
       }

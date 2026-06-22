@@ -12,6 +12,15 @@ import { useTaskFocusStore } from '../stores/useTaskFocusStore';
 // The bell also still owns the OS-notification on/off toggle (folded into the
 // dropdown header), and shows an unseen-count badge. Pure client — no bridge.
 
+// Per-outcome glyph + label + tint. `blocked` is the live adverse state (the
+// store never emits `failed`); render it distinctly from a completion so the
+// operator can tell at a glance that delegated work dead-ended.
+const OUTCOME_TONE: Record<string, { glyph: string; label: string; cls: string; sub: string }> = {
+  done:    { glyph: '✓', label: 'DONE',    cls: 'text-emerald-400', sub: 'text-emerald-400/80' },
+  failed:  { glyph: '✕', label: 'FAILED',  cls: 'text-red-400',     sub: 'text-red-400/80' },
+  blocked: { glyph: '⚠', label: 'BLOCKED', cls: 'text-amber-400',   sub: 'text-amber-400/80' },
+};
+
 function ago(ms: number): string {
   const diff = Date.now() - ms;
   if (diff < 0 || !Number.isFinite(diff)) return 'just now';
@@ -152,29 +161,25 @@ export default function NotifyCenter({ accent }: { accent: string }) {
               <div className="px-3 py-6 text-center text-[10px] font-mono text-[#545454]">
                 No completed tasks yet this session.
                 <div className="mt-1 text-[10px] text-[#363636]">
-                  Finished &amp; failed tasks will appear here.
+                  Finished &amp; blocked tasks will appear here.
                 </div>
               </div>
             ) : (
               history.map((e) => {
-                const failed = e.outcome === 'failed';
+                const t = OUTCOME_TONE[e.outcome] ?? OUTCOME_TONE.done;
                 return (
                   <button
                     key={`${e.key}-${e.at}`}
                     onClick={() => openEvent(e.taskId)}
                     className="w-full text-left px-3 py-2 flex items-start gap-2.5 border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors"
                   >
-                    <span
-                      className={`mt-0.5 text-[11px] leading-none ${failed ? 'text-red-400' : 'text-emerald-400'}`}
-                    >
-                      {failed ? '✕' : '✓'}
+                    <span className={`mt-0.5 text-[11px] leading-none ${t.cls}`}>
+                      {t.glyph}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-[11px] text-white truncate">{e.title}</span>
                       <span className="block mt-0.5 font-mono text-[10px] text-[#545454] tracking-[0.06em]">
-                        <span className={failed ? 'text-red-400/80' : 'text-emerald-400/80'}>
-                          {failed ? 'FAILED' : 'DONE'}
-                        </span>
+                        <span className={t.sub}>{t.label}</span>
                         {e.assignee && <span className="text-[#777]"> · {e.assignee}</span>}
                         <span> · {ago(e.at)}</span>
                       </span>

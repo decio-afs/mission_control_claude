@@ -245,8 +245,16 @@ export default function ChatTerminal() {
   };
 
   const formatTime = (iso: string) => {
-    try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
-    catch { return '--:--'; }
+    // toLocaleTimeString() does NOT throw on a bad date — it returns the literal
+    // "Invalid Date" string — so the try/catch alone never yields the intended
+    // "--:--" fallback. msgTime() (useChatStore) passes any non-empty string
+    // through unvalidated, so a non-ISO-parseable bridge stamp would otherwise
+    // render "Invalid Date" in the header. Guard the NaN date explicitly. (iter #82 class.)
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '--:--';
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch { return '--:--'; }
   };
 
   const commitNewProject = () => {

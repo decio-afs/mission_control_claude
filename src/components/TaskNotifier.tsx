@@ -6,14 +6,26 @@ import { useNotifyStore } from '../stores/useNotifyStore';
 import type { McTask } from '../lib/api';
 
 // Watches the globally-polled Mc task store (Layout polls every 7s) and fires
-// an OS desktop notification whenever a task crosses from a non-terminal status
-// into a terminal one (done / completed / failed). Pairs with the live worker-log
-// tail: clicking the notification jumps straight into the task in Operations.
+// an OS desktop notification whenever a task crosses from a quiet status into a
+// notable one — a completion (done / completed) OR an adverse dead-end. Pairs
+// with the live worker-log tail: clicking the notification jumps straight into
+// the task in Operations.
 //
 // Pure client logic — no new bridge endpoint. Mounted once in Layout.
 
-const TERMINAL = new Set(['done', 'completed', 'failed']);
-const isTerminal = (s: string) => TERMINAL.has(s);
+// Statuses that warrant a notification. `failed` is kept for forward-compat, but
+// the live mc_store NEVER sets it: a task that fails or dead-ends is recorded as
+// `blocked` (block_task — including the retry circuit-breaker), so `blocked` is
+// the real adverse-outcome sink and MUST be notified, or failures go unseen and
+// the operator only learns of them by manually scanning the BLOCKED column.
+const NOTIFY_ON = new Set(['done', 'completed', 'failed', 'blocked']);
+const isNotify = (s: string) => NOTIFY_ON.has(s);
+
+function outcomeOf(status: string): 'done' | 'failed' | 'blocked' {
+  if (status === 'blocked') return 'blocked';
+  if (status === 'failed') return 'failed';
+  return 'done';
+}
 
 export default function TaskNotifier() {
   const mcTasks = useTaskStore((s) => s.mcTasks);
@@ -42,18 +54,20 @@ export default function TaskNotifier() {
 
     for (const t of mcTasks) {
       const before = seen.get(t.id);
-      // Act only on a genuine transition: we saw it before in a non-terminal
-      // state and it is now terminal. New tasks that appear already-terminal,
-      // or tasks staying terminal across polls, are ignored.
-      if (before && !isTerminal(before) && isTerminal(t.status)) {
+      // Act only on a genuine transition: we saw it before in a quiet state and
+      // it just crossed into a notable one (a completion or an adverse block).
+      // New tasks that appear already-notable, or tasks staying in that state
+      // across polls, are ignored.
+      if (before && !isNotify(before) && isNotify(t.status)) {
         // Always record into the in-app Notification Center history, even when
-        // OS toasts are muted — the operator can still review what finished.
+        // OS toasts are muted — the operator can still review what finished
+        // (or what got blocked) later.
         record({
           key: `${t.id}:${t.status}`,
           taskId: t.id,
           title: t.title,
           assignee: t.assignee,
-          outcome: t.status === 'failed' ? 'failed' : 'done',
+          outcome: outcomeOf(t.status),
           at: Date.now(),
         });
         // Only the desktop toast is gated on the toggle + OS permission.
@@ -72,8 +86,10 @@ export default function TaskNotifier() {
 }
 
 function fire(t: McTask, onClick: () => void) {
-  const failed = t.status === 'failed';
-  const title = failed ? '✕ Task failed' : '✓ Task complete';
+  const title =
+    t.status === 'blocked' ? '⚠ Task blocked'
+      : t.status === 'failed' ? '✕ Task failed'
+        : '✓ Task complete';
   const who = t.assignee ? ` · ${t.assignee}` : '';
   const body = `${t.title}${who}`;
   try {

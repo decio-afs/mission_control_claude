@@ -17,8 +17,12 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const colorOf = (s: string) => STATUS_COLOR[s] ?? '#8a8a8a';
 
-// canonical pipeline order; unknown statuses are appended after these
-const STATUS_ORDER = ['triage', 'pending', 'scheduled', 'ready', 'running', 'review', 'blocked', 'done', 'failed'];
+// canonical pipeline order; unknown statuses are appended after these. Mirrors the
+// Operations Center COLUMNS order so the flow reads left→right the same way the board
+// does. The migration renamed the backlog status `pending`→`todo`, so the canonical
+// backlog key here is `todo` (a stray legacy `pending` task just sorts to the end like
+// any unknown status). `archived` is the terminal retired lane (after `done`).
+const STATUS_ORDER = ['triage', 'todo', 'ready', 'running', 'review', 'blocked', 'failed', 'scheduled', 'done', 'archived'];
 
 // layout geometry (svg units) — mirrors the original demo graph
 const NODE_W = 160;
@@ -126,14 +130,15 @@ export default function WorkflowBuilder() {
                     {/* task nodes */}
                     {col.tasks.map((t, ri) => {
                       const y = HEADER_H + ri * (NODE_H + ROW_GAP);
-                      const title = t.title.length > 22 ? `${t.title.slice(0, 21)}…` : t.title;
+                      const fullTitle = t.title || t.id;
+                      const title = fullTitle.length > 22 ? `${fullTitle.slice(0, 21)}…` : fullTitle;
                       const sub = (t.assignee || 'unassigned').toUpperCase();
                       return (
                         <g key={t.id} transform={`translate(0, ${y})`}>
                           <rect width={NODE_W} height={NODE_H} fill="#0a0a0a" stroke={c} strokeWidth="1" />
                           <rect width={NODE_W} height="2" fill={c} />
                           <rect width="3" height={NODE_H} fill={c} opacity="0.5" />
-                          <title>{`${t.id} · ${t.title} · ${sub}`}</title>
+                          <title>{`${t.id} · ${fullTitle} · ${sub}`}</title>
                           <text x="8" y="18" fontFamily="monospace" fontSize="10" fill="#fff" fontWeight="700">{title}</text>
                           <text x="8" y="34" fontFamily="monospace" fontSize="10" fill="#b8b8b8">
                             {sub.length > 20 ? `${sub.slice(0, 19)}…` : sub}

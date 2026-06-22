@@ -5,6 +5,7 @@ import {
   claimMcTask,
   completeMcTask,
   blockMcTask,
+  failMcTask,
   unblockMcTask,
   promoteMcTask,
   scheduleMcTask,
@@ -26,6 +27,7 @@ import {
   cascadeDependencies,
   reassignDeadAgent,
   sweepBoard as runSweepBoard,
+  promoteReady as runPromoteReady,
   getMcBoards,
   createMcBoard,
   switchMcBoard,
@@ -41,6 +43,7 @@ import {
   type CascadeResult,
   type ReassignResult,
   type SweepResult,
+  type PromoteReadyResult,
 } from '../lib/api';
 
 export interface OpTask {
@@ -49,7 +52,8 @@ export interface OpTask {
   name: string;
   agentId: string;
   agentName: string;
-  status: 'running' | 'pending' | 'failed' | 'complete' | 'ready' | 'blocked' | 'done';
+  status: 'running' | 'pending' | 'failed' | 'complete' | 'ready' | 'blocked' | 'done'
+    | 'todo' | 'triage' | 'review' | 'scheduled' | 'archived';
   priority: 'critical' | 'high' | 'normal' | number;
   createdAt: Date;
 }
@@ -97,6 +101,7 @@ interface TaskStore {
   cascadeDeps: (opts?: { dryRun?: boolean }) => Promise<CascadeResult | null>;
   reassignDead: (opts?: { fromAgent?: string; dryRun?: boolean }) => Promise<ReassignResult | null>;
   sweepBoard: (opts?: { dryRun?: boolean }) => Promise<SweepResult | null>;
+  promoteReady: (opts?: { taskId?: string; dryRun?: boolean }) => Promise<PromoteReadyResult | null>;
   specifyTask: (taskId: string) => Promise<boolean>;
   fetchTaskDetail: (taskId: string) => Promise<TaskDetail | null>;
   addMcTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<McTask | null>;
@@ -104,6 +109,7 @@ interface TaskStore {
   claimMcTaskById: (taskId: string) => Promise<boolean>;
   completeMcTaskById: (taskId: string) => Promise<boolean>;
   blockMcTaskById: (taskId: string, reason: string) => Promise<boolean>;
+  failMcTaskById: (taskId: string, reason: string) => Promise<boolean>;
   unblockTask: (taskId: string, reason?: string) => Promise<boolean>;
   promoteTask: (taskId: string, reason?: string, force?: boolean) => Promise<boolean>;
   scheduleTask: (taskId: string, reason?: string) => Promise<boolean>;
@@ -123,12 +129,23 @@ const mapMcToOp = (t: McTask): OpTask => ({
   name: t.title,
   agentId: t.assignee || 'unassigned',
   agentName: t.assignee || 'Unassigned',
+  // Faithful status projection. mc_store's lifecycle states (todo/triage/review/
+  // scheduled/archived) used to all collapse to 'pending', so a consumer that
+  // renders tasks[].status — e.g. useAgentCrud's "spawn agent on task" dropdown,
+  // which prints [{status}] per option — mislabeled a real `todo`/`review` task
+  // as [PENDING]. Pass each known status through; only a genuinely unknown status
+  // falls back to 'pending'. (completed → done is the one canonical normalization.)
   status:
     t.status === 'done' || t.status === 'completed' ? 'done'
     : t.status === 'running' ? 'running'
     : t.status === 'blocked' ? 'blocked'
     : t.status === 'failed' ? 'failed'
     : t.status === 'ready' ? 'ready'
+    : t.status === 'todo' ? 'todo'
+    : t.status === 'triage' ? 'triage'
+    : t.status === 'review' ? 'review'
+    : t.status === 'scheduled' ? 'scheduled'
+    : t.status === 'archived' ? 'archived'
     : 'pending',
   priority: t.priority,
   createdAt: new Date(t.created_at * 1000),
@@ -140,10 +157,14 @@ function summarize(ht: McTask[]): TaskSummary {
     total: ht.length,
     completed: ht.filter((t) => t.status === 'done' || t.status === 'completed').length,
     running: ht.filter(is('running')).length,
-    // Disjoint from `ready` — counting both states here double-counted every ready
-    // task (it's also tallied in `ready` below). Consumers that want total queued
-    // work add `pending + ready` themselves (see the topbar QUEUE in Layout.tsx).
-    pending: ht.filter(is('pending')).length,
+    // Backlog work waiting to be promoted to `ready`. mc_store's canonical
+    // backlog status is `todo` (OperationsCenter's `colOf` treats `pending` as a
+    // legacy alias of `todo`); count BOTH so post-migration `todo` tasks aren't
+    // dropped — they used to vanish from the topbar QUEUE entirely (the live board
+    // is `todo`-only, so QUEUE read 0 while real work sat queued). Still disjoint
+    // from `ready` — also tallying the ready state here would double-count every
+    // ready task. The topbar QUEUE sums `pending + ready` (see Layout.tsx).
+    pending: ht.filter((t) => t.status === 'pending' || t.status === 'todo').length,
     failed: ht.filter(is('failed')).length,
     ready: ht.filter(is('ready')).length,
     blocked: ht.filter(is('blocked')).length,
@@ -366,6 +387,28 @@ export const useTaskStore = create<TaskStore>((set, get) => {
       }
     },
 
+    // Board-wide promotion gate: promote actionable todo → ready so the
+    // dispatcher (which only fires `ready` work) has something to run. Promotes
+    // every todo task with a live assignee and no open parent dependency, leaving
+    // unassigned/off-roster/dep-blocked tasks honestly in todo. Refreshes the
+    // board + diagnostics on a real change. Returns the plan, or null on error.
+    promoteReady: async (opts) => {
+      try {
+        const res = await runPromoteReady(opts);
+        if (!opts?.dryRun && res.promoted.length > 0) {
+          await get().fetchTasks();
+          await get().fetchStats();
+        }
+        await get().fetchDiagnostics();
+        return res;
+      } catch (err) {
+        const msg = errMessage(err);
+        console.error('[TaskStore] promoteReady failed:', msg);
+        set({ error: msg });
+        return null;
+      }
+    },
+
     specifyTask: (taskId) => mutate('specify', () => specifyMcTask(taskId)),
 
     fetchTaskDetail: async (taskId) => {
@@ -397,6 +440,7 @@ export const useTaskStore = create<TaskStore>((set, get) => {
     claimMcTaskById: (taskId) => mutate('claim', () => claimMcTask(taskId)),
     completeMcTaskById: (taskId) => mutate('complete', () => completeMcTask(taskId)),
     blockMcTaskById: (taskId, reason) => mutate('block', () => blockMcTask(taskId, reason)),
+    failMcTaskById: (taskId, reason) => mutate('fail', () => failMcTask(taskId, reason)),
     unblockTask: (taskId, reason) => mutate('unblock', () => unblockMcTask(taskId, reason)),
     promoteTask: (taskId, reason, force) => mutate('promote', () => promoteMcTask(taskId, reason, force)),
     scheduleTask: (taskId, reason) => mutate('schedule', () => scheduleMcTask(taskId, reason)),

@@ -83,7 +83,7 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
     if (startingRef.current || !canSpawn) return;
     startingRef.current = true;
     setStarting(true);
-    setStartMsg('spawning mc-bridge.py…');
+    setStartMsg('spawning mission-control-bridge.py…');
     try {
       const r = await spawnBridge();
       setStartMsg(r.already ? 'bridge already running — re-probing' : r.ok ? 'bridge is up — re-probing' : 'bridge failed to come up — check the app logs');
@@ -275,7 +275,7 @@ export default function BridgeDiagnostics({ onClose }: { onClose: () => void }) 
             <div className="text-[10px] font-mono border border-amber-400/30 bg-amber-400/5 px-2 py-1.5 text-amber-400">
               ⚠ BRIDGE OFFLINE — no endpoint answered.
               {canSpawn
-                ? ' Use ▶ START BRIDGE above — mc-bridge.py relaunches automatically.'
+                ? ' Use ▶ START BRIDGE above — mission-control-bridge.py relaunches automatically.'
                 : ' Start it from a terminal: npm run bridge — then RE-RUN.'}
             </div>
           )}

@@ -54,3 +54,10 @@ kanban.json
 
 # Scratch generation output (images, backups)
 .tmp-gen/
+
+# Agent-produced deliverables — kept LOCAL, never committed/pushed. These are the
+# two deliverable roots the bridge scans (see _DELIVERABLE_ROOTS) plus generated
+# content calendars dropped at the repo root.
+deliverables/
+research/
+CONTENT_CALENDAR_*.md

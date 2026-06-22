@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { McCronJob } from '../lib/api';
-import { upcomingFires, parseSchedule, fireLabel, formatCountdown } from '../lib/cronSchedule';
+import { upcomingFires, parseSchedule, fireLabel, formatCountdown, cronAnchorMs } from '../lib/cronSchedule';
 
 // Next-24h cron agenda — one thin lane per job plotting every upcoming fire as a
 // tick across a 24h window, so the operator sees *when the next wave of scheduled
@@ -24,7 +24,7 @@ export default function CronTimeline({ jobs, nowMs }: { jobs: McCronJob[]; nowMs
         return {
           job: j,
           label: parseSchedule(raw, base).label,
-          fires: upcomingFires(raw, base, WINDOW_MS, MAX_TICKS),
+          fires: upcomingFires(raw, base, WINDOW_MS, MAX_TICKS, cronAnchorMs(j.last_run, j.created_at)),
         };
       }),
     [jobs, base],

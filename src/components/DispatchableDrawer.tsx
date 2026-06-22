@@ -190,6 +190,11 @@ export default function DispatchableDrawer({
   }, [open, paused]);
 
   const webGaps = useMemo(() => plan.filter((p) => p.web_gap).length, [plan]);
+  // Rows the AUTONOMOUS dispatcher would SKIP because they've burned their retry
+  // budget (#93). The endpoint still lists them (an operator can force one by
+  // hand), so without a marker the queue would falsely promise "the top row fires
+  // first" while the daemon silently steps over an exhausted leading row.
+  const exhausted = useMemo(() => plan.filter((p) => p.dispatch_exhausted).length, [plan]);
   // Which previewed promotions would land in a web-gap — their assignee is on the
   // audit's `gap` list (needs the live web, no web MCP). Mirrors the per-row web_gap
   // ⚠ the ready queue already shows, but for the todo → ready promote *preview* (the
@@ -319,6 +324,13 @@ export default function DispatchableDrawer({
                   {webGaps} WEB-GAP
                 </span>
               )
+            )}
+            {exhausted > 0 && (
+              <span
+                title="ready tasks that burned their retry budget — the autonomous dispatcher SKIPS these (it won't auto-re-fire a doomed task). They stay listed because an operator can still force one by hand, or ⚑ ESCALATE them to blocked-for-review."
+                className="border border-red-400/40 text-red-300/90 px-1.5 py-0.5 rounded-sm text-[9px] tracking-[0.15em]">
+                {exhausted} EXHAUSTED
+              </span>
             )}
           </div>
           <div className="flex items-center gap-2 text-[10px] text-[#777]">
@@ -611,11 +623,17 @@ export default function DispatchableDrawer({
             // buttons in one button is invalid, so the title and assignee are separate.
             <div key={p.id}
               className="flex items-baseline gap-2 px-3 py-1.5 border-b border-white/[0.05] hover:bg-white/[0.03]">
-              <span className="shrink-0 w-6 text-right text-[#545454]" title="dispatch order — lower fires first">{i + 1}</span>
-              <span className="shrink-0 w-4 text-center" style={{ color: p.web_gap ? '#fbbf24' : '#4ade80' }}
-                title={p.web_gap ? 'assignee needs the live web but has no web MCP' : 'ready — no web gap'}>{p.web_gap ? '⚠' : '✓'}</span>
+              <span className="shrink-0 w-6 text-right text-[#545454]"
+                title={p.dispatch_exhausted ? 'list position — the autonomous dispatcher skips this exhausted row, so it is NOT actually next to fire' : 'dispatch order — lower fires first'}>{i + 1}</span>
+              <span className="shrink-0 w-4 text-center"
+                style={{ color: p.dispatch_exhausted ? '#f87171' : p.web_gap ? '#fbbf24' : '#4ade80' }}
+                title={p.dispatch_exhausted ? 'retry budget exhausted — the autonomous dispatcher skips this row (manual override only)' : p.web_gap ? 'assignee needs the live web but has no web MCP' : 'ready — no web gap'}>{p.dispatch_exhausted ? '⚑' : p.web_gap ? '⚠' : '✓'}</span>
               <button onClick={() => onOpenTask(p.id)}
-                className="flex-1 min-w-0 truncate text-left text-white hover:underline" title={p.title}>{p.title}</button>
+                className={`flex-1 min-w-0 truncate text-left hover:underline ${p.dispatch_exhausted ? 'text-[#9a9a9a]' : 'text-white'}`} title={p.title}>{p.title}</button>
+              {p.dispatch_exhausted && (
+                <span className="shrink-0 text-red-300/80 text-[9px] tracking-[0.12em]"
+                  title="burned its retry budget — the autonomous dispatcher won't auto-re-fire it; ⚑ ESCALATE it or force a manual dispatch">⚑ EXHAUSTED</span>
+              )}
               {p.web_gap && onOpenAudit ? (
                 // Per-row cross-link (run #33): open the ⚿ WEB-ACCESS audit focused on
                 // exactly this assignee — go from "which queued task hits the gap" to
@@ -639,7 +657,7 @@ export default function DispatchableDrawer({
         {/* honest footer: queue summary + read-only posture */}
         {!loading && !error && status != null && (
           <div className="shrink-0 px-3 py-1.5 border-t border-white/10 text-[10px] text-[#666] leading-relaxed">
-            {plan.length} ready to fire · {webGaps} blocked on a web MCP · dispatched {status.dispatched} · errors {status.errors}.
+            {plan.length} ready to fire{exhausted > 0 ? ` (${exhausted} exhausted — auto-skipped)` : ''} · {webGaps} blocked on a web MCP · dispatched {status.dispatched} · errors {status.errors}.
             Read-only — this lists the queue; firing a task is a watched operator action.
           </div>
         )}

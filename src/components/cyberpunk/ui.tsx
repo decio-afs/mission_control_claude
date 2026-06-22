@@ -101,13 +101,14 @@ export function Sparkline({ data, color = '#f64e6e', height = 28, strokeW = 1.2,
 }
 
 // Monospace stat card
-export function Stat({ label, value, sub, tone = 'white', big = false }: { label: string; value: React.ReactNode; sub?: string; tone?: 'white' | 'brand' | 'good' | 'warn' | 'info'; big?: boolean }) {
+export function Stat({ label, value, sub, tone = 'white', big = false }: { label: string; value: React.ReactNode; sub?: string; tone?: 'white' | 'brand' | 'good' | 'warn' | 'info' | 'bad'; big?: boolean }) {
   const tones: Record<string, string> = {
     white: 'text-white',
     brand: 'text-[#f64e6e]',
     good: 'text-emerald-400',
     warn: 'text-amber-400',
     info: 'text-sky-400',
+    bad: 'text-red-400',
   };
   return (
     <div className="flex flex-col gap-0.5 min-w-0">

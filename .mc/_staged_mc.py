@@ -35,13 +35,6 @@ STALE_CLAIM_SECONDS = 2 * 3600
 # exhausted it when its failed-attempt count reaches that number.
 FAILED_OUTCOMES = {"error", "failed", "failure", "timeout", "timed_out", "crashed"}
 
-# Default attempt ceiling for the AUTONOMOUS dispatcher when a task carries no
-# explicit `max_retries`. A failed dispatch requeues the task to `ready`, so
-# without a ceiling a task that can never succeed would be re-fired through a
-# full `run_claude` turn every dispatcher tick — an unbounded Claude-quota burn.
-# Tasks WITH an explicit `max_retries` use that instead. Override via env.
-DEFAULT_DISPATCH_ATTEMPTS = max(1, int(os.environ.get("MC_DISPATCH_MAX_ATTEMPTS", "3")))
-
 # Internal maintenance verbs a `kind:"maintenance"` cron job can fire directly
 # (no Claude turn). `sweep` runs the full board self-heal macro. This is the
 # post-Hermes "board self-heals on a timer" path — see run_maintenance().
@@ -119,37 +112,12 @@ class MCStore:
         m.setdefault("comments", {})
         m.setdefault("events", {})
         m.setdefault("runs", {})
-        # list of [parent_id, child_id]; normalized at the load boundary so a
-        # malformed entry can never reach a `for p, c in links` consumer.
-        m["links"] = self._clean_links(m.get("links"))
+        m.setdefault("links", [])          # list of [parent_id, child_id]
         m.setdefault("notifications", {})  # task_id -> [subscription, ...]
         m.setdefault("boards", [{"slug": "main", "name": "Main", "description": "",
                                   "is_current": True, "archived": False}])
         m.setdefault("current_board", "main")
         return m
-
-    @staticmethod
-    def _clean_links(links: Any) -> list[list[Any]]:
-        """Keep only well-formed ``[parent, child]`` link pairs.
-
-        Every link consumer unpacks the list via ``for p, c in links`` —
-        `diagnostics`, `show_task`, `_would_cycle`, `_cycle_nodes`, and the
-        cascade/promote sweep verbs. A malformed entry loaded from disk (a
-        scalar, a wrong-arity list, a ``None``, a hand-edit) makes that unpack
-        raise ``ValueError``/``TypeError`` and 500s the whole read — e.g. the
-        Board Diagnostics panel loses ALL diagnostics, not just the link ones,
-        and `link()`/`create_task`'s cycle guard breaks. Normalizing at the
-        ``_meta`` load boundary defends every consumer at once and self-heals
-        the persisted file on the next save (a wrong-shape entry can never
-        represent a real parent→child edge, so dropping it is correct).
-        """
-        if not isinstance(links, list):
-            return []
-        clean: list[list[Any]] = []
-        for entry in links:
-            if isinstance(entry, (list, tuple)) and len(entry) == 2:
-                clean.append([entry[0], entry[1]])
-        return clean
 
     def _save_meta(self, m: dict[str, Any]) -> None:
         self._write(self.meta_file, m)
@@ -351,39 +319,19 @@ class MCStore:
             t["status"] = "blocked"; t["completed_at"] = _now()
         return self._mutate(task_id, f, event="blocked", payload={"reason": reason})
 
-    def fail_task(self, task_id, reason):
-        # Terminal failure, distinct from `blocked` (a recoverable wait on a
-        # human/dependency). Mirrors block_task — stamps completed_at like the
-        # other terminal transitions (done/blocked) so cycle-time + the activity
-        # feed treat it as ended — and records a `failed` event carrying the
-        # reason, which TaskDetailDrawer's reason banner already renders.
-        def f(t):
-            t["status"] = "failed"; t["completed_at"] = _now()
-        return self._mutate(task_id, f, event="failed", payload={"reason": reason})
-
     def unblock_task(self, task_id, reason=None):
         def f(t):
             t["status"] = "ready"; t["completed_at"] = None
         return self._mutate(task_id, f, event="unblocked", payload={"reason": reason})
 
     def promote_task(self, task_id, reason=None, force=False):
-        # Reviving a task to an active state must clear completed_at (set by
-        # block/fail/complete), mirroring unblock_task — else the stale "ended"
-        # stamp survives and get_activity's terminal-event branch (gated on
-        # completed_at) emits a GREEN "completed" row for the now-ready task,
-        # masquerading a revived/pending task as DONE in the War Room + Ghost
-        # feeds. PROMOTE is operator-reachable on a blocked task (drawer
-        # ACTION_STATES), which always carries completed_at.
         def f(t):
-            t["status"] = "ready"; t["completed_at"] = None
+            t["status"] = "ready"
         return self._mutate(task_id, f, event="promoted", payload={"reason": reason, "force": force})
 
     def schedule_task(self, task_id, reason=None):
-        # scheduled is a future-active state, not an ended one — clear the
-        # completed_at a prior block/fail stamped (SCHEDULE is drawer-reachable
-        # on a blocked task) so the activity feed doesn't show it as completed.
         def f(t):
-            t["status"] = "scheduled"; t["completed_at"] = None
+            t["status"] = "scheduled"
         return self._mutate(task_id, f, event="scheduled", payload={"reason": reason})
 
     def archive_task(self, task_id):
@@ -449,35 +397,17 @@ class MCStore:
                 raise ValueError(
                     f"refusing link {parent_id} -> {child_id}: "
                     f"would create a dependency cycle")
-            added = pair not in m["links"]
-            if added:
+            if pair not in m["links"]:
                 m["links"].append(pair)
-                # Record the new edge on the child (the dependent) so a
-                # dependency link is auditable in its event timeline —
-                # symmetric with unlink's dependency_unlink event. Skip the
-                # already-linked no-op so re-linking the same edge is
-                # idempotent (no duplicate event), matching unlink.
-                self._event(m, str(child_id), "dependency_link",
-                            {"parent": parent_id})
             self._save_meta(m)
-            return {"message": f"linked {parent_id} -> {child_id}",
-                    "added": added}
+            return {"message": f"linked {parent_id} -> {child_id}"}
 
     def unlink(self, parent_id, child_id):
         with self._lock:
             m = self._meta()
-            before = len(m["links"])
             m["links"] = [l for l in m["links"] if l != [parent_id, child_id]]
-            removed = len(m["links"]) < before
-            # Record the edge removal on the child (the dependent) so a manual
-            # cycle-break is auditable in its event timeline — only when an edge
-            # actually went away (unlink is otherwise an idempotent no-op).
-            if removed:
-                self._event(m, str(child_id), "dependency_unlink",
-                            {"parent": parent_id})
             self._save_meta(m)
-            return {"message": f"unlinked {parent_id} -> {child_id}",
-                    "removed": removed}
+            return {"message": f"unlinked {parent_id} -> {child_id}"}
 
     # ----------------------------------------------------------- aggregates
     def assignees(self) -> list[dict[str, Any]]:
@@ -553,22 +483,16 @@ class MCStore:
             # Retry budget exhausted but never escalated — the task keeps
             # failing/re-queuing with no human in the loop. Only flag while it is
             # still open and not yet escalated (the escalate verb clears it).
-            # Ceiling = the task's explicit max_retries or, when unset,
-            # DEFAULT_DISPATCH_ATTEMPTS — the SAME ceiling the autonomous
-            # dispatcher stops re-firing at (`dispatchable_tasks(skip_exhausted)`,
-            # iter #93). Without the default, a budget-unset doomed task that the
-            # dispatcher has quietly parked in `ready` was invisible here: not
-            # auto-fired, but also never flagged. Now it surfaces (and the sweep
-            # button it gates can escalate it) instead of sitting silently.
             if t.get("status") not in TERMINAL:
-                ceiling = self._retry_budget(t) or DEFAULT_DISPATCH_ATTEMPTS
-                attempts = self._failed_attempts(t, m["runs"].get(tid, []) or [])
-                already = any(e.get("kind") == "escalated" for e in m["events"].get(tid, []))
-                if attempts >= ceiling and not already:
-                    diags.append({"kind": "retry_exhausted", "severity": "warn",
-                                  "message": (f"exhausted retry budget "
-                                              f"({attempts}/{ceiling} attempts failed) "
-                                              f"— not yet escalated")})
+                budget = self._retry_budget(t)
+                if budget is not None:
+                    attempts = self._failed_attempts(t, m["runs"].get(tid, []) or [])
+                    already = any(e.get("kind") == "escalated" for e in m["events"].get(tid, []))
+                    if attempts >= budget and not already:
+                        diags.append({"kind": "retry_exhausted", "severity": "warn",
+                                      "message": (f"exhausted retry budget "
+                                                  f"({attempts}/{budget} attempts failed) "
+                                                  f"— not yet escalated")})
             # Dependency ordering: a non-terminal task whose parent task(s) are
             # still open should not be worked yet. Surfaces the gate the cascade
             # verb enforces. Only counts existing-but-non-terminal parents
@@ -585,18 +509,10 @@ class MCStore:
             # so it would wait forever — surface it for an unlink remediation.
             if tid in cycle_nodes:
                 parents = parents_of.get(tid, [])
-                # The parent edges [p -> tid] that actually lie on a cycle:
-                # edge p->tid closes a loop iff tid can already reach p (or it
-                # is a self-link) — exactly _would_cycle(links, p, tid).
-                # Removing any one of these breaks the cycle through this task;
-                # the UI's ✕ break button unlinks one of these edges.
-                cycle_parents = [p for p in parents
-                                 if self._would_cycle(m["links"], p, tid)]
                 diags.append({"kind": "dependency_cycle", "severity": "warn",
-                              "cycle_parents": cycle_parents,
                               "message": ("part of a dependency cycle — "
                                           "the gate can never clear it; "
-                                          f"parent(s): {', '.join(cycle_parents) or 'self'}")})
+                                          f"parent(s): {', '.join(parents) or 'self'}")})
             # Dead/idle assignee: an off-roster or stale-claim agent still holds
             # workable open work (todo/ready or a stale running claim). Surfaces
             # the gate the `reassign` verb remediates — move the work to a live
@@ -929,11 +845,8 @@ class MCStore:
         ``max_retries`` exists on every task but, post-Hermes, nothing acted on
         it — a task whose assignee kept failing would silently loop or sit with
         no human in the loop. This is the missing self-management path: for each
-        open task whose failed-attempt count has reached its ceiling — its
-        explicit ``max_retries`` or, when unset, ``DEFAULT_DISPATCH_ATTEMPTS``
-        (the same ceiling the autonomous dispatcher stops re-firing at, iter #93,
-        so a quietly-parked budget-unset doomed task is escalatable, not stuck) —
-        and which hasn't already been escalated, it transitions the task to ``blocked``
+        open task whose failed-attempt count has reached its budget (and which
+        hasn't already been escalated), it transitions the task to ``blocked``
         with a *recorded reason* (so it never shows as ``blocked_no_reason``) and
         an ``escalated`` event capturing attempts/budget/assignee. Blocking — not
         silent reassignment — is the safe default: the same agent would likely
@@ -959,47 +872,35 @@ class MCStore:
             for t in pool:
                 tid = str(t.get("id"))
                 budget = self._retry_budget(t)
-                # Effective ceiling: the task's explicit max_retries or, when
-                # unset, DEFAULT_DISPATCH_ATTEMPTS — the SAME ceiling the
-                # autonomous dispatcher stops re-firing at (iter #93). Without the
-                # default, a budget-unset doomed task was parked in `ready` by the
-                # dispatcher yet never escalatable here, so it sat silently stuck.
-                # Explicit-budget tasks are unchanged (ceiling == their budget).
-                ceiling = budget or DEFAULT_DISPATCH_ATTEMPTS
                 already = any(e.get("kind") == "escalated"
                               for e in m["events"].get(tid, []))
                 attempts = self._failed_attempts(t, m["runs"].get(tid, []) or [])
-                exhausted = (t.get("status") not in TERMINAL
-                             and attempts >= ceiling and not already)
+                exhausted = (budget is not None and t.get("status") not in TERMINAL
+                             and attempts >= budget and not already)
                 if not exhausted:
                     # Only explain the skip for an explicitly-named task.
                     if task_id is not None:
-                        if t.get("status") in TERMINAL:
+                        if budget is None:
+                            why = "no retry budget (max_retries unset)"
+                        elif t.get("status") in TERMINAL:
                             why = f"terminal status ({t.get('status')})"
                         elif already:
                             why = "already escalated"
                         else:
-                            why = f"budget not exhausted ({attempts}/{ceiling})"
+                            why = f"budget not exhausted ({attempts}/{budget})"
                         skipped.append({"id": tid, "title": t.get("title"),
                                         "reason": why})
                     continue
                 assignee = t.get("assignee") or "unassigned"
-                reason = (f"retry budget exhausted: {attempts}/{ceiling} attempts "
+                reason = (f"retry budget exhausted: {attempts}/{budget} attempts "
                           f"failed (assignee {assignee}) — escalated for human review")
                 entry = {"id": tid, "title": t.get("title"), "assignee": t.get("assignee"),
-                         "attempts": attempts, "max_retries": ceiling,
+                         "attempts": attempts, "max_retries": budget,
                          "prev_status": t.get("status"), "reason": reason}
                 if not dry_run:
-                    # blocked is an ended state — stamp completed_at like
-                    # block_task so the completed_at-invariant holds (set IFF
-                    # done/blocked/failed). Without it, get_activity's terminal
-                    # branch (gated on completed_at) never fires and the escalated
-                    # task falls to the stuck branch at its OLD started_at time
-                    # instead of the block time — inconsistent with a manually
-                    # blocked task. See LIFE-3 (iter #69).
-                    t["status"] = "blocked"; t["completed_at"] = _now()
+                    t["status"] = "blocked"
                     self._event(m, tid, "escalated", {
-                        "attempts": attempts, "max_retries": ceiling,
+                        "attempts": attempts, "max_retries": budget,
                         "assignee": t.get("assignee"),
                         "prev_status": entry["prev_status"], "reason": reason})
                     # Also record a `blocked` reason so the blocked card never
@@ -1152,9 +1053,18 @@ class MCStore:
             return {"routed": routed, "skipped": skipped,
                     "dry_run": dry_run, "message": msg}
 
+    # ------------------------------------------------- dependency ordering
+    @staticmethod
+    def _would_cycle(links: list[Any], parent: Any, child: Any) -> bool:
+        """Whether adding the edge ``parent -> child`` would create a cycle.
+
+        Links are ``[parent, child]`` pairs (a parent must finish before its
+        child). Adding ``parent -> child`` closes a cycle iff ``child`` can
+        already reach ``parent`` by following existing edges — or the edge is a
+        self-link (``parent == child``). Pure DFS over the current link set; the
+        proposed edge is NOT added first (we look for an existing child→parent
     # ------------------------------------------------- dispatch (run tasks)
-    def dispatchable_tasks(self, limit: Optional[int] = None,
-                           skip_exhausted: bool = False) -> list[dict[str, Any]]:
+    def dispatchable_tasks(self, limit: Optional[int] = None) -> list[dict[str, Any]]:
         """Tasks the dispatcher could fire right now, best-first (read-only).
 
         A task is dispatchable iff status==`ready`, it has an `assignee` on the
@@ -1166,25 +1076,9 @@ class MCStore:
         the most important, longest-waiting work goes first. Returns a light plan
         row per task and mutates nothing — this is also the dry-run preview the
         dispatcher daemon and the manual endpoint share.
-
-        ``skip_exhausted`` (set by the AUTONOMOUS dispatcher daemon, NOT the
-        manual endpoint) drops any task that has already failed its retry budget —
-        its explicit ``max_retries`` or, when unset, ``DEFAULT_DISPATCH_ATTEMPTS``.
-        A failed dispatch requeues the task to ``ready``, so without this guard a
-        task that can never succeed is re-fired through a full ``run_claude`` turn
-        every tick, burning Claude quota in a tight loop (the escalate verb only
-        backstops tasks with an explicit ``max_retries``, so the common
-        budget-unset task had NO ceiling at all). The manual dispatch endpoint
-        leaves this off so an operator can always force a re-run by hand.
         """
         with self._lock:
             agents_by_name = {a.get("name"): a for a in self.list_agents()}
-            # Always read runs: even when not skipping exhausted rows (the GET
-            # endpoint / manual preview), every row carries a `dispatch_exhausted`
-            # flag so the UI can honestly mark a row the AUTONOMOUS daemon would
-            # skip but that an operator can still force by hand. In-memory dict +
-            # a per-task failed-run count, so the cost is negligible.
-            runs = self._meta().get("runs", {})
             out: list[dict[str, Any]] = []
             for t in self._tasks():
                 if not isinstance(t, dict) or t.get("status") != "ready":
@@ -1193,11 +1087,6 @@ class MCStore:
                 agent = agents_by_name.get(assignee)
                 if not assignee or agent is None:
                     continue  # unassigned / off-roster → not dispatchable here
-                ceiling = self._retry_budget(t) or DEFAULT_DISPATCH_ATTEMPTS
-                attempts = self._failed_attempts(t, runs.get(str(t.get("id")), []) or [])
-                exhausted = attempts >= ceiling
-                if skip_exhausted and exhausted:
-                    continue  # exhausted → don't auto-re-fire (quota burn)
                 mcps = agent.get("mcps") or []
                 askills = agent.get("skills") or []
                 has_web = any(any(mk in str(mm).lower() for mk in WEB_MCP_MARKERS)
@@ -1213,12 +1102,6 @@ class MCStore:
                     "agent_model": agent.get("model"),
                     "agent_mcps": mcps,
                     "web_gap": needs_web and not has_web,
-                    # True when this ready task has already burned its retry budget
-                    # (explicit max_retries or DEFAULT_DISPATCH_ATTEMPTS). The
-                    # autonomous daemon (skip_exhausted) never lists these; the GET
-                    # endpoint does, flagged, so the queue doesn't falsely promise
-                    # the daemon will auto-fire it (it won't — manual override only).
-                    "dispatch_exhausted": exhausted,
                 })
             out.sort(key=lambda r: (-(r["priority"] or 0), r.get("created_at") or 0))
             return out[:limit] if limit else out
@@ -1264,55 +1147,10 @@ class MCStore:
         repeated failures still accrue runs, so the escalate verb eventually blocks
         a task whose assignee keeps failing it.
         """
-        # A retried task is active again, not ended — clear completed_at (its
-        # docstring covers reviving a FAILED task, which carries the stamp) so a
-        # requeue can never leave the stale "ended" time that get_activity would
-        # render as a green "completed" row. Same invariant as unblock/promote.
         def f(t):
-            t["status"] = "ready"; t["started_at"] = None; t["completed_at"] = None
+            t["status"] = "ready"; t["started_at"] = None
         return self._mutate(task_id, f, event="requeued", payload={"reason": reason})
 
-    def ensure_workspace(self, task_id: str) -> str:
-        """Ensure a per-task workspace dir exists and is recorded on the task.
-
-        Returns the absolute workspace path. Dispatch runs the agent with this as
-        cwd so its file output lands in a per-task directory instead of orphaned
-        at the repo root: the workspace is then (a) **task-linked** — browsable
-        via ``GET /api/mc/tasks/{id}/workspace`` (which reads this same
-        ``workspace_path``); (b) **collision-safe** under concurrent dispatch
-        (concurrency>1) since each task owns its own dir; and (c) still visible in
-        the global deliverables browser, because the workspace lives UNDER the
-        ``deliverables/`` root (``deliverables/tasks/<id>/``) which that browser
-        already walks recursively. Idempotent: a task that already has a
-        ``workspace_path`` keeps it (its dir is re-created if missing). Raises
-        ``KeyError`` for an unknown id.
-        """
-        with self._lock:
-            tasks = self._tasks()
-            task = self._find(tasks, task_id)
-            existing = (task.get("workspace_path") or "").strip()
-            ws = Path(existing) if existing else (
-                self.root / "deliverables" / "tasks" / str(task_id))
-            ws.mkdir(parents=True, exist_ok=True)
-            ws_str = str(ws.resolve(strict=False))
-            if existing != ws_str:
-                task["workspace_path"] = ws_str
-                self._save_tasks(tasks)
-                m = self._meta()
-                self._event(m, task_id, "workspace_ready", {"path": ws_str})
-                self._save_meta(m)
-            return ws_str
-
-    # ------------------------------------------------- dependency ordering
-    @staticmethod
-    def _would_cycle(links: list[Any], parent: Any, child: Any) -> bool:
-        """Whether adding the edge ``parent -> child`` would create a cycle.
-
-        Links are ``[parent, child]`` pairs (a parent must finish before its
-        child). Adding ``parent -> child`` closes a cycle iff ``child`` can
-        already reach ``parent`` by following existing edges — or the edge is a
-        self-link (``parent == child``). Pure DFS over the current link set; the
-        proposed edge is NOT added first (we look for an existing child→parent
         path). Used as the guard at both `link()` and `create_task`'s
         parent-append loop so a cycle can never be persisted in the first place.
         """
@@ -1433,11 +1271,7 @@ class MCStore:
                                  "open_parents": open_parents,
                                  "prev_status": status, "reason": reason})
                     if not dry_run:
-                        # blocked is an ended state — stamp completed_at like
-                        # block_task (completed_at-invariant, LIFE-3). The PROMOTE
-                        # branch below clears it on revive, so a held→cleared task
-                        # never keeps a stale "ended" stamp.
-                        t["status"] = "blocked"; t["completed_at"] = _now()
+                        t["status"] = "blocked"
                         self._event(m, tid, "dependency_hold",
                                     {"open_parents": open_parents,
                                      "prev_status": status, "reason": reason})
@@ -1448,12 +1282,7 @@ class MCStore:
                     promoted.append({"id": tid, "title": t.get("title"),
                                      "parents": parents, "reason": reason})
                     if not dry_run:
-                        # Reviving a held task to an active state must clear the
-                        # completed_at the HOLD branch stamped (completed_at-
-                        # invariant, LIFE-3) — else get_activity emits a false
-                        # green "completed" row for the now-ready task. Mirrors
-                        # unblock_task/promote_task/requeue_task.
-                        t["status"] = "ready"; t["completed_at"] = None
+                        t["status"] = "ready"
                         self._event(m, tid, "dependency_clear",
                                     {"parents": parents, "reason": reason})
                         changed = True
@@ -1571,35 +1400,28 @@ class MCStore:
                     "dry_run": dry_run, "message": msg}
 
     def sweep_board(self, dry_run: bool = False) -> dict[str, Any]:
-        """One-call board self-manage macro — run the self-heal verbs in order.
+        """One-call board self-manage macro — run the four self-heal verbs in order.
 
-        Each self-heal verb had its own button and call, but there was no single
-        entry point that ran them in the right order in one shot — the "self-manage
-        the board" macro an operator (or the recurring self-heal cron sweep)
-        actually wants. The order is fixed and matters:
+        Each self-heal verb (reconcile / cascade / reassign / escalate) had its own
+        button and call, but there was no single entry point that ran them in the
+        right order in one shot — the "self-manage the board" macro an operator (or
+        a future cron sweep) actually wants. The order is fixed and matters:
 
-          1. ``route_triage``         — assign confident-skill-match ``triage``
-             tasks → ``todo`` FIRST, so the freshly-routed task is a clean todo by
-             the time step 6 promotes. Without this, ``triage`` was the one column
-             with no automatic driver: cards piled up unassigned until a human
-             clicked AUTO-ROUTE, so the recurring sweep "self-healed" every lane
-             except the board's actual entry point. Unmatched tasks are honestly
-             left in triage (never force-assigned) for human attention.
-          2. ``reconcile_board``      — reclaim stale running claims → ``ready``,
-             so the now-idle agent is visible to step 4.
-          3. ``cascade_dependencies`` — hold/promote on parent→child deps BEFORE
+          1. ``reconcile_board``      — reclaim stale running claims → ``ready``
+             FIRST, so the now-idle agent is visible to step 3.
+          2. ``cascade_dependencies`` — hold/promote on parent→child deps BEFORE
              reassign, so a task about to be dependency-held is not moved to a new
              owner first.
-          4. ``reassign_dead_agent``  — move a dead/idle agent's workable tasks to
+          3. ``reassign_dead_agent``  — move a dead/idle agent's workable tasks to
              a live best-fit owner.
-          5. ``escalate_exhausted``   — block retry-burned tasks LAST, the final
+          4. ``escalate_exhausted``   — block retry-burned tasks LAST, the final
              safety net once the earlier verbs have had their chance to recover the
              task.
-          6. ``promote_ready``        — promote the now-clean ``todo`` tasks (live
+          5. ``promote_ready``        — promote the now-clean ``todo`` tasks (live
              assignee, no open deps) → ``ready`` AFTER all holds/blocks settle, so
              the dispatcher actually has work to run. This is what makes the
-             recurring maintenance sweep flow work end-to-end (route → promote →
-             dispatch) rather than just self-heal a static board.
+             recurring maintenance sweep flow work end-to-end (promote → dispatch)
+             rather than just self-heal a static board.
 
         Every sub-verb is idempotent and ``dry_run``-able, so the macro is low-risk
         and a second pass is a no-op. ``dry_run`` threads through to every sub-call
@@ -1609,32 +1431,12 @@ class MCStore:
         Returns each sub-result plus an aggregate ``counts``/``total`` and a one-line
         ``message``.
         """
-        # Each sub-verb persists its own changes independently, so one verb
-        # raising (e.g. on a single corrupt task/link record) must NOT discard
-        # the work the earlier verbs already committed NOR abort the remaining
-        # independent verbs (escalate/promote run last — a cascade crash would
-        # otherwise leave retry-burned tasks unescalated and ready work
-        # unpromoted, and the whole call 500s with no report of what DID change).
-        # Run each best-effort: capture a failure as an {"error": ...} sub-result,
-        # keep sweeping, and surface the failed verbs honestly in counts/message.
-        errors: list[str] = []
-
-        def _run(name: str, fn):
-            try:
-                return fn()
-            except Exception as exc:  # noqa: BLE001 - best-effort board self-heal
-                errors.append(name)
-                return {"error": f"{type(exc).__name__}: {exc}",
-                        "message": f"{name}: failed ({exc})"}
-
-        routed = _run("route", lambda: self.route_triage(dry_run=dry_run))
-        reconciled = _run("reconcile", lambda: self.reconcile_board(dry_run=dry_run))
-        cascade = _run("cascade", lambda: self.cascade_dependencies(dry_run=dry_run))
-        reassigned = _run("reassign", lambda: self.reassign_dead_agent(dry_run=dry_run))
-        escalated = _run("escalate", lambda: self.escalate_exhausted(dry_run=dry_run))
-        promoted = _run("promote", lambda: self.promote_ready(dry_run=dry_run))
+        reconciled = self.reconcile_board(dry_run=dry_run)
+        cascade = self.cascade_dependencies(dry_run=dry_run)
+        reassigned = self.reassign_dead_agent(dry_run=dry_run)
+        escalated = self.escalate_exhausted(dry_run=dry_run)
+        promoted = self.promote_ready(dry_run=dry_run)
         counts = {
-            "routed": len(routed.get("routed", [])),
             "reconciled": len(reconciled.get("reclaimed", [])),
             "held": len(cascade.get("held", [])),
             "promoted": len(cascade.get("promoted", [])),
@@ -1647,23 +1449,15 @@ class MCStore:
         if total > 0:
             bits = [f"{k} {v}" for k, v in counts.items() if v]
             msg = f"sweep: {verb} {total} ({', '.join(bits)})"
-        elif errors:
-            # Nothing applied AND a verb failed — don't claim "already healthy".
-            msg = "sweep: no changes applied"
         else:
             msg = "sweep: board already healthy — nothing to do"
-        if errors:
-            msg += f" — {len(errors)} sub-step(s) failed: {', '.join(errors)}"
         return {
-            "routed": routed,
             "reconciled": reconciled,
             "cascade": cascade,
             "reassigned": reassigned,
             "escalated": escalated,
-            "promoted": promoted,
             "counts": counts,
             "total": total,
-            "errors": errors,
             "dry_run": dry_run,
             "message": msg,
         }
@@ -1727,20 +1521,7 @@ class MCStore:
     # --------------------------------------------------------------- agents
     def list_agents(self) -> list[dict[str, Any]]:
         data = self._read(self.agents_file, [])
-        if not isinstance(data, list):
-            return []
-        # Normalize at the load boundary (same discipline as `_clean_links`):
-        # every consumer keys off the agent name — `agents_with_counts` /
-        # `get_agent` / `create_agent` / `update_agent` / `delete_agent` HARD-
-        # subscript `a["name"]`, and the `{a.get("name") …}` roster sets feeding
-        # `_dead_agents`/the sweep call `.get` on the member. A non-dict member
-        # or one missing a usable name (a hand-edited `agents.json`) would
-        # `AttributeError`/`KeyError` and 500 the entire roster GET + every
-        # agent CRUD verb. Drop malformed members here so no consumer can reach
-        # a name-less record; self-heals the file on the next `_save_agents`.
-        return [a for a in data
-                if isinstance(a, dict) and isinstance(a.get("name"), str)
-                and a["name"].strip()]
+        return data if isinstance(data, list) else []
 
     def _save_agents(self, agents):
         self._write(self.agents_file, agents)
@@ -1918,65 +1699,13 @@ class MCStore:
                     j["next_run"] = _next_run(j.get("schedule", ""))
             self._save_cron(jobs)
 
-    def recent_events(self, limit: int = 50) -> dict[str, Any]:
-        """Board-wide event feed: merge every task's event timeline newest-first.
-
-        Distinct from /api/mc/activity, which synthesizes only three coarse
-        lifecycle entries (created/claimed/completed) from task timestamps. This
-        walks the FULL per-task event log — claim/complete/block/fail/route/
-        promote/escalate/reassign/reconcile/dependency-edge/workspace/… — so the
-        operator sees the board's real pulse: every recorded state change, not
-        just the three coarse stamps. Each row carries its owning task_id + title
-        (+ assignee + current task_status) so the UI can deep-link to the task and
-        render an icon/label per `kind` (eventLabels.ts) with the dependency-edge
-        parent surfaced from the payload."""
-        with self._lock:
-            tasks = self._tasks()
-            m = self._meta()
-            info = {
-                str(t.get("id", "")): {
-                    "title": t.get("title") or "untitled",
-                    "assignee": t.get("assignee"),
-                    "task_status": t.get("status"),
-                }
-                for t in tasks if isinstance(t, dict)
-            }
-            out: list[dict[str, Any]] = []
-            for tid, evs in (m.get("events") or {}).items():
-                meta = info.get(str(tid), {"title": "untitled", "assignee": None, "task_status": None})
-                for e in evs or []:
-                    if not isinstance(e, dict):
-                        continue
-                    out.append({
-                        "task_id": tid,
-                        "title": meta["title"],
-                        "assignee": meta["assignee"],
-                        "task_status": meta["task_status"],
-                        "kind": e.get("kind", ""),
-                        "payload": e.get("payload"),
-                        "created_at": e.get("created_at"),
-                        "run_id": e.get("run_id"),
-                    })
-            out.sort(key=lambda e: e.get("created_at") or 0, reverse=True)
-            lim = max(1, min(int(limit or 50), 500))
-            return {"events": out[:lim], "total": len(out)}
-
 
 def _next_run(schedule: str) -> Optional[str]:
-    """Best-effort next-run display for an interval schedule ('30m' / 'every 2h' /
-    '30s' / '5min' / 'every30m'). Cron expressions, named macros and unparseable
-    phrases return None so the UI falls back to showing the raw schedule.
-
-    Delegates interval parsing to the scheduler daemon's `parse_interval_seconds`
-    — the single source of truth that actually fires jobs — so the displayed
-    next-run can never disagree with whether/when the daemon fires. The previous
-    inline regex required a space after `every` and only knew single-letter
-    m/h/d units, so daemon-firing forms like `30s`, `5min` and `every30m` matched
-    nothing here and showed NO next-run time, making a firing job look
-    misconfigured (the iter-#27/#28 cron-parser divergence, in a third location)."""
-    from mc_scheduler import parse_interval_seconds  # pure, leaf module — no cycle
-
-    secs = parse_interval_seconds(schedule or "")
-    if secs is None:
+    """Best-effort next-run display from a simple interval like '30m' / '2h' / '1d'.
+    Cron expressions and natural phrases just show the raw schedule."""
+    m = re.fullmatch(r"\s*(?:every\s+)?(\d+)\s*([mhd])\s*", (schedule or "").lower())
+    if not m:
         return None
+    n, unit = int(m.group(1)), m.group(2)
+    secs = n * {"m": 60, "h": 3600, "d": 86400}[unit]
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(_now() + secs))

@@ -50,7 +50,19 @@ function bridgeLauncher(): Plugin {
             stdio: ['ignore', logFd, logFd],
             windowsHide: true,
           })
-          child.on('error', (e) => server.config.logger.error(`[mc] bridge spawn failed: ${e.message}`))
+          // The child inherited its own dup of logFd, so close the dev server's
+          // copy — otherwise each /__bridge/start spawn leaks one fd in the
+          // long-lived Vite process. Fires exactly once ('spawn' XOR 'error'),
+          // guarded against a double-close.
+          let logFdClosed = false
+          const closeLogFd = () => {
+            if (logFd !== 'ignore' && !logFdClosed) {
+              logFdClosed = true
+              try { fs.closeSync(logFd) } catch { /* already gone */ }
+            }
+          }
+          child.on('spawn', closeLogFd)
+          child.on('error', (e) => { closeLogFd(); server.config.logger.error(`[mc] bridge spawn failed: ${e.message}`) })
           child.unref() // bridge outlives the dev server — same as a manual `npm run bridge`
           // Wait for it to answer (up to ~15s) so the panel can re-probe once.
           for (let i = 0; i < 30; i++) {

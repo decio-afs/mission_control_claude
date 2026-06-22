@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import {
   getMcBriefing,
   getSentinelDigest,
-  errMessage,
+  bridgeDetail,
   type McBriefing,
   type SentinelDigest,
 } from '../lib/api';
@@ -39,7 +39,10 @@ export const useBriefingStore = create<BriefingStore>((set) => ({
         lastSync: new Date(),
       });
     } catch (err) {
-      const msg = errMessage(err);
+      // bridgeDetail (not errMessage) so the operator sees the bridge's real
+      // reason — e.g. "No digest available. Run the Sentinel cron…" — instead
+      // of a meaningless "Request failed with status code 404".
+      const msg = bridgeDetail(err);
       console.error('[BriefingStore] refresh failed:', msg);
       set({ loading: false, error: msg });
     }
@@ -56,7 +59,7 @@ export const useBriefingStore = create<BriefingStore>((set) => ({
         lastSync: new Date(),
       });
     } catch (err) {
-      const msg = errMessage(err);
+      const msg = bridgeDetail(err);
       console.error('[BriefingStore] sentinel refresh failed:', msg);
       set({ sentinelLoading: false, sentinelError: msg });
     }

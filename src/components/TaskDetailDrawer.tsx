@@ -8,9 +8,11 @@ import TaskDependencyGraph from './TaskDependencyGraph';
 import WorkerLogStream from './WorkerLogStream';
 import {
   getMcTaskContext, getMcTaskLog, getTaskNotifications, subscribeTaskNotify, unsubscribeTaskNotify,
-  getMcTaskWorkspace, getMcTaskWorkspaceFile,
+  getMcTaskWorkspace, getMcTaskWorkspaceFile, taskWorkspaceRawUrl,
   type TaskDetail, type NotifySubscription, type TaskWorkspace, type TaskWorkspaceFile,
 } from '../lib/api';
+import { labelFor, eventParent } from '../lib/eventLabels';
+import { mediaKind, extOf } from '../lib/media';
 
 const NOTIFY_PLATFORMS = ['telegram', 'discord', 'signal', 'whatsapp'];
 
@@ -44,6 +46,9 @@ const ALLOW: Record<string, string[]> = {
   promote: ['todo', 'triage', 'blocked'],
   unblock: ['blocked', 'scheduled'],
   block: ['todo', 'ready', 'running', 'review', 'triage'],
+  // Terminal failure — allowed from any non-terminal status, incl. `blocked`
+  // (escalate a stuck wait into a recorded dead-end). Excludes done/failed.
+  fail: ['todo', 'ready', 'running', 'review', 'triage', 'blocked'],
   schedule: ['todo', 'ready', 'blocked', 'triage'],
   archive: ['todo', 'ready', 'running', 'review', 'blocked', 'scheduled', 'done', 'triage'],
   edit: ['done'],
@@ -62,7 +67,12 @@ const fmt = (u?: number | null) => (u ? new Date(u * 1000).toLocaleString() : '�
 // lives in the event payload under one of several keys depending on the verb.
 // Mc writes the human-readable reason here; without surfacing it the real
 // "output" of a blocked/failed task is invisible (DELIV-2).
-const DETAIL_KEYS = ['reason', 'message', 'error', 'detail', 'note'];
+// `profile` is last: an `assigned`/`reassigned` event carries the target agent
+// there (mc_store assign_task/reassign_task), so the timeline shows WHO a task
+// was handed to — previously an `assigned` event rendered with no detail at all.
+// It ranks after the human-text reason keys so a reassign WITH a reason still
+// shows the reason; only block/fail payloads (no `profile`) reach blockFailReason.
+const DETAIL_KEYS = ['reason', 'message', 'error', 'detail', 'note', 'profile'];
 function eventDetail(payload: Record<string, unknown> | null): string {
   if (!payload) return '';
   for (const k of DETAIL_KEYS) {
@@ -80,7 +90,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
   onOpenTask: (id: string) => void;
 }) {
   const {
-    fetchTaskDetail, claimMcTaskById, completeMcTaskById, blockMcTaskById,
+    fetchTaskDetail, claimMcTaskById, completeMcTaskById, blockMcTaskById, failMcTaskById,
     unblockTask, promoteTask, scheduleTask, archiveTask, reassignTask, reclaimTask,
     commentTask, editTask, linkTasks, unlinkTasks, specifyTask,
   } = useTaskStore();
@@ -155,13 +165,21 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
   // DELIV-2: the latest block/fail reason is the real deliverable of a stuck
   // task. Pull it from the most recent block/fail event payload and show it up
   // top so the operator never has to dig the timeline for *why* it's stuck.
-  const blockFailReason = (status === 'blocked' || status === 'failed')
+  const isStuck = status === 'blocked' || status === 'failed';
+  const blockFailReason = isStuck
     ? [...(detail?.events ?? [])]
         .sort((a, b) => b.created_at - a.created_at)
         .map((e) => {
           const s = String(e.payload?.status ?? '').toLowerCase();
           const k = e.kind.toLowerCase();
-          const isBF = s === 'blocked' || s === 'failed' || k.includes('block') || k.includes('fail');
+          // Match the kind EXACTLY, not by substring: `k.includes('block')` also
+          // matches the `unblocked` event kind (mc_store emits `unblocked` with a
+          // `reason` payload), so a block→unblock-with-reason→re-block-no-reason
+          // task would surface the UN-block note as the reason it's *currently*
+          // stuck. Exact equality still catches every real block/fail event while
+          // excluding `unblocked`; the payload-status checks above remain the
+          // catch-all for any event that sets status without a block/fail kind.
+          const isBF = s === 'blocked' || s === 'failed' || k === 'blocked' || k === 'failed';
           return isBF ? eventDetail(e.payload) : '';
         })
         .find((d) => d) ?? ''
@@ -207,13 +225,24 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
               {t.body && <div className="border-l-2 border-white/10 pl-2"><MarkdownLite text={t.body} /></div>}
             </div>
 
-            {/* block / fail reason — the "why" of a stuck task, surfaced up top */}
-            {blockFailReason && (
+            {/* block / fail reason — the "why" of a stuck task, surfaced up top.
+                Render the banner whenever the task is stuck, even with no recorded
+                reason: a task blocked outside the normal lifecycle (status set
+                directly, no `blocked` event) would otherwise show no "why" at all,
+                indistinguishable from a healthy task. Mirrors the backend's
+                `blocked_no_reason` diagnostic so the dead-end is honestly visible. */}
+            {isStuck && (
               <div className={`border px-2 py-1.5 ${status === 'failed' ? 'border-red-400/40 bg-red-400/[0.06]' : 'border-amber-400/40 bg-amber-400/[0.06]'}`}>
                 <div className={`text-[10px] font-mono tracking-[0.16em] uppercase mb-0.5 ${status === 'failed' ? 'text-red-400' : 'text-amber-400'}`}>
-                  {status === 'failed' ? '⚠ FAILED · REASON' : '⛔ BLOCKED · REASON'}
+                  {status === 'failed' ? `⚠ FAILED${blockFailReason ? ' · REASON' : ''}` : `⛔ BLOCKED${blockFailReason ? ' · REASON' : ''}`}
                 </div>
-                <div className="text-[11px] text-[#cdd3df] whitespace-pre-wrap leading-relaxed">{blockFailReason}</div>
+                {blockFailReason ? (
+                  <div className="text-[11px] text-[#cdd3df] whitespace-pre-wrap leading-relaxed">{blockFailReason}</div>
+                ) : (
+                  <div className="text-[11px] text-[#9aa3b5] italic leading-relaxed">
+                    No reason was recorded — this task was {status === 'failed' ? 'marked failed' : 'blocked'} outside the normal lifecycle. Use the actions below to unblock, reassign, or route it.
+                  </div>
+                )}
               </div>
             )}
 
@@ -276,6 +305,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
                 {allow('unblock') && <Btn busy={busy} id="unblock" label="UNBLOCK" cls="border-sky-400/40 text-sky-400 hover:bg-sky-400/10" onClick={() => act('unblock', () => unblockTask(taskId, reason || undefined))} />}
                 {allow('schedule') && <Btn busy={busy} id="schedule" label="SCHEDULE" cls="border-white/15 text-[#b8b8b8] hover:border-white/30" onClick={() => act('schedule', () => scheduleTask(taskId, reason || undefined))} />}
                 {allow('block') && <Btn busy={busy} id="block" label="BLOCK" cls="border-red-400/40 text-red-400 hover:bg-red-400/10" onClick={() => act('block', () => blockMcTaskById(taskId, reason || 'blocked from Mission Control'))} />}
+                {allow('fail') && <Btn busy={busy} id="fail" label="FAIL" cls="border-red-700/50 text-red-600 hover:bg-red-700/10" onClick={() => act('fail', () => failMcTaskById(taskId, reason || 'failed from Mission Control'))} />}
                 {allow('reclaim') && <Btn busy={busy} id="reclaim" label="RECLAIM" cls="border-white/15 text-[#b8b8b8] hover:border-white/30" onClick={() => act('reclaim', () => reclaimTask(taskId))} />}
                 {allow('edit') && <Btn busy={busy} id="edit" label="EDIT RESULT" cls="border-white/15 text-[#b8b8b8] hover:border-white/30" onClick={() => setShowEdit((s) => !s)} />}
                 <Btn busy={busy} id="archive" label="ARCHIVE" cls="border-white/15 text-[#545454] hover:border-red-400/40 hover:text-red-400" onClick={() => act('archive', async () => { const ok = await archiveTask(taskId); if (ok) onClose(); return ok; })} />
@@ -388,13 +418,23 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
               <div className="flex flex-col gap-1">
                 {[...detail.events].reverse().map((e, i) => {
                   const d = eventDetail(e.payload);
+                  const { label, icon } = labelFor(e.kind);
+                  const parent = eventParent(e.payload);
                   return (
                     <div key={i} className="text-[10px] font-mono">
                       <div className="flex items-baseline gap-2">
                         <span className="text-[#545454] shrink-0">{ago(e.created_at)}</span>
-                        <span className="text-[#f64e6e] shrink-0">{e.kind}</span>
+                        <span className="text-[#f64e6e] shrink-0" title={e.kind}><span className="text-[#8a8f9c]">{icon}</span> {label}</span>
                         <span className="text-[#545454] truncate">{e.payload?.status ? `→ ${String(e.payload.status)}` : ''}</span>
                       </div>
+                      {parent && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenTask(parent)}
+                          title={`Open parent task ${parent}`}
+                          className="text-[#7fd4c1] ml-2 mt-0.5 hover:underline cursor-pointer"
+                        >↳ parent {parent}</button>
+                      )}
                       {d && <div className="text-[#cdd3df] ml-2 mt-0.5 border-l border-white/10 pl-2 whitespace-pre-wrap leading-snug">{d}</div>}
                     </div>
                   );
@@ -480,6 +520,11 @@ function WorkspaceBrowser({ taskId }: { taskId: string }) {
   const [ws, setWs] = useState<TaskWorkspace | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<TaskWorkspaceFile | null>(null);
+  // A media file (image/video/audio/pdf) opens as an inline player/preview from
+  // the raw-bytes endpoint instead of the text JSON read — so a task's generated
+  // clip plays right here in the drawer. Mutually exclusive with `open` (text).
+  const [openMedia, setOpenMedia] = useState<{ rel: string; ext: string } | null>(null);
+  const [mediaFailed, setMediaFailed] = useState(false);
   const [fileLoading, setFileLoading] = useState<string | null>(null);
 
   useEffect(() => {
@@ -495,9 +540,18 @@ function WorkspaceBrowser({ taskId }: { taskId: string }) {
   if (!ws) return <div className="text-[10px] font-mono text-[#545454] mt-1">could not read workspace</div>;
 
   const openFile = async (rel: string) => {
+    // Media renders inline from the raw-bytes endpoint (no text fetch); everything
+    // else falls back to the size-capped text read the bridge already exposes.
+    if (mediaKind(extOf(rel)) !== 'text') {
+      setOpen(null);
+      setMediaFailed(false);
+      setOpenMedia({ rel, ext: extOf(rel) });
+      return;
+    }
+    setOpenMedia(null);
     setFileLoading(rel);
     const r = await getMcTaskWorkspaceFile(taskId, rel).catch(() => null);
-    if (r) setOpen(r);
+    if (r) { setOpen(r); setOpenMedia(null); }
     setFileLoading(null);
   };
 
@@ -538,6 +592,38 @@ function WorkspaceBrowser({ taskId }: { taskId: string }) {
           <pre className="text-[10px] font-mono text-[#9aa3b5] whitespace-pre-wrap max-h-72 overflow-auto p-2">{open.binary ? (open.note || 'binary file') : open.content}</pre>
         </div>
       )}
+      {openMedia && (() => {
+        const url = taskWorkspaceRawUrl(taskId, openMedia.rel);
+        const kind = mediaKind(openMedia.ext);
+        return (
+          <div className="mt-1 border border-white/10 bg-[#050505]">
+            <div className="flex items-center justify-between px-2 py-1 border-b border-white/10">
+              <span className="text-[10px] font-mono text-[#f64e6e] truncate">{openMedia.rel}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <a href={url} download={openMedia.rel} className="text-[10px] font-mono text-[#9aa3b5] hover:text-emerald-300">⬇</a>
+                <button onClick={() => setOpenMedia(null)} className="text-[#545454] hover:text-white text-[11px]">✕</button>
+              </div>
+            </div>
+            <div className="p-2">
+              {/* A failed decode (unsupported codec, oversized) degrades to a link so
+                  the deliverable is never unreachable, mirroring the Deliverables drawer. */}
+              {mediaFailed ? (
+                <div className="text-[10px] font-mono text-amber-400">
+                  couldn't preview here — <a href={url} target="_blank" rel="noreferrer" className="underline hover:text-amber-300">open in new tab</a>
+                </div>
+              ) : kind === 'image' ? (
+                <img src={url} alt={openMedia.rel} onError={() => setMediaFailed(true)} className="max-w-full h-auto border border-white/10 bg-black/40" />
+              ) : kind === 'video' ? (
+                <video src={url} controls onError={() => setMediaFailed(true)} className="max-w-full max-h-72 border border-white/10 bg-black" />
+              ) : kind === 'audio' ? (
+                <audio src={url} controls className="w-full" />
+              ) : (
+                <iframe src={url} title={openMedia.rel} className="w-full h-72 border border-white/10 bg-black/40" />
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

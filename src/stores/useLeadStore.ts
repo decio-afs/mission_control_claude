@@ -30,12 +30,20 @@ function hash(s: string): number {
   return Math.abs(x);
 }
 
-function num(counts: Record<string, number>, ...keys: string[]): number {
+// Sum every present count across the given status keys. `counts` is keyed by a
+// task's single canonical status (mc_store `assignees()`), so a task is counted
+// under exactly one key — summing a set of DISTINCT statuses can never
+// double-count. A first-match return would silently DROP co-occurring statuses
+// (e.g. an agent's `blocked` tasks hidden behind its `ready` count — narratrix's
+// 5 blocked vanishing behind ready:2 — understating queue depth and lead score).
+// Mirrors useGhostStore.sumKeys (iter #63).
+function sumKeys(counts: Record<string, number>, ...keys: string[]): number {
+  let total = 0;
   for (const k of keys) {
     const v = counts?.[k];
-    if (typeof v === 'number') return v;
+    if (typeof v === 'number') total += v;
   }
-  return 0;
+  return total;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -44,9 +52,17 @@ function clamp(n: number, lo: number, hi: number): number {
 
 function mapAgentToLead(a: McAgent): Lead {
   const counts = a.counts || {};
-  const done = num(counts, 'done', 'completed');
-  const running = num(counts, 'running', 'in_progress', 'active', 'started');
-  const queue = num(counts, 'ready', 'queued', 'pending', 'todo', 'blocked');
+  const done = sumKeys(counts, 'done', 'completed');
+  const running = sumKeys(counts, 'running', 'in_progress', 'active', 'started');
+  // Queue = every NON-terminal, non-running task the agent holds. The mc canonical
+  // non-running/non-terminal statuses are ready/todo/blocked/review/scheduled/triage
+  // (see OperationsCenter COLUMNS); done/completed/archived/failed are terminal/adverse
+  // and excluded. `review`+`scheduled`+`triage` were missing here (this only had
+  // `blocked` added iter #64) — so an agent still holding scheduled/review/triage work
+  // computed queue===0 and got mislabeled 'converted' (lead closed) instead of
+  // 'qualified', with its score undercounted. Mirrors useGhostStore.mapAgentsToTopology
+  // (iter #79); queued/pending kept as defensive legacy aliases.
+  const queue = sumKeys(counts, 'ready', 'queued', 'pending', 'todo', 'blocked', 'review', 'scheduled', 'triage');
   const total = done + running + queue;
 
   // Completed work weighs most heavily; a small deterministic jitter keeps the

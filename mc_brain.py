@@ -101,41 +101,62 @@ def run_claude(
     `bypass_permissions` lets the agent actually use its tools unattended —
     appropriate for a trusted, local, single-user agent backend.
     """
-    cmd: list[str] = [CLAUDE_CMD, "-p", prompt, "--output-format", "json"]
-
     m = claude_model(model)
-    if m:
-        cmd += ["--model", m]
-    if session_id:
-        cmd += ["--resume", session_id]
-    if system_prompt:
-        cmd += ["--append-system-prompt", system_prompt]
-    if allowed_tools:
-        cmd += ["--allowedTools", ",".join(allowed_tools)]
-    if bypass_permissions:
-        cmd += ["--permission-mode", "bypassPermissions"]
 
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            creationflags=CREATE_NO_WINDOW,
-            # Closed stdin: headless claude must not wait on a TTY (the 3s
-            # "no stdin data received" stall) — feed it nothing.
-            stdin=subprocess.DEVNULL,
-            cwd=cwd or str(PROJECT_ROOT),
-        )
-    except subprocess.TimeoutExpired:
-        raise ClaudeError(f"claude timed out after {timeout}s", returncode=124)
-    except FileNotFoundError:
-        raise ClaudeError("claude CLI not found in PATH (set CLAUDE_CMD)")
+    def _build_cmd(resume: Optional[str]) -> list[str]:
+        cmd: list[str] = [CLAUDE_CMD, "-p", prompt, "--output-format", "json"]
+        if m:
+            cmd += ["--model", m]
+        if resume:
+            cmd += ["--resume", resume]
+        if system_prompt:
+            cmd += ["--append-system-prompt", system_prompt]
+        if allowed_tools:
+            cmd += ["--allowedTools", ",".join(allowed_tools)]
+        if bypass_permissions:
+            cmd += ["--permission-mode", "bypassPermissions"]
+        return cmd
 
+    def _invoke(resume: Optional[str]) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                _build_cmd(resume),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                creationflags=CREATE_NO_WINDOW,
+                # Closed stdin: headless claude must not wait on a TTY (the 3s
+                # "no stdin data received" stall) — feed it nothing.
+                stdin=subprocess.DEVNULL,
+                cwd=cwd or str(PROJECT_ROOT),
+            )
+        except subprocess.TimeoutExpired:
+            raise ClaudeError(f"claude timed out after {timeout}s", returncode=124)
+        except FileNotFoundError:
+            raise ClaudeError("claude CLI not found in PATH (set CLAUDE_CMD)")
+
+    resume_id = session_id
+    proc = _invoke(resume_id)
     stdout = (proc.stdout or "").strip()
     stderr = (proc.stderr or "").strip()
+
+    # Resume-miss recovery: Claude Code scopes conversations per project dir and
+    # can rotate/expire/lose them, so a session id we once stored may no longer
+    # be resumable ("No conversation found with session ID: …"). Rather than
+    # 502-ing the whole turn as a COMMS FAILURE, drop --resume and retry once as
+    # a fresh session — the operator's message still lands and gets a real reply;
+    # only the prior in-CLI memory is lost (the bridge keeps its own transcript).
+    if (
+        resume_id
+        and proc.returncode != 0
+        and re.search(r"no conversation found", stderr, re.I)
+    ):
+        resume_id = None
+        proc = _invoke(None)
+        stdout = (proc.stdout or "").strip()
+        stderr = (proc.stderr or "").strip()
 
     if proc.returncode != 0 and not stdout:
         raise ClaudeError(
@@ -144,12 +165,19 @@ def run_claude(
             raw=stderr,
         )
 
-    envelope: dict[str, Any] = {}
+    envelope: Any = {}
     try:
         envelope = json.loads(stdout)
     except json.JSONDecodeError:
-        # --output-format json should always emit a JSON object; if not, treat
-        # the raw stdout as the answer rather than hard-failing.
+        envelope = None
+    # --output-format json should always emit a JSON OBJECT, but tolerate BOTH
+    # invalid JSON and valid-but-non-object JSON (a bare array/string/number/bool).
+    # Without the isinstance guard a non-dict envelope reaches `envelope.get(...)`
+    # below and AttributeErrors ('list' object has no attribute 'get') — an
+    # uncaught crash that escapes every call site's `except ClaudeError` mapping
+    # and surfaces as an opaque 500 instead of a clean COMMS failure. Either way,
+    # treat the raw stdout as the answer rather than hard-failing.
+    if not isinstance(envelope, dict):
         envelope = {"result": stdout, "is_error": proc.returncode != 0}
 
     result_text = envelope.get("result")
@@ -165,7 +193,7 @@ def run_claude(
         "success": True,
         "result": result_text,
         "stdout": result_text,
-        "session_id": envelope.get("session_id") or session_id,
+        "session_id": envelope.get("session_id") or resume_id,
         "cost_usd": envelope.get("total_cost_usd"),
         "raw": envelope,
         "stderr": stderr,
@@ -285,14 +313,20 @@ class MCSessions:
                     c.execute("UPDATE sessions SET title=? WHERE id=?", (title, session_id))
             c.execute("UPDATE sessions SET updated_at=? WHERE id=?", (now, session_id))
 
-    def rename(self, session_id: str, title: str) -> None:
+    def rename(self, session_id: str, title: str) -> bool:
+        """Set a session's title. Returns False when no such session exists so
+        the caller can 404 instead of reporting a silent no-op as success."""
         with self._lock, self._conn() as c:
-            c.execute("UPDATE sessions SET title=? WHERE id=?", (title, session_id))
+            cur = c.execute("UPDATE sessions SET title=? WHERE id=?", (title, session_id))
+            return cur.rowcount > 0
 
-    def delete(self, session_id: str) -> None:
+    def delete(self, session_id: str) -> bool:
+        """Delete a session and its transcript. Returns False when no such
+        session existed (the sessions-row delete affected no rows)."""
         with self._lock, self._conn() as c:
             c.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
-            c.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+            cur = c.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+            return cur.rowcount > 0
 
     # -- reads -------------------------------------------------------------
     def list(self, limit: int = 100, source: Optional[str] = None) -> list[dict[str, Any]]:

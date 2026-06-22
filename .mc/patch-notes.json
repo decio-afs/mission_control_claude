@@ -1,6 +1,1013 @@
 {
   "notes": [
     {
+      "id": "iter-104-claude-cli-nonobject-output-resilient",
+      "iteration": 104,
+      "date": "2026-06-22",
+      "title": "AI replies no longer crash on unexpected output shape",
+      "summary": "The piece that talks to Claude assumed every reply came back as a structured object. If Claude ever returned a bare list or a plain value instead, the whole action crashed with an unhelpful server error. Now it gracefully treats any unexpected shape as plain text, so chats, digests and content generation keep working and show a clean message instead of a hard failure.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "mc_brain.py"
+      ]
+    },
+    {
+      "id": "iter-103-corrupt-agent-roster-resilient",
+      "iteration": 103,
+      "date": "2026-06-22",
+      "title": "A single corrupt agent entry no longer breaks the agent roster",
+      "summary": "The agent roster panel and every add/rename/delete-agent action read the saved agent list. If even one entry in that file was malformed (a stray hand-edit or partial write — a non-object value, or one missing a name), the entire roster failed to load and every agent edit errored out. The agent list is now cleaned as it loads, so a bad entry is quietly dropped and self-healed on the next save instead of taking down the whole roster.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mc_store.py"
+      ]
+    },
+    {
+      "id": "iter-102-corrupt-link-diagnostics-resilient",
+      "iteration": 102,
+      "date": "2026-06-22",
+      "title": "A single corrupt dependency link no longer blanks Board Diagnostics",
+      "summary": "Board Diagnostics, the task drawer's parent/child list, and the dependency-cycle guard all read the board's task-dependency links. If even one link entry was malformed (a stray hand-edit or partial write), the whole Board Diagnostics panel errored out — hiding every other warning it tracks (stale claims, blocked-without-reason, retry-exhausted, dead agents, promotable tasks), not just the bad link. Links are now cleaned as the board loads, so one bad entry is quietly dropped and self-healed instead of taking down the entire panel.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mc_store.py"
+      ]
+    },
+    {
+      "id": "iter-101-sweep-board-resilient",
+      "iteration": 101,
+      "date": "2026-06-22",
+      "title": "One bad task no longer makes the board-sweep button fail blankly",
+      "summary": "The Operations Center \"Sweep Board\" button runs five self-heal steps in a row (reconcile, dependency cascade, reassign, escalate, promote). Before, if a single corrupt task or link tripped up one step, the whole sweep errored out with just \"sweep failed\" — hiding the fact that earlier steps had already tidied the board and silently skipping the remaining steps (so retry-burned tasks went unescalated and ready work stayed stuck). Now each step runs independently: the others still apply and report, and the result line tells you exactly which step failed instead of going blank.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mc_store.py",
+        "src/lib/api.ts",
+        "src/pages/OperationsCenter.tsx"
+      ]
+    },
+    {
+      "id": "iter-100-content-calendar-date-fallback",
+      "iteration": 100,
+      "date": "2026-06-22",
+      "title": "Scheduled posts land on the right calendar day on the backup path",
+      "summary": "When the Content Factory falls back to its backup data path (if the main pipeline feed is briefly unavailable), a post whose target date is written into its title (e.g. \"Launch post 2026-07-15\") used to jump to the day it was created instead of its planned day — so it showed on the wrong calendar cell or dropped out of the Upcoming list. The backup path now reads the date from the post text exactly like the normal path does, so the calendar looks the same either way.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "src/stores/useContentStore.ts"
+      ]
+    },
+    {
+      "id": "iter-99-content-factory-drafts-fallback",
+      "iteration": 99,
+      "date": "2026-06-22",
+      "title": "Stuck content tasks no longer vanish from the drafts queue",
+      "summary": "If the Content Factory ever had to fall back to its backup data path (when the main pipeline feed was briefly unavailable), blocked and failed content tasks silently disappeared from the drafts queue, hiding work that needs attention. They now show up on that backup path too — with their correct blocked/failed status colour — exactly as they do normally.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "src/stores/useContentStore.ts"
+      ]
+    },
+    {
+      "id": "iter-98-content-ideas-empty-clobber",
+      "iteration": 98,
+      "date": "2026-06-22",
+      "title": "Idea deck no longer wiped by an empty AI reply",
+      "summary": "When the AI returned a blank or malformed response, generating a new content idea deck used to overwrite your existing deck with nothing — blanking the panel and erasing which ideas you had used or skipped. Now an empty reply is rejected and your previous deck is kept intact so you can just retry.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-97-sentinel-digest-dedup-empty-url",
+      "iteration": 97,
+      "date": "2026-06-22",
+      "title": "Sentinel digest no longer drops link-less trend stories",
+      "summary": "When building the AI Daily Digest, the news pipeline removed duplicate stories by their link. But any story whose source gave no link (some feeds publish links in a form that reads as blank) was treated as a duplicate of the previous blank-link story, so all but the first silently disappeared from the digest. Now blank-link stories are kept as distinct (matched by title instead), so real trends stop vanishing — while genuine same-link duplicates are still collapsed as before.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "scripts/sentinel_news_pipeline.py"
+      ]
+    },
+    {
+      "id": "iter-96-autonomy-tab-badge-exhausted-split",
+      "iteration": 96,
+      "date": "2026-06-21",
+      "title": "Autonomy tab counter no longer overstates what will auto-run",
+      "summary": "The AUTONOMY panel's ⚡ DISPATCHABLE tab showed a green 'ready to fire' number that quietly included tasks the auto-runner skips because they've used up their retries. At a glance you'd think, say, 5 tasks were about to run when 2 of them never would — and in the worst case the green number could read '2' while zero actually fire. The tab counter now appends a small red '⚑' segment for those skipped tasks (matching the red EXHAUSTED markers already inside the drawer), so the glance-level count is honest about what the system will and won't run on its own.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "src/components/AutonomyDrawer.tsx"
+      ]
+    },
+    {
+      "id": "iter-95-exhausted-rows-flagged-in-dispatch-queue",
+      "iteration": 95,
+      "date": "2026-06-21",
+      "title": "Dispatch queue now flags tasks the auto-runner skips",
+      "summary": "The ready-to-fire queue listed tasks that had used up their retry budget as if they were next to run, even though the autonomous runner quietly skips them. Those rows now show a red EXHAUSTED marker (with a header and footer count), so the queue honestly shows which tasks will not auto-fire and need an escalate or a manual override.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mc_store.py",
+        "mission-control-bridge.py",
+        "src/lib/api.ts",
+        "src/components/DispatchableDrawer.tsx"
+      ]
+    },
+    {
+      "id": "iter-94-exhausted-tasks-now-visibly-flagged",
+      "iteration": 94,
+      "date": "2026-06-21",
+      "title": "Tasks that keep failing now get flagged and blocked, not left in limbo",
+      "summary": "Last update stopped the system from re-running a hopeless task over and over. But it then left that task sitting quietly in the Ready column with no warning — the diagnostics panel and the SWEEP button only noticed tasks that had a retry limit set, which most don't. Now a task that has burned through its attempts (3 by default, or its own limit if set) shows up in Board Diagnostics and can be cleared by SWEEP, which moves it to Blocked with a clear reason instead of letting it linger unseen. Tasks with their own retry limit behave exactly as before.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mc_store.py"
+      ]
+    },
+    {
+      "id": "iter-93-dispatcher-stops-retrying-doomed-tasks",
+      "iteration": 93,
+      "date": "2026-06-21",
+      "title": "Failing tasks no longer burn through your Claude usage on a loop",
+      "summary": "When the autonomous dispatcher runs a task and it fails, the task goes back to the Ready column to be tried again. Until now a task that could never succeed would be re-run automatically every cycle, forever — quietly burning Claude usage and cost with nothing to show for it (the safety net only covered tasks that had a retry limit set, which most don't). Now the dispatcher gives up after a few failed attempts (3 by default) and leaves the task in Ready instead of re-firing it. You can still re-run any task by hand at any time, and tasks with their own retry limit keep using that.",
+      "category": "lifecycle",
+      "severity": "high",
+      "files": [
+        "mc_store.py",
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-92-ai-digest-no-clobber-on-empty-synthesis",
+      "iteration": 92,
+      "date": "2026-06-21",
+      "title": "An empty AI write-up no longer wipes your consolidated digest",
+      "summary": "The consolidated AI Digest (the one-paragraph news summary plus viral content ideas) is written by Claude. If Claude occasionally returned an empty or malformed reply — which still counts as a 'success' — the system used to save that blank result over your good digest, leaving the AI Digest panel empty until you regenerated it. Now an empty write-up is rejected: the previous good digest stays in place and you get a clear 'retry' message instead of a blanked panel. A real digest with a summary or at least one idea saves normally.",
+      "category": "deliverable",
+      "severity": "high",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-91-creator-feed-no-clobber-on-outage",
+      "iteration": 91,
+      "date": "2026-06-21",
+      "title": "A failed creator scrape no longer wipes your viral feed",
+      "summary": "The Viral Feed (top creator posts) is refreshed by scraping Instagram and TikTok. If a temporary outage made every source fail, the system used to overwrite your good feed with an empty one — so the Content Factory and Intelligence Deck suddenly showed nothing until the next successful scrape. Now, when every source fails, it keeps the last good feed in place and just shows the error, so a brief outage can't blank out your viral posts. A genuinely empty result (sources reachable but no recent posts) still updates normally.",
+      "category": "deliverable",
+      "severity": "high",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-90-sentinel-empty-digest-no-clobber",
+      "iteration": 90,
+      "date": "2026-06-21",
+      "title": "A failed news scrape no longer wipes the daily AI digest",
+      "summary": "The AI Daily Digest is built by fetching from nine news sources. If a temporary network glitch made all nine come back empty, the system used to overwrite the good digest with a blank one — so the Briefing showed 'no stories' indefinitely, and the day's scrape refused to retry. Now, when a scrape returns nothing, it leaves the last good digest in place and lets the next cycle try again, so a brief outage can't blank out your briefing.",
+      "category": "deliverable",
+      "severity": "high",
+      "files": [
+        "scripts/sentinel_news_pipeline.py"
+      ]
+    },
+    {
+      "id": "iter-89-creator-scrape-errors-visible",
+      "iteration": 89,
+      "date": "2026-06-21",
+      "title": "Intel Deck now shows when a creator scrape had problems",
+      "summary": "The Intelligence Deck only ever showed the creator posts a scrape collected — never the problems it hit (a platform that failed, an expired token, or posts dropped for being too old). So a scrape that failed looked exactly like one that was never run: the page just said 'no creator intel yet — run a scrape', even though you had. A small amber notice now lists what the last scrape reported, so a failed or partial pull is no longer invisible.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "src/pages/IntelligenceDeck.tsx"
+      ]
+    },
+    {
+      "id": "iter-88-sentinel-digest-path-traversal",
+      "iteration": 88,
+      "date": "2026-06-21",
+      "title": "Closed a hole that let a webpage read files off your machine",
+      "summary": "The endpoint that fetches a past Sentinel briefing built its file path straight from the date in the web address, without checking it. A specially crafted address could step out of the briefings folder and read other files on your computer — and because the bridge accepts requests from any website, a malicious page open in your browser could have triggered that read. The date is now strictly validated, so only a real briefing date is ever accepted and nothing outside the briefings folder can be reached.",
+      "category": "bug",
+      "severity": "high",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-87-session-rename-delete-honest-404",
+      "iteration": 87,
+      "date": "2026-06-21",
+      "title": "Renaming or deleting a missing chat session no longer fakes success",
+      "summary": "When you renamed a chat session that had already been removed (or whose id had gone stale), the bridge reported success even though nothing changed — so the new title flashed on screen and then silently reverted on the next refresh, a phantom rename. Rename and delete now return a real 'not found' when the session is gone, matching how opening a session already behaved, so you get an honest error instead of a change that quietly undoes itself.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mc_brain.py",
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-86-doctor-detects-dead-claude-cli",
+      "iteration": 86,
+      "date": "2026-06-21",
+      "title": "System diagnostics can now actually detect a broken Claude backend",
+      "summary": "On the Systems page, the 'claude CLI' diagnostic check was permanently showing green even when the Claude command — the engine that runs every agent — was missing or broken, so the health panel could never warn you the backend was down. The check now probes the CLI for real: if Claude isn't reachable it shows a red ✗ 'claude CLI: not found' and the diagnostics summary turns to a warning, so a dead backend is finally visible at a glance.",
+      "category": "bug",
+      "severity": "high",
+      "files": [
+        "mc_diag.py"
+      ]
+    },
+    {
+      "id": "iter-85-skill-registry-shows-descriptions",
+      "iteration": 85,
+      "date": "2026-06-21",
+      "title": "Skill Registry now tells you what each skill actually does",
+      "summary": "In the Arsenal, every installed skill's one-line description was being read from its file but then silently thrown away, so the registry only showed bare skill names with no hint of what any of them do. Now hovering a skill shows its description, and you can filter skills by it too — so the registry is finally useful for finding the right capability instead of just listing names.",
+      "category": "ui",
+      "severity": "low",
+      "files": [
+        "mc_diag.py",
+        "src/lib/api.ts",
+        "src/pages/Arsenal.tsx"
+      ]
+    },
+    {
+      "id": "iter-84-calendar-draft-not-lost-on-failed-publish",
+      "iteration": 84,
+      "date": "2026-06-20",
+      "title": "Content posts are no longer lost when publishing to Metricool fails",
+      "summary": "In Content Factory, planning a post with the publish option would book it on Metricool right away. If that booking failed — for example because your Metricool brands aren't synced yet, the platform isn't connected, the media is only stored locally, or the AI quota ran out — the whole post you just composed was thrown away with nothing left on the calendar. Now the post is always saved as a draft first, so on a failed publish you still see your post on the calendar (with the error explaining why) and can fix the issue and schedule it from the per-post button.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-83-chat-invalid-date-label",
+      "iteration": 83,
+      "date": "2026-06-20",
+      "title": "Claude Chat no longer shows \"Invalid Date\" on message timestamps",
+      "summary": "Each message in Claude Chat shows the time it was sent. If a message's timestamp ever arrived in a format the app couldn't read, the header printed the literal words \"Invalid Date\" instead of the intended dash. The safeguard that was supposed to catch this never fired, because the time formatter quietly returns that text rather than erroring. Bad timestamps now correctly show \"--:--\".",
+      "category": "ui",
+      "severity": "low",
+      "files": [
+        "src/pages/ChatTerminal.tsx"
+      ]
+    },
+    {
+      "id": "iter-82-briefing-bad-date-crash",
+      "iteration": 82,
+      "date": "2026-06-20",
+      "title": "Briefing page no longer crashes on a malformed Sentinel digest date",
+      "summary": "The Sentinel news feed in the Briefing Terminal showed the digest's generation date. If that date ever arrived in a broken format (e.g. a corrupted or hand-edited cache file), the whole Briefing page would go blank instead of just skipping the date. It now shows a dash for an unreadable date and keeps the rest of the briefing visible.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "src/pages/BriefingTerminal.tsx"
+      ]
+    },
+    {
+      "id": "iter-81-chat-history-timestamps",
+      "iteration": 81,
+      "date": "2026-06-20",
+      "title": "Chat history now shows when each message was actually sent",
+      "summary": "When you reopened a past conversation in Claude Chat, every message was time-stamped with the moment you opened it instead of when it was originally sent — so an entire thread from days ago looked like it all happened just now. The real send times were being thrown away because they arrive from the bridge as numbers, not text. They're now read correctly, so each message keeps its true time.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "src/stores/useChatStore.ts"
+      ]
+    },
+    {
+      "id": "iter-80-lead-score-counts-scheduled-review-triage",
+      "iteration": 80,
+      "date": "2026-06-20",
+      "title": "Lead Tracker no longer marks busy agents as fully converted",
+      "summary": "In the Lead Tracker, each agent's lead status and score are derived from its open task counts. The 'still has open work' tally only counted ready, to-do, and blocked tasks, so an agent that finished some work but still had tasks scheduled for later, sent for review, or sitting in triage was wrongly shown as 'converted' (done) instead of 'qualified' (still working), and its score was undercounted. Now all those waiting tasks count, so a lead's status and score reflect the agent's real remaining workload. Matches the Agent Network fix from the previous update.",
+      "category": "bug",
+      "severity": "low",
+      "files": [
+        "src/stores/useLeadStore.ts"
+      ]
+    },
+    {
+      "id": "iter-79-agent-queue-depth-counts-scheduled",
+      "iteration": 79,
+      "date": "2026-06-20",
+      "title": "Agent queue depth now counts scheduled & in-review work",
+      "summary": "On the Agent Network deck, an agent's queue-depth number (and its load gauge / queue sparkline) only counted tasks that were ready, to-do, or blocked. Tasks you scheduled for later, sent for review, or left in triage were assigned to an agent but didn't show up in its workload at all, so a busy agent could look idle. Now every kind of waiting work an agent holds is counted, so the load you see matches the work it actually has queued.",
+      "category": "bug",
+      "severity": "low",
+      "files": [
+        "src/stores/useGhostStore.ts"
+      ]
+    },
+    {
+      "id": "iter-78-chat-transcript-never-lost",
+      "iteration": 78,
+      "date": "2026-06-20",
+      "title": "Your chats are always saved to the sessions list now",
+      "summary": "Every now and then a new chat would give you an answer but then vanish — it never showed up in the sessions list or transcript view, so you couldn't reopen or copy it later. That happened when Claude's reply came back without a resumable session id, in which case the whole turn was silently dropped. Now the conversation is always saved (under a local id when needed) so the transcript is never lost, even in that edge case.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-77-sentinel-reports-broken-scrape",
+      "iteration": 77,
+      "date": "2026-06-20",
+      "title": "Sentinel digest now tells you when the scrape actually broke",
+      "summary": "When the Sentinel news digest was missing, the dashboard always said 'No digest available — wait for next cycle', even when the news-scraping step had actually crashed or timed out. So you'd wait for a refresh that was never going to fix anything. Now, if the pipeline genuinely fails, the Briefing Terminal shows the real error (e.g. the crash reason or 'timed out after 120s'), and the gentle 'wait for next cycle' message is reserved for when nothing is wrong yet and a digest just hasn't been produced.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-76-briefing-shows-real-reason",
+      "iteration": 76,
+      "date": "2026-06-20",
+      "title": "Briefing & Sentinel now show the real reason when data is missing",
+      "summary": "When the daily Briefing or the Sentinel news digest failed to load, the panel showed a useless 'Request failed with status code 404' instead of the bridge's actual explanation. It now surfaces the real message (e.g. 'No digest available. Run the Sentinel cron or wait for next cycle.'), so you know whether to wait, run the cron, or that something is genuinely broken.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "src/stores/useBriefingStore.ts"
+      ]
+    },
+    {
+      "id": "iter-75-ai-digest-survives-incomplete-news",
+      "iteration": 75,
+      "date": "2026-06-20",
+      "title": "AI news digest no longer crashes on an incomplete headline",
+      "summary": "The daily AI digest reads the scraped news headlines and asks Claude to summarize them. If even one captured headline was missing a field — no title, no source link, no URL — the whole digest crashed with an error and you got nothing back, after waiting a minute or two for it to run. Now every field is read safely with sensible fallbacks, so one patchy headline can't sink the entire digest; you still get your summary and content ideas. This is the same fix the Idea Engine got last run, applied to its sibling.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-74-idea-engine-survives-incomplete-signals",
+      "iteration": 74,
+      "date": "2026-06-20",
+      "title": "Idea Engine no longer crashes on an incomplete creator/news signal",
+      "summary": "The Idea Engine builds content ideas from your scraped creator feed and the news digest. If even one captured post or news story was missing a field — no caption, no like count, no source — the whole generation crashed with an error and you got no ideas at all, instead of just skipping the gap. Now every field is read safely with sensible fallbacks, so one patchy item can't sink the entire run; you still get your full deck of ideas.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-73-run-now-also-saves-full-output",
+      "iteration": 73,
+      "date": "2026-06-19",
+      "title": "Run a scheduled job 'now' and its full output is saved too",
+      "summary": "Last run taught scheduled jobs to save their complete output as a Deliverable when they fire on their own timer. But clicking 'Run now' on a job went through a different path that still threw the full result away — keeping only the tiny 280-character preview — so manually-triggered runs left no readable artifact. Now a manual 'Run now' saves the whole output under Deliverables exactly like an automatic run, so nothing you trigger by hand is lost.",
+      "category": "deliverable",
+      "severity": "high",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-72-scheduled-jobs-now-save-their-full-output",
+      "iteration": 72,
+      "date": "2026-06-19",
+      "title": "Scheduled jobs now keep their full output, not just a preview",
+      "summary": "When a scheduled job ran (for example a 'morning brief' that actually produces a brief), only a tiny 280-character preview was kept — shown in a hover tooltip on the Scheduled Jobs list — and the real, full result was thrown away with nowhere to find it. Now every scheduled job's complete output is saved as a file under Deliverables, so you can open and read the whole thing in the Deliverables browser like any other produced artifact. Nothing is lost anymore.",
+      "category": "deliverable",
+      "severity": "high",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-71-mistyped-schedule-no-longer-looks-scheduled",
+      "iteration": 71,
+      "date": "2026-06-19",
+      "title": "A mistyped schedule no longer pretends it will run",
+      "summary": "When you typed a slightly-wrong schedule for a scheduled job — for example '*/15m' (mixing the 'every 15m' shorthand into a cron expression) — the Scheduled Jobs panel quietly accepted it and showed a healthy 'next fire' countdown, as if the job were set up fine. But the engine that actually runs jobs rejected that same text, so the job silently never fired. The job-list parser is now exactly as strict as the engine, so a typo'd schedule reads as unrecognized (no fake countdown) instead of looking scheduled while never running.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "src/lib/cronSchedule.ts"
+      ]
+    },
+    {
+      "id": "iter-70-auto-healed-tasks-keep-correct-status",
+      "iteration": 70,
+      "date": "2026-06-19",
+      "title": "Auto-managed tasks now show the right status in activity feeds",
+      "summary": "The board's automatic self-management can block a task on its own — when a task burns through its retry budget, or when it's waiting on another task to finish first. Those auto-blocked tasks weren't getting a proper 'stopped' timestamp, so they could show up inconsistently in the War Room and Ghost Network feeds (at the wrong time, or looking like they were still actively running). And when a waiting task was later released because its dependency finished, it could keep a stale 'finished' timestamp and wrongly read as completed. Both are now stamped and cleared correctly, so auto-managed tasks always read as blocked-when-blocked and active-when-revived.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mc_store.py"
+      ]
+    },
+    {
+      "id": "iter-69-revived-task-no-longer-shows-as-completed",
+      "iteration": 69,
+      "date": "2026-06-19",
+      "title": "Reviving a stuck task no longer makes it look completed",
+      "summary": "When you took a blocked or failed task and sent it back into the queue (Promote, Schedule, or an automatic retry), it kept the old 'finished' timestamp from when it stalled. That made the revived task show up as a green 'completed' entry in the War Room and Ghost Network activity feeds — so a task you just put back to work looked done. Reviving a task now clears that stale timestamp, so a re-queued task correctly reads as active, not finished.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mc_store.py"
+      ]
+    },
+    {
+      "id": "iter-68-idea-engine-survives-null-ideas",
+      "iteration": 68,
+      "date": "2026-06-19",
+      "title": "Idea Engine & AI Digest no longer lose a whole run on bad output",
+      "summary": "Generating content ideas or the AI news digest runs a slow (1-3 minute) AI synthesis step. If the model returned its 'ideas' list as empty/null instead of a real list, the whole run crashed with an error and saved nothing — so you'd wait minutes, burn AI quota, and get no digest or ideas at all. Both endpoints now treat a missing/null ideas list as 'no ideas' and finish cleanly, saving whatever else the run produced.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-67-creator-scrape-survives-bad-item",
+      "iteration": 67,
+      "date": "2026-06-19",
+      "title": "Creator scrape no longer crashes on a bad TikTok profile",
+      "summary": "When you scrape watched creators for viral signals, a single TikTok item with missing author info (deleted, private, or odd-typed accounts return a null author block) would crash the entire scrape with an error — throwing away every post collected up to that point and saving nothing, so the Idea Engine got no fresh creator signals. The scrape now treats a missing author as 'unknown' for that one post and keeps going, so one bad profile can't wipe out the whole viral feed.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-66-spawn-deliverable-visible",
+      "iteration": 66,
+      "date": "2026-06-19",
+      "title": "Spawned-agent results now show on the board and in RESULT",
+      "summary": "When you spawn a specialized agent onto a task, it does real work and produces a deliverable — but that output was only ever saved as a comment, so the task card showed no 'has deliverable' marker and the task's RESULT / SUMMARY panel stayed empty. You'd only find the work by scrolling the comments. Spawned results are now recorded as a proper task run, just like an auto-dispatched task: the board lights the deliverable marker and the RESULT / SUMMARY panel shows the output. The task's column is left unchanged, since spawning is an assist, not a completion.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-65-deliverables-newest-survive-cap",
+      "iteration": 65,
+      "date": "2026-06-19",
+      "title": "Deliverables panel now always shows your newest outputs",
+      "summary": "The Deliverables browser only ever returns up to 500 files. It used to pick those 500 in raw disk order and sort them by date afterward, so once your agents produced more than 500 artifacts (very possible as the Content Factory keeps generating media), the panel could silently keep an arbitrary old batch and hide your most recent outputs. It now sorts everything newest-first and then keeps the latest 500, so the freshest deliverables always show. No visible change yet at the current low file count.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-64-leads-queue-counts-blocked",
+      "iteration": 64,
+      "date": "2026-06-19",
+      "title": "Lead scores now count an agent's blocked tasks too",
+      "summary": "On the Leads screen, an agent's lead score dropped any blocked tasks whenever the agent also had ready work — so an agent sitting on 5 blocked tasks and 2 ready was scored as if it only had 2 waiting, which understated its activity and pushed it lower in the ranked list. The score now adds up every waiting task (ready plus blocked), so busy-but-stuck agents rank correctly.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "src/stores/useLeadStore.ts"
+      ]
+    },
+    {
+      "id": "iter-63-ghostnetwork-queue-counts-blocked",
+      "iteration": 63,
+      "date": "2026-06-19",
+      "title": "Ghost Network now counts an agent's blocked tasks in its queue",
+      "summary": "In the Ghost Network deck, an agent's queue depth dropped any blocked tasks whenever the agent also had ready work — so an agent sitting on 5 blocked tasks and 2 ready showed only \"2 queued,\" hiding the stuck work. Queue depth now adds up every waiting task (ready plus blocked), so blocked tasks stay visible in the agent gauges and the fleet queue total.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "src/stores/useGhostStore.ts"
+      ]
+    },
+    {
+      "id": "iter-62-event-timeline-assigned-legible",
+      "iteration": 62,
+      "date": "2026-06-19",
+      "title": "Task history now shows assignments clearly",
+      "summary": "In a task's event history, an \"assigned\" or \"requeued\" step used to show only a plain bullet with no detail, and an assignment never said which agent the task was handed to. Now those steps get their own icon and label, and an assignment (or reassignment) shows the target agent — so you can read who picked up the work and when.",
+      "category": "lifecycle",
+      "severity": "low",
+      "files": [
+        "src/lib/eventLabels.ts",
+        "src/components/TaskDetailDrawer.tsx"
+      ]
+    },
+    {
+      "id": "iter-61-ghostnetwork-feed-keep-stuck",
+      "iteration": 61,
+      "date": "2026-06-18",
+      "title": "Ghost Network activity stream always keeps stuck tasks visible",
+      "summary": "The Ghost Network Activity Stream shows the latest 80 lines of board activity mixed with the active conversation, but it picked them purely by time — so a long chat or a burst of recent activity could push a still-blocked or failed task off the top, hiding it from the operator's main live view. The stream now always reserves room for every blocked/failed row and trims routine ones instead, matching the War Room feed and the backend's own protection. Nothing changes on a quiet board.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "src/pages/GhostNetwork.tsx"
+      ]
+    },
+    {
+      "id": "iter-60-warroom-signal-keep-stuck",
+      "iteration": 60,
+      "date": "2026-06-18",
+      "title": "War Room signal feed always keeps stuck tasks visible",
+      "summary": "The War Room AGENT SIGNAL feed shows the latest 40 signals, but it picked them purely by time — so on a busy board a burst of routine activity could push a still-blocked or failed task off the bottom, hiding the exact 'needs attention now' signal the feed exists to surface. The feed now always reserves room for every blocked/failed signal and trims routine ones instead, matching how the backend already protects those rows. Nothing changes on a quiet board.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "src/pages/WarRoom.tsx"
+      ]
+    },
+    {
+      "id": "iter-59-bridge-launcher-fd-leak",
+      "iteration": 59,
+      "date": "2026-06-18",
+      "title": "Dev server no longer leaks a file handle per bridge restart",
+      "summary": "When you use the Bridge Diagnostics panel to start the backend during development, the dev server opens the bridge log file and hands it to the new backend process — but it was never letting go of its own copy of that file handle. Every restart leaked one more handle inside the long-running dev server, which over a long session could slowly exhaust them. The dev server now closes its copy once the backend has taken over, while the backend keeps writing to the log normally.",
+      "category": "misconfig",
+      "severity": "low",
+      "files": [
+        "vite.config.ts"
+      ]
+    },
+    {
+      "id": "iter-58-activity-feed-keep-stuck",
+      "iteration": 58,
+      "date": "2026-06-18",
+      "title": "Stuck tasks no longer drop off the live activity feed",
+      "summary": "The War Room and Ghost Network activity feeds show the latest 50 events, but a busy stretch of normal activity (tasks created, claimed, completed) could push an older blocked or failed task off the bottom — so a stuck task that still needs your attention quietly disappeared from view (2 of 6 blocked tasks were hidden this way). The feed now always keeps every blocked/failed row and trims routine events instead, so a stuck task stays visible until it's resolved.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-57-bridge-diag-filename-label",
+      "iteration": 57,
+      "date": "2026-06-18",
+      "title": "Bridge Diagnostics now names the real backend file",
+      "summary": "The Bridge Diagnostics panel told you it was 'spawning mc-bridge.py' and, when the backend was offline, pointed you at 'mc-bridge.py' to restart — but no such file exists; the backend is actually mission-control-bridge.py. The labels now name the real file, so if you ever need to find or restart it manually you're looking for the right thing.",
+      "category": "ui",
+      "severity": "low",
+      "files": [
+        "src/components/BridgeDiagnostics.tsx",
+        "src/lib/api.ts"
+      ]
+    },
+    {
+      "id": "iter-56-electron-macos-bridge-lifecycle",
+      "iteration": 56,
+      "date": "2026-06-18",
+      "title": "Desktop app: keep backend alive when last window closes on Mac",
+      "summary": "On macOS, closing the final window shut down the local backend (the bridge) and disabled its auto-restart, so reopening the app from the dock left it talking to a dead backend with a blank dashboard. Now the backend stays running until you actually quit the app, so reopening just works.",
+      "category": "bug",
+      "severity": "low",
+      "files": [
+        "electron/main.cjs"
+      ]
+    },
+    {
+      "id": "iter-55-blocked-task-running-masquerade",
+      "iteration": 55,
+      "date": "2026-06-18",
+      "title": "Blocked tasks no longer show up as \"running\" in the activity feeds",
+      "summary": "A task that was claimed and then got stuck (blocked) was appearing twice in the War Room signal feed and Ghost Network activity stream at the same moment — once correctly as blocked (red) and once misleadingly as running/claimed (amber) — so a stalled task still looked like it was actively working, and the feed's running count was inflated. The stale 'claimed' line is now suppressed for a task sitting in a blocked or failed dead-end, so each stuck task shows a single honest blocked signal.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-54-cron-next-run-interval-parity",
+      "iteration": 54,
+      "date": "2026-06-18",
+      "title": "Cron jobs with second/worded intervals now show their next-run time",
+      "summary": "Scheduled jobs set to fire on intervals like \"30s\", \"5min\", \"2hr\" or \"every30m\" used to display no next-run time, making a perfectly valid, actively-firing job look broken or misconfigured. The next-run readout now uses the very same interval reader the scheduler uses to decide when to fire, so every job that fires also shows when it will fire next.",
+      "category": "lifecycle",
+      "severity": "low",
+      "files": [
+        "mc_store.py"
+      ]
+    },
+    {
+      "id": "iter-53-workflow-flow-todo-stage-order",
+      "iteration": 53,
+      "date": "2026-06-18",
+      "title": "Workflow flow shows the To-Do stage in the right place",
+      "summary": "The Workflow Builder lays the board out as a left-to-right pipeline (triage → to-do → ready → running → … → done). It was still using the old 'pending' label for the backlog stage, so whenever there were to-do tasks their column jumped to the far right, after Done and Failed, instead of sitting near the front where backlog belongs. It now uses the current 'to-do' status and matches the Operations board's column order, so the flow always reads in the correct order (and an archived stage now has its place too). Also hardened a card against ever crashing the view if a task somehow has no title.",
+      "category": "ui",
+      "severity": "medium",
+      "files": [
+        "src/pages/WorkflowBuilder.tsx"
+      ]
+    },
+    {
+      "id": "iter-52-content-platform-badge-vocab-fallback",
+      "iteration": 52,
+      "date": "2026-06-18",
+      "title": "Content platform badges stay consistent in offline fallback",
+      "summary": "Each content card shows a small platform badge (IG, TT, X, LI, YT, WEB, MULTI). If the Content Factory ever can't reach the live pipeline and rebuilds the view straight from the task board, those badges used to switch to long names like 'Twitter', 'LinkedIn' and 'Instagram' — so the same post looked different depending on how the data loaded. The fallback now uses the exact same short codes as the normal path, so platform badges read the same way no matter what.",
+      "category": "ui",
+      "severity": "low",
+      "files": [
+        "src/stores/useContentStore.ts"
+      ]
+    },
+    {
+      "id": "iter-51-content-factory-failed-stat",
+      "iteration": 51,
+      "date": "2026-06-18",
+      "title": "Content Factory summary now shows a FAILED count",
+      "summary": "The Content Factory stat bar across the top showed campaigns broken down into ready, running, done and blocked — but had no slot for failed work. Now that you can mark a task as failed from its detail panel, a failed content campaign would have been invisible there, and the numbers would no longer add up to the total. A FAILED tile (red) was added, so failed content work is visible at a glance and the breakdown always sums to the campaign total.",
+      "category": "lifecycle",
+      "severity": "low",
+      "files": [
+        "src/pages/ContentFactory.tsx",
+        "src/components/cyberpunk/ui.tsx"
+      ]
+    },
+    {
+      "id": "iter-50-block-reason-banner-unblock-collision",
+      "iteration": 50,
+      "date": "2026-06-18",
+      "title": "Stuck-task banner no longer shows an old unblock note as the reason",
+      "summary": "When you open a blocked or failed task, a banner at the top tells you why it's stuck. If a task had previously been unblocked (with a note) and then got stuck again without a fresh reason, that old un-block note was being shown as the current reason — misleading you about what's actually wrong. The banner now reads only genuine block/fail reasons and skips un-block notes, so it shows the real cause or stays honestly empty.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "src/components/TaskDetailDrawer.tsx"
+      ]
+    },
+    {
+      "id": "iter-49-event-filter-orchestration-completeness",
+      "iteration": 49,
+      "date": "2026-06-17",
+      "title": "Activity feed: assignment & requeue events now show under the orchestration filter",
+      "summary": "In the board-wide ACTIVITY feed, two kinds of events — when a task is assigned to an agent, and when an escalated task is put back in the queue — were missing from the lifecycle/dependency/orchestration filter buttons, so they only appeared under \"all\" and vanished the moment you filtered. They are now grouped under \"orchestration\" alongside reassign, reroute and reclaim, so filtering no longer hides them.",
+      "category": "lifecycle",
+      "severity": "low",
+      "files": [
+        "src/components/EventFeedDrawer.tsx"
+      ]
+    },
+    {
+      "id": "iter-48-ghost-feed-color-by-status",
+      "iteration": 48,
+      "date": "2026-06-17",
+      "title": "Ghost Network activity feed colours rows by real status, not title text",
+      "summary": "In the Ghost Network activity stream, each row's colour was decided partly by scanning the task's title text for words like \"block\" — so a task that finished successfully but happened to have \"blocking\", \"unblock\", or \"blocked\" in its name was shown in red as if it had errored. It also meant the same event could be a different colour here than in the War Room signal feed. Rows are now coloured from the task's actual status (created/running/done/blocked/failed), so the colour always matches what really happened and the two screens agree.",
+      "category": "ui",
+      "severity": "low",
+      "files": [
+        "src/pages/GhostNetwork.tsx"
+      ]
+    },
+    {
+      "id": "iter-47-blocked-tasks-visible-in-activity",
+      "iteration": 47,
+      "date": "2026-06-17",
+      "title": "Blocked/failed tasks now show up in the live activity feed",
+      "summary": "Tasks that got stuck (blocked or failed) were quietly missing from the War Room signal feed and the Ghost Network activity stream — their newest entry still read \"claimed\", so a dead-ended task looked like it was actively running. Right now 6 tasks are blocked (5 of them under one agent) and none of them appeared as blocked anywhere in the live stream. They now post a red blocked/failed line, so a stuck task is visible as stuck instead of masquerading as busy.",
+      "category": "lifecycle",
+      "severity": "high",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-46-oldest-ready-age-hardening",
+      "iteration": 46,
+      "date": "2026-06-17",
+      "title": "Operations Center \"oldest ready\" age made robust",
+      "summary": "The Operations Center header shows how long the longest-waiting ready task has been sitting (currently about 8 days). The value was correct, but it was computed in a roundabout way that only happened to work — it faked a timestamp so a separate \"how long ago\" helper would cancel it back out. That made it easy for a future tweak to silently break the number. It now formats the age directly, so the display stays correct and is no longer a hidden trap. No change to what you see.",
+      "category": "bug",
+      "severity": "low",
+      "files": [
+        "src/pages/OperationsCenter.tsx"
+      ]
+    },
+    {
+      "id": "iter-45-worker-log-tail-bound",
+      "iteration": 45,
+      "date": "2026-06-17",
+      "title": "Worker-log viewer now respects its size limit",
+      "summary": "When you open a task and look at its raw worker output (or watch a running task's live log), the app asks the server for just the most recent slice of the log. The server was measuring that slice by number of events instead of by size, so the limit was effectively ignored and a chatty task could send its entire log to the screen. It now correctly returns the last portion by size, keeping the view fast and bounded while still showing the latest output.",
+      "category": "bug",
+      "severity": "low",
+      "files": [
+        "mission-control-bridge.py",
+        "src/components/WorkerLogStream.tsx"
+      ]
+    },
+    {
+      "id": "iter-44-content-fallback-local-date",
+      "iteration": 44,
+      "date": "2026-06-17",
+      "title": "Calendar posts land on the right day even in offline fallback mode",
+      "summary": "Last run fixed today's posts vanishing early from the calendar, but only on the normal path. When the backend pipeline is briefly unreachable and the Content Factory rebuilds the calendar from the task board instead, it was still stamping each item's date in UTC. For an evening post that fix could place it on tomorrow's date. Now the fallback uses your local date too, so a post always shows on the correct day no matter which path built the calendar.",
+      "category": "bug",
+      "severity": "low",
+      "files": [
+        "src/stores/useContentStore.ts"
+      ]
+    },
+    {
+      "id": "iter-43-content-calendar-local-today",
+      "iteration": 43,
+      "date": "2026-06-17",
+      "title": "Today's planned posts no longer vanish from the calendar at night",
+      "summary": "The Content Factory UPCOMING calendar decided what counts as 'today' using UTC time instead of your local time. In the evening, once it was already the next day in UTC, any post scheduled for today quietly dropped off the list hours before the day was actually over. It now uses your local date, so today's content stays visible until the day really ends.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "src/pages/ContentFactory.tsx"
+      ]
+    },
+    {
+      "id": "iter-42-image-deliverable-fallback",
+      "iteration": 42,
+      "date": "2026-06-17",
+      "title": "Image deliverables that fail to load now offer a download",
+      "summary": "When a generated image deliverable could not be displayed (a very large file, a momentary connection hiccup, or before the bridge is restarted), the viewer showed nothing but a broken-image icon with no way to get the file. It now falls back to the same OPEN and DOWNLOAD buttons that other file types already get, so the deliverable is never a dead end.",
+      "category": "deliverable",
+      "severity": "low",
+      "files": [
+        "src/components/DeliverablesDrawer.tsx"
+      ]
+    },
+    {
+      "id": "iter-41-binary-deliverable-retrieval",
+      "iteration": 41,
+      "date": "2026-06-17",
+      "title": "PDFs and other file deliverables can now be opened or downloaded",
+      "summary": "Images already displayed in the Deliverables panel, but any other non-text file an agent produced (a PDF report, a zip, an audio or video clip) still just showed 'binary file — not shown' with no way to get at it — the deliverable was effectively trapped. Now a PDF previews right in the panel, and every such file offers 'open in new tab' and 'download' buttons, so nothing an agent makes is unreachable. Plain text and images are unchanged, and the same access limits still apply (only files under deliverables/ and research/).",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "src/components/DeliverablesDrawer.tsx"
+      ]
+    },
+    {
+      "id": "iter-40-image-deliverable-viewing",
+      "iteration": 40,
+      "date": "2026-06-17",
+      "title": "Generated images now open and display in the Deliverables panel",
+      "summary": "When an agent produced an image (like a hero graphic), the Deliverables panel listed the file but only said 'binary file — not shown' when you clicked it, so you could never actually see your own generated artwork inside Mission Control. Images now render right in the panel's viewer. Text files are unchanged, and the same access limits still apply (only files under deliverables/ and research/ can be opened).",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py",
+        "src/lib/api.ts",
+        "src/components/DeliverablesDrawer.tsx"
+      ]
+    },
+    {
+      "id": "iter-39-backlog-error-consistency",
+      "iteration": 39,
+      "date": "2026-06-17",
+      "title": "Two War Room queue counts now always agree on what's still in progress",
+      "summary": "The War Room shows your open work two ways on the same screen — the backlog burn-down's in-flight count and the Aging-WIP panel's open count — and they're meant to match. A task that ended in an error was being counted as still-open by one view but already-finished by the other, so the two numbers could quietly disagree and a stuck error task would pad your backlog forever. Both views now treat an errored task the same way (finished, not outstanding), so the counts stay in lock-step.",
+      "category": "bug",
+      "severity": "low",
+      "files": [
+        "src/lib/backlogTrend.ts"
+      ]
+    },
+    {
+      "id": "iter-38-content-drafts-todo",
+      "iteration": 38,
+      "date": "2026-06-17",
+      "title": "Content tasks waiting in the backlog now show in the Drafts queue",
+      "summary": "A content task sitting in your to-do backlog was being left out of the Content Factory's Drafts queue entirely, so queued content work could be invisible there until someone moved it to Ready — work you'd planned but couldn't see. The Drafts queue now counts to-do backlog tasks too, so every piece of content in progress has a visible home from the moment it's created.",
+      "category": "deliverable",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-37-archived-task-column",
+      "iteration": 37,
+      "date": "2026-06-16",
+      "title": "Archived tasks no longer reappear in the To-Do backlog",
+      "summary": "Archiving a task is supposed to retire it from the active board, but it was quietly dropping back into the TODO column as if it were brand-new work you still had to do — inflating your backlog with tasks you'd already put away. Archived tasks now sit in their own dedicated ARCHIVED lane at the end of the board, so retiring a task actually keeps it out of your way while its result stays one click away.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "src/pages/OperationsCenter.tsx"
+      ]
+    },
+    {
+      "id": "iter-36-cron-run-now-timeout",
+      "iteration": 36,
+      "date": "2026-06-16",
+      "title": "RUN-NOW on a scheduled job no longer times out before it finishes",
+      "summary": "Pressing RUN on a scheduled Claude job kicks off an agent turn that can take up to five minutes, but the app gave up waiting after only 30 seconds — so you'd see it appear to fail even though the job kept running in the background and quietly recorded its result. The app now waits the full time the job needs, matching every other agent-powered action, so RUN-NOW reflects what actually happened instead of a false failure.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "src/lib/api.ts"
+      ]
+    },
+    {
+      "id": "iter-35-task-status-labels",
+      "iteration": 35,
+      "date": "2026-06-16",
+      "title": "Task status labels stay accurate when spawning an agent",
+      "summary": "When you open the menu to put an agent on a task, each task shows its current status in brackets. Behind the scenes, four states — to-do, triage, in-review, and scheduled — were all being relabeled as PENDING, so you couldn't tell them apart at the moment you were deciding what to work on. Each status now shows its real name, so the menu tells you the truth about where every task actually stands.",
+      "category": "lifecycle",
+      "severity": "low",
+      "files": [
+        "src/stores/useTaskStore.ts"
+      ]
+    },
+    {
+      "id": "iter-34-warroom-queued-bar",
+      "iteration": 34,
+      "date": "2026-06-16",
+      "title": "War Room status chart now shows your waiting backlog",
+      "summary": "The War Room TASK STATUS bar chart was leaving out your backlog entirely — it only drew bars for running, ready, blocked, done, and failed. Right now 8 of your 32 tasks are sitting in the to-do queue, and none of them appeared on that chart, so a quarter of the board was invisible on the screen meant for watching the whole operation. A new QUEUED bar now shows that waiting backlog, so the status breakdown finally accounts for every task.",
+      "category": "ui",
+      "severity": "medium",
+      "files": [
+        "src/pages/WarRoom.tsx"
+      ]
+    },
+    {
+      "id": "iter-33-queue-counts-todo",
+      "iteration": 33,
+      "date": "2026-06-16",
+      "title": "Topbar QUEUE now counts your waiting tasks again",
+      "summary": "The QUEUE number in the top bar was reading 0 even when tasks were sitting in the backlog waiting to be picked up — right now 8 tasks are queued but the counter showed none of them. It was still looking for an old status name from before the system moved to Claude, so the current 'to-do' tasks slipped past it uncounted. QUEUE now includes those to-do tasks, so the figure reflects the real amount of work waiting.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "src/stores/useTaskStore.ts"
+      ]
+    },
+    {
+      "id": "iter-32-activity-failed-vs-blocked",
+      "iteration": 32,
+      "date": "2026-06-16",
+      "title": "Failed tasks now read \"failed\" (not \"blocked\") in the live activity feed",
+      "summary": "The War Room agent-signal feed and the Ghost Network activity stream were labeling every failed task as \"blocked\", so a genuine dead-end looked identical to a task you deliberately paused. Now a failed task shows as \"failed\" in those live feeds, matching the FAILED column, the FAILED counter, and the notification bell. This was the last screen where a real failure was still indistinguishable from a recoverable block.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-31-fail-button",
+      "iteration": 31,
+      "date": "2026-06-16",
+      "title": "You can now mark a task as failed from its detail panel",
+      "summary": "Last update added the ability to record a task as truly failed (instead of just blocked) on the backend, but there was no button to actually trigger it. Now there is: a task's detail panel shows a FAIL action alongside BLOCK. Use BLOCK when a task is waiting on you and can be resumed; use FAIL for a genuine dead-end. A failed task moves into the board's FAILED column, bumps the FAILED counter, shows its reason, and rings the notification bell with a distinct alert — so a real failure is finally visible and clearly separate from a recoverable pause.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "src/components/TaskDetailDrawer.tsx",
+        "src/stores/useTaskStore.ts",
+        "src/lib/api.ts"
+      ]
+    },
+    {
+      "id": "iter-30-fail-task-endpoint",
+      "iteration": 30,
+      "date": "2026-06-16",
+      "title": "A failed task can now be recorded as failed, not just blocked",
+      "summary": "Until now the system had no way to mark a delegated task as truly failed — a dead-end was always recorded as \"blocked\", the same state used for a task merely waiting on you. That meant the FAILED column and counter on the board could never light up, and a genuine failure was indistinguishable from a recoverable pause. This adds the missing failure path on the backend: tasks can now be marked failed (with a reason), which feeds the already-built FAILED column, the failed-task counter, and the notification bell. The button to trigger it from a task's detail panel is the next step.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "mc_store.py",
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-29-blocked-no-reason-banner",
+      "iteration": 29,
+      "date": "2026-06-16",
+      "title": "Blocked tasks now always say why — or that no reason was recorded",
+      "summary": "When you opened a blocked task that had been blocked outside the normal flow (so no reason was ever saved), the task detail showed no explanation at all — it looked just like a healthy task, leaving you to guess why it was stuck. Right now 6 of the board's tasks are in exactly this state. The detail panel now always shows a clear blocked banner: it displays the recorded reason when there is one, and otherwise plainly states \"no reason was recorded\" and points you to the unblock / reassign / route actions, so a stuck task is never silently invisible.",
+      "category": "lifecycle",
+      "severity": "high",
+      "files": [
+        "src/components/TaskDetailDrawer.tsx"
+      ]
+    },
+    {
+      "id": "iter-28-interval-cron-countdown",
+      "iteration": 28,
+      "date": "2026-06-16",
+      "title": "Repeating jobs now show when they next run",
+      "summary": "Scheduled jobs written as a simple interval (like \"30m\" or \"every 2h\") only showed \"repeats\" with no countdown, so you couldn't tell when the next run was actually coming — even though the background scheduler knew precisely. The dashboard now shows a live countdown for these jobs, timed from when each one last ran, and the Next-24h agenda places their marks at the real run times instead of an arbitrary offset, so the schedule you see matches what actually fires.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "src/lib/cronSchedule.ts",
+        "src/pages/OperationsCenter.tsx",
+        "src/components/CronTimeline.tsx",
+        "src/lib/api.ts"
+      ]
+    },
+    {
+      "id": "iter-27-cron-countdown-every-shorthand",
+      "iteration": 27,
+      "date": "2026-06-16",
+      "title": "Scheduled jobs typed as \"every30m\" now show a countdown",
+      "summary": "When you create a repeating job, the dashboard shows a next-run countdown next to it. If you typed the schedule without a space — like \"every30m\" or \"every2h\" — the dashboard labeled it \"unknown\" with no countdown, making the job look broken, even though the background scheduler was quietly running it on time. The countdown now understands the no-space shorthand exactly like the scheduler does, so what you see matches what actually fires.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "src/lib/cronSchedule.ts"
+      ]
+    },
+    {
+      "id": "iter-26-briefing-cron-failure-crash",
+      "iteration": 26,
+      "date": "2026-06-16",
+      "title": "Briefing no longer crashes after you run a scheduled job",
+      "summary": "The Briefing page reads your scheduled (cron) jobs to flag any that failed. It was checking the wrong piece of data — the job's last-run timestamp instead of its actual result — so it never spotted a real failure, and worse, the moment any job had run even once (including hitting RUN NOW), the whole Briefing screen broke with an error. It now reads each job's real outcome, so failed jobs are correctly called out and the Briefing keeps loading no matter how many jobs have run.",
+      "category": "bug",
+      "severity": "high",
+      "files": [
+        "mission-control-bridge.py"
+      ]
+    },
+    {
+      "id": "iter-25-notify-blocked-tasks",
+      "iteration": 25,
+      "date": "2026-06-15",
+      "title": "You now get notified when a delegated task fails or blocks",
+      "summary": "The notification bell only ever alerted you when a task finished successfully. When a task you handed to an agent failed or hit a dead-end, nothing showed up — no desktop toast and no entry in the notification center — so the only way to find out was to scroll the board's BLOCKED column yourself. Now a task that gets blocked (which is how a failure is recorded) raises a notification and lands in the bell's history, marked BLOCKED in amber so you can tell it apart from a clean DONE at a glance.",
+      "category": "lifecycle",
+      "severity": "high",
+      "files": [
+        "src/components/TaskNotifier.tsx",
+        "src/components/NotifyCenter.tsx",
+        "src/stores/useNotifyStore.ts"
+      ]
+    },
+    {
+      "id": "iter-24-agent-crud-silent-errors",
+      "iteration": 24,
+      "date": "2026-06-15",
+      "title": "Failed agent delete/spawn now tells you why",
+      "summary": "In Agent Network, deleting an agent or spawning one onto a task used to fail silently: if the bridge rejected the action, the dialog just sat there with no message, so the button looked broken. The create and edit dialogs already showed the reason, but delete and spawn didn't. Now all four show the bridge's actual reason (e.g. the agent still has running work, or the task wasn't found) in red, so you know what happened instead of clicking a dead button.",
+      "category": "lifecycle",
+      "severity": "medium",
+      "files": [
+        "src/components/useAgentCrud.tsx"
+      ]
+    },
+    {
+      "id": "iter-23-ghost-reroute-stale-target",
+      "iteration": 23,
+      "date": "2026-06-15",
+      "title": "Agent Network reroute no longer remembers the wrong agent",
+      "summary": "In the Agent Network, opening an agent and choosing where to reroute its pending work used to leave that choice — and the last \"moved N tasks\" confirmation — stuck on screen even after you clicked a different agent. That meant you could accidentally send the new agent's queued tasks to a destination you had picked for the previous agent. Now switching or closing an agent clears the reroute box and the old confirmation, so every reroute starts fresh against the agent you are actually looking at.",
+      "category": "bug",
+      "severity": "medium",
+      "files": [
+        "src/pages/GhostNetwork.tsx"
+      ]
+    },
+    {
       "id": "loop-1-stale-claim-reconcile",
       "iteration": 24,
       "date": "2026-06-15",

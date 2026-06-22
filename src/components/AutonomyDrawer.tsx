@@ -142,7 +142,11 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: 'em
 // subset of `dispatchable` whose next-to-fire row needs a web MCP its agent lacks (run #40).
 // `errors` is the dispatcher's cumulative run-error count (status.errors) — surfaced as a red
 // "✕N" fault chip on the ⚡ DISPATCHABLE tab, independent of the ready-count gate (run #51).
-type Badges = { missing: number | null; blocked: number | null; dispatchable: number | null; webGap: number | null; errors: number | null };
+// `exhausted` is the subset of `dispatchable` that has burned its retry budget (run #95's
+// per-row `dispatch_exhausted`): the GET endpoint still lists those rows (the operator can
+// force one by hand) but the autonomous daemon SKIPS them — so a flat `dispatchable` count
+// overstates what will actually fire. Surfaced as a red "· N⚑" badge segment (run #96).
+type Badges = { missing: number | null; blocked: number | null; dispatchable: number | null; webGap: number | null; errors: number | null; exhausted: number | null };
 
 // Persist the operator's last-open tab across sessions (run #34). The parent keys this
 // component on `open`, so every open is a fresh mount — without this the surface always
@@ -193,7 +197,7 @@ export default function AutonomyDrawer({
   // the three fetches degrades independently — on the FIRST load a failure leaves that field
   // null so its badge simply doesn't render (never a wrong number); on a LATER poll a failure
   // leaves the prior value untouched (the badge stays steady rather than flickering to absent).
-  const [badges, setBadges] = useState<Badges>({ missing: null, blocked: null, dispatchable: null, webGap: null, errors: null });
+  const [badges, setBadges] = useState<Badges>({ missing: null, blocked: null, dispatchable: null, webGap: null, errors: null, exhausted: null });
   // Run #51: the dispatcher's most recent run error (status.last_error), shown in the ⚡
   // DISPATCHABLE fault chip's tooltip. null when the loop is clean or not yet loaded.
   const [lastError, setLastError] = useState<string | null>(null);
@@ -260,6 +264,10 @@ export default function AutonomyDrawer({
           set({
             dispatchable: d.dispatchable.length,
             webGap: d.dispatchable.filter((r) => r.web_gap).length,
+            // Run #96: the dispatch-exhausted subset (run #95's per-row flag) — counted
+            // separately so the emerald "ready" badge no longer implies an auto-skipped
+            // row will fire (the daemon skips these; only a manual force-dispatch runs them).
+            exhausted: d.dispatchable.filter((r) => r.dispatch_exhausted).length,
             // Run #51: cumulative run-error count for the ⚡ DISPATCHABLE fault chip.
             errors: d.status.errors,
           });
@@ -413,7 +421,7 @@ export default function AutonomyDrawer({
   // render no badge. Suppressed when the count is unknown (fetch pending/failed) or zero
   // (nothing needs attention there). The ⚡ DISPATCHABLE badge carries `warn` = the web-gap
   // subset of the ready queue (run #40), shown as "· N⚠" inside the emerald pill.
-  const badgeFor = (key: Tab): { count: number; tone: string; warn?: number } | null => {
+  const badgeFor = (key: Tab): { count: number; tone: string; warn?: number; exhausted?: number } | null => {
     const amber = 'border-amber-400/40 bg-amber-400/15 text-amber-300';
     const emerald = 'border-emerald-400/40 bg-emerald-400/15 text-emerald-300';
     const pick = (count: number | null, tone: string) =>
@@ -421,9 +429,14 @@ export default function AutonomyDrawer({
     if (key === 'webaccess') return pick(badges.missing, amber);
     if (key === 'blocked') return pick(badges.blocked, amber);
     if (key === 'dispatch') {
-      const b = pick(badges.dispatchable, emerald);
-      // Attach the web-gap subset only when known and > 0 (else no amber segment).
-      return b && badges.webGap && badges.webGap > 0 ? { ...b, warn: badges.webGap } : b;
+      let b: { count: number; tone: string; warn?: number; exhausted?: number } | null = pick(badges.dispatchable, emerald);
+      if (!b) return null;
+      // Attach each subset only when known and > 0. `warn` (amber) = web-gap rows (run #40);
+      // `exhausted` (red) = retry-exhausted rows the daemon auto-skips (run #96) — so the
+      // emerald count no longer silently promises an auto-skipped row will fire.
+      if (badges.webGap && badges.webGap > 0) b = { ...b, warn: badges.webGap };
+      if (badges.exhausted && badges.exhausted > 0) b = { ...b, exhausted: badges.exhausted };
+      return b;
     }
     return null; // ▦ ACTIVITY — no single attention count
   };
@@ -460,11 +473,19 @@ export default function AutonomyDrawer({
               const badge = badgeFor(t.key);
               return (
                 <button key={t.key} onClick={() => { setWebFocus(undefined); selectTab(t.key); }}
-                  title={badge
-                    ? (badge.warn
-                        ? `switch to the ${t.label} view — ${badge.count} ready, ${badge.warn} blocked on a web MCP`
-                        : `switch to the ${t.label} view — ${badge.count} ${t.key === 'dispatch' ? 'ready to fire' : 'need attention'}`)
-                    : `switch to the ${t.label} view`}
+                  title={(() => {
+                    if (!badge) return `switch to the ${t.label} view`;
+                    if (t.key === 'dispatch') {
+                      // Spell out each segment so the glance-level count is honest: the
+                      // emerald total includes web-gapped (run #40) and retry-exhausted
+                      // (run #96, auto-skipped by the daemon) rows.
+                      const parts = [`${badge.count} ready to fire`];
+                      if (badge.warn) parts.push(`${badge.warn} blocked on a web MCP`);
+                      if (badge.exhausted) parts.push(`${badge.exhausted} retry-exhausted (auto-skipped — manual dispatch only)`);
+                      return `switch to the ${t.label} view — ${parts.join(', ')}`;
+                    }
+                    return `switch to the ${t.label} view — ${badge.count} need attention`;
+                  })()}
                   className={`inline-flex items-center gap-1 border px-2 py-0.5 rounded-sm text-[10px] tracking-[0.12em] ${
                     tab === t.key
                       ? 'border-white/45 text-white bg-white/[0.06]'
@@ -475,6 +496,9 @@ export default function AutonomyDrawer({
                     <span className={`ml-0.5 px-1 rounded-sm border text-[9px] leading-none tabular-nums ${badge.tone}`}>
                       {badge.count}
                       {badge.warn ? <span className="ml-0.5 text-amber-300">· {badge.warn}⚠</span> : null}
+                      {/* run #96: retry-exhausted subset the daemon auto-skips — red ⚑ so the
+                          emerald total never implies an auto-skipped row will fire. */}
+                      {badge.exhausted ? <span className="ml-0.5 text-red-300">· {badge.exhausted}⚑</span> : null}
                     </span>
                   )}
                   {/* run #51: dispatcher-fault chip — separate from the ready-count pill (which

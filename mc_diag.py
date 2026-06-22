@@ -98,18 +98,22 @@ def skills(skills_roots: list[Path]) -> dict[str, Any]:
         source = "plugin" if "plugin" in str(root).lower() else "local"
         for skill_md in root.glob("*/SKILL.md"):
             name = skill_md.parent.name
-            category = source
             # pull a description from frontmatter if present
             desc = ""
             try:
                 head = skill_md.read_text(encoding="utf-8", errors="replace")[:600]
                 dm = re.search(r"description:\s*(.+)", head)
                 if dm:
-                    desc = dm.group(1).strip().strip('"')[:60]
+                    desc = dm.group(1).strip().strip('"')[:140]
             except OSError:
                 pass
+            # `category` groups the registry by source ("plugin"/"local"); the
+            # parsed frontmatter blurb rides its own `description` field so it
+            # reaches the Skill Registry tooltip instead of being discarded (it
+            # used to die in a `category or desc` short-circuit — category, being
+            # source, is always truthy, so desc never surfaced).
             found.append({
-                "name": name, "category": category or desc or "skill",
+                "name": name, "category": source, "description": desc,
                 "source": source, "trust": "local", "enabled": True,
             })
     found.sort(key=lambda s: s["name"])
@@ -184,8 +188,12 @@ def doctor(data_dir: Path, project_root: Path) -> dict[str, Any]:
     def add(ok, text, warn=False):
         checks.append({"level": "ok" if ok else ("warn" if warn else "fail"), "text": text})
 
-    ver = claude_version()
-    add(bool(ver and "Claude" in ver or re.search(r"\d", ver or "")), f"claude CLI: {ver or 'not found'}")
+    # Probe the CLI directly — claude_version()'s "Claude Code" fallback would
+    # mask a missing/broken binary (its own substring matches "Claude") as a
+    # green check, so the doctor could never report a dead Claude brain.
+    ver = _run("--version", timeout=10)
+    add(bool(ver and ("claude" in ver.lower() or re.search(r"\d", ver))),
+        f"claude CLI: {ver or 'not found'}")
     mcp = mcp_servers()["servers"]
     connected = sum(1 for s in mcp if s["enabled"])
     add(True, f"MCP servers: {connected}/{len(mcp)} connected")

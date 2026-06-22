@@ -10,7 +10,7 @@ import { useTaskStore } from '../stores/useTaskStore';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
 import { getMcCron, runMcCron, createMcCron, decomposeTask, getWebAccessAudit, getDispatcher, dispatchTask, errMessage, type McCronJob, type CronSchedulerStatus, type McTask, type WebAccessAudit, type DispatcherInfo } from '../lib/api';
-import { parseSchedule, formatCountdown, fireLabel, type ParsedSchedule } from '../lib/cronSchedule';
+import { parseSchedule, formatCountdown, fireLabel, cronAnchorMs, type ParsedSchedule } from '../lib/cronSchedule';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
 import CronTimeline from '../components/CronTimeline';
 import DeliverablesDrawer from '../components/DeliverablesDrawer';
@@ -26,21 +26,34 @@ const COLUMNS: { key: string; label: string; tone: string }[] = [
   { key: 'failed', label: 'FAILED', tone: '#b91c1c' },
   { key: 'scheduled', label: 'SCHEDULED', tone: '#6b7280' },
   { key: 'done', label: 'DONE', tone: '#10b981' },
+  { key: 'archived', label: 'ARCHIVED', tone: '#4b5563' },
 ];
 
 // Normalize any Mc status string to one of our columns.
+// `archived` is a real terminal status (mc_store TERMINAL = {done, archived})
+// reachable via the drawer ARCHIVE verb; it MUST have its own column or it falls
+// through to the `todo` catch-all below and an archived (retired) task reappears
+// in the TODO backlog as phantom fresh work. Same class as the pre-iter-#7
+// `failed`→`blocked` fold — give it a dedicated lane so colOf routes it naturally.
 function colOf(status: string): string {
   if (status === 'completed') return 'done';
   if (status === 'pending') return 'todo';
   return COLUMNS.some((c) => c.key === status) ? status : 'todo';
 }
 
-function ago(unixSeconds: number): string {
-  const s = Math.max(0, Math.floor(Date.now() / 1000 - unixSeconds));
+// Format an elapsed-seconds DURATION (an age, not a timestamp) compactly.
+function fmtAge(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   return `${Math.floor(s / 86400)}d`;
+}
+
+// "how long ago" for a unix-seconds TIMESTAMP — delegates to fmtAge so the
+// single subtraction lives in one place (callers must not pre-subtract Date.now).
+function ago(unixSeconds: number): string {
+  return fmtAge(Math.floor(Date.now() / 1000) - unixSeconds);
 }
 
 // A done task "has a deliverable" when it produced something retrievable. The
@@ -58,7 +71,7 @@ function hasDeliverable(t: McTask): boolean {
 }
 
 export default function OperationsCenter() {
-  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, escalateExhaustedTasks, cascadeDeps, reassignDead, sweepBoard, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
+  const { mcTasks, summary, stats, boards, diagnostics, error, lastSync, fetchTasks, fetchStats, fetchBoards, switchBoard, createBoard, fetchDiagnostics, reconcileBoard, routeTriageTasks, escalateExhaustedTasks, cascadeDeps, reassignDead, sweepBoard, promoteReady, unlinkTasks, createTask, claimMcTaskById, completeMcTaskById } = useTaskStore();
   const nodes = useGhostStore((s) => s.nodes);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -76,6 +89,10 @@ export default function OperationsCenter() {
   const [reassignMsg, setReassignMsg] = useState<string | null>(null);
   const [sweeping, setSweeping] = useState(false);
   const [sweepMsg, setSweepMsg] = useState<string | null>(null);
+  const [promoting, setPromoting] = useState(false);
+  const [promoteMsg, setPromoteMsg] = useState<string | null>(null);
+  // Cycle-break: which parent→child edge is mid-unlink (keyed "parent>child").
+  const [breakingEdge, setBreakingEdge] = useState<string | null>(null);
   const [webAudit, setWebAudit] = useState<WebAccessAudit | null>(null);
   const loadWebAudit = () => getWebAccessAudit().then(setWebAudit).catch(() => {});
   const [dispatcher, setDispatcher] = useState<DispatcherInfo | null>(null);
@@ -103,6 +120,10 @@ export default function OperationsCenter() {
 
   // cron modal
   const [cronOpen, setCronOpen] = useState(false);
+  const [deliverablesOpen, setDeliverablesOpen] = useState(false);
+  // Consolidated ⊙ AUTONOMY surface (run #32) — one tabbed drawer over the four
+  // autonomy-observability views (▦ ACTIVITY / ⊘ BLOCKED / ⚿ WEB-ACCESS / ⚡ DISPATCHABLE).
+  const [autonomyOpen, setAutonomyOpen] = useState(false);
   const [cron, setCron] = useState<McCronJob[]>([]);
   const [schedulerStatus, setSchedulerStatus] = useState<CronSchedulerStatus | null>(null);
   const [cronSchedule, setCronSchedule] = useState('');
@@ -114,10 +135,6 @@ export default function OperationsCenter() {
   const [cronAction, setCronAction] = useState('sweep');
   const [cronLoading, setCronLoading] = useState(false);
   const [cronError, setCronError] = useState<string | null>(null);
-  const [deliverablesOpen, setDeliverablesOpen] = useState(false);
-  // Consolidated ⊙ AUTONOMY surface (run #32) — one tabbed drawer over the four
-  // autonomy-observability views (▦ ACTIVITY / ⊘ BLOCKED / ⚿ WEB-ACCESS / ⚡ DISPATCHABLE).
-  const [autonomyOpen, setAutonomyOpen] = useState(false);
   // Live clock for the cron next-fire countdowns — ticks only while the modal
   // is open (seeded once, never read via Date.now() inside render).
   const [cronNow, setCronNow] = useState(0);
@@ -140,7 +157,7 @@ export default function OperationsCenter() {
   const cronView = useMemo(() => {
     const now = cronNow || 0;
     return cron
-      .map((job) => ({ job, sched: parseSchedule(job.schedule || job.repeat, now) }))
+      .map((job) => ({ job, sched: parseSchedule(job.schedule || job.repeat, now, cronAnchorMs(job.last_run, job.created_at)) }))
       .sort((a, b) => {
         const an = a.sched.nextMs ?? Infinity;
         const bn = b.sched.nextMs ?? Infinity;
@@ -234,7 +251,7 @@ export default function OperationsCenter() {
           <Chip k="BLOCKED" v={stats?.by_status?.blocked ?? summary?.blocked ?? 0} c="text-red-400" />
           <Chip k="FAILED" v={stats?.by_status?.failed ?? summary?.failed ?? 0} c="text-red-500" />
           <Chip k="DONE" v={stats?.by_status?.done ?? summary?.completed ?? 0} c="text-emerald-400" />
-          {oldestReady != null && <Chip k="OLDEST READY" v={`${ago(Math.floor(Date.now() / 1000) - oldestReady)}`} c="text-[#b8b8b8]" />}
+          {oldestReady != null && <Chip k="OLDEST READY" v={fmtAge(oldestReady)} c="text-[#b8b8b8]" />}
         </div>
         <div className="ml-auto flex items-center gap-1.5 text-[10px] font-mono">
           {boards.length > 0 && (
@@ -322,9 +339,10 @@ export default function OperationsCenter() {
             const exhaustedCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'retry_exhausted').length || 0), 0);
             const depCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'blocked_by_dependency').length || 0), 0);
             const deadCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'dead_agent_task').length || 0), 0);
-            // Master self-manage macro: enabled when ANY of the four self-heal
-            // verbs has pending work (one click runs reconcile→cascade→reassign→escalate).
-            const sweepCount = staleCount + depCount + deadCount + exhaustedCount;
+            const promoteCount = diagnostics.reduce((n, d) => n + (d.diagnostics?.filter((x) => x.kind === 'promotable').length || 0), 0);
+            // Master self-manage macro: enabled when ANY self-heal/flow verb has
+            // pending work (one click runs reconcile→cascade→reassign→escalate→promote).
+            const sweepCount = staleCount + depCount + deadCount + exhaustedCount + promoteCount;
             return (
               <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.06] flex-wrap">
                 <button
@@ -333,9 +351,13 @@ export default function OperationsCenter() {
                     setSweeping(true); setSweepMsg(null);
                     const res = await sweepBoard();
                     if (!res) setSweepMsg('⚠ sweep failed — see console');
-                    else setSweepMsg(res.total > 0
-                      ? `✓ swept ${res.total} · reconciled ${res.counts.reconciled} · held ${res.counts.held} · promoted ${res.counts.promoted} · reassigned ${res.counts.reassigned} · escalated ${res.counts.escalated}`
-                      : 'board already healthy — nothing to do');
+                    else {
+                      const base = res.total > 0
+                        ? `✓ swept ${res.total} · reconciled ${res.counts.reconciled} · held ${res.counts.held} · promoted ${res.counts.promoted} · reassigned ${res.counts.reassigned} · escalated ${res.counts.escalated} · ready ${res.counts.promoted_ready}`
+                        : (res.errors?.length ? 'no changes applied' : 'board already healthy — nothing to do');
+                      // A sub-verb can fail without sinking the whole sweep — surface which.
+                      setSweepMsg(res.errors?.length ? `${base} · ⚠ ${res.errors.length} failed: ${res.errors.join(', ')}` : base);
+                    }
                     setSweeping(false);
                   }}
                   title={sweepCount === 0 ? 'Board healthy — no self-heal actions pending' : `Self-manage the board in one pass: reconcile + cascade + reassign + escalate (${sweepCount} pending action(s))`}
@@ -378,6 +400,26 @@ export default function OperationsCenter() {
                   {routing ? '… routing' : `⤵ AUTO-ROUTE TRIAGE${triageCount > 0 ? ` (${triageCount})` : ''}`}
                 </button>
                 {routeMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{routeMsg}</span>}
+                <button
+                  disabled={promoting || promoteCount === 0}
+                  onClick={async () => {
+                    setPromoting(true); setPromoteMsg(null);
+                    const res = await promoteReady();
+                    if (!res) setPromoteMsg('⚠ promote failed — see console');
+                    else {
+                      const p = res.promoted.length, s = res.skipped.length;
+                      const who = res.promoted.map((x) => x.assignee).join(', ');
+                      setPromoteMsg(p > 0
+                        ? `✓ promoted ${p} → ready${who ? ` · ${who}` : ''}${s ? ` · ${s} left in todo` : ''}`
+                        : (s ? `${s} todo left in place — blocked/unassigned` : 'no actionable todo tasks'));
+                    }
+                    setPromoting(false);
+                  }}
+                  title={promoteCount === 0 ? 'No actionable todo tasks to promote (all unassigned, off-roster, or dependency-blocked)' : `Promote ${promoteCount} actionable todo task(s) → ready so the dispatcher can run them`}
+                  className={`text-[10px] font-mono border px-2 py-1 ${promoteCount > 0 && !promoting ? 'border-sky-400/50 text-sky-400 hover:bg-sky-400/10' : 'border-white/10 text-[#545454] cursor-default'}`}>
+                  {promoting ? '… promoting' : `▲ PROMOTE READY${promoteCount > 0 ? ` (${promoteCount})` : ''}`}
+                </button>
+                {promoteMsg && <span className="text-[10px] font-mono text-[#b8b8b8]">{promoteMsg}</span>}
                 <button
                   disabled={escalating || exhaustedCount === 0}
                   onClick={async () => {
@@ -473,9 +515,33 @@ export default function OperationsCenter() {
                   <span className="text-[11px] text-white truncate">{d.title}</span>
                 </button>
                 {d.diagnostics?.map((x, i) => (
-                  <div key={i} className="text-[10px] font-mono flex items-start gap-1.5">
+                  <div key={i} className="text-[10px] font-mono flex items-start gap-1.5 flex-wrap">
                     <span className={x.severity === 'critical' || x.severity === 'error' ? 'text-red-400' : 'text-amber-400'}>● {x.severity || x.kind}</span>
                     <span className="text-[#b8b8b8]">{x.message || x.kind}</span>
+                    {/* Cycle-break: unlink an on-cycle parent edge so the dependency
+                        gate can finally clear this task (the only in-UI remediation). */}
+                    {x.kind === 'dependency_cycle' && (x.cycle_parents ?? []).map((p) => {
+                      const edge = `${p}>${d.task_id}`;
+                      return (
+                        <button
+                          key={edge}
+                          disabled={breakingEdge !== null}
+                          onClick={async () => {
+                            setBreakingEdge(edge);
+                            try {
+                              await unlinkTasks(p, d.task_id);
+                              await fetchDiagnostics();
+                            } finally {
+                              setBreakingEdge(null);
+                            }
+                          }}
+                          title={`Unlink ${p} → ${d.task_id} to break the cycle`}
+                          className="px-1.5 border border-amber-400/40 text-amber-300 hover:bg-amber-400/10 disabled:opacity-40"
+                        >
+                          {breakingEdge === edge ? '…' : `✕ break ${p}`}
+                        </button>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
@@ -750,19 +816,22 @@ function DispatcherPanel({ info, busy, msg, onDispatch }: {
 }
 
 // Compact next-fire badge for a cron row. Cron expressions show a live
-// "in 3h 12m" countdown (+ the absolute fire time as a tooltip); interval
-// jobs have no anchorable next fire, so they show "↻ repeats"; anything
-// unparseable shows a muted dash.
+// "▸ in 3h 12m" countdown; interval jobs anchored by the daemon (last_run/
+// created_at) show the same live countdown with a "↻" glyph (their next fire is
+// deterministic — one period after the anchor); an interval with no anchor yet
+// falls back to "↻ repeats"; anything unparseable shows a muted dash. Both
+// countdowns carry the absolute fire time as a tooltip.
 function CronNextFire({ sched, nowMs }: { sched: ParsedSchedule; nowMs: number }) {
-  if (sched.kind === 'cron' && sched.nextMs !== null) {
+  if (sched.nextMs !== null) {
     const delta = sched.nextMs - nowMs;
     const soon = delta <= 60000; // < 1 min away → coral
+    const glyph = sched.kind === 'interval' ? '↻' : '▸';
     return (
       <span
         title={`Next fire: ${fireLabel(sched.nextMs)} (local)`}
         className={`text-[10px] font-mono tabular-nums px-1.5 py-1 border whitespace-nowrap ${soon ? 'border-[#f64e6e]/40 text-[#f64e6e] bg-[#f64e6e]/10' : 'border-white/10 text-[#b8b8b8]'}`}
       >
-        ▸ {formatCountdown(delta)}
+        {glyph} {formatCountdown(delta)}
       </span>
     );
   }

@@ -199,6 +199,11 @@ export interface DispatchablePlan {
   agent_model: string | null;
   agent_mcps: string[];
   web_gap: boolean;
+  // True once a ready task has burned its retry budget (explicit max_retries or
+  // the default ceiling). The autonomous dispatcher SKIPS these; the GET endpoint
+  // still lists them (flagged) so the operator can force one by hand. Optional so
+  // older bridge payloads decode cleanly (treated as not-exhausted).
+  dispatch_exhausted?: boolean;
 }
 export interface DispatcherInfo {
   status: DispatcherStatus;
@@ -386,6 +391,14 @@ export async function getMcTaskWorkspaceFile(taskId: string, file: string): Prom
   return data;
 }
 
+// Raw-bytes URL for a workspace file (the JSON read above can only flag a binary
+// "not shown"). The bridge streams the real bytes with HTTP Range support, so this
+// is usable as an <img>/<video>/<audio>/<iframe> src to render a task's media
+// deliverable inline. Reads are confined to the store-derived workspace root.
+export function taskWorkspaceRawUrl(taskId: string, file: string): string {
+  return `${BRIDGE_BASE_URL}/api/mc/tasks/${encodeURIComponent(taskId)}/workspace/raw?file=${encodeURIComponent(file)}`;
+}
+
 // Deliverables browser: dispatched agents write substantive output to
 // deliverables/ and research/ at the repo root. These give that orphaned output a
 // reachable home in the UI. The bridge confines all reads to those two roots.
@@ -568,6 +581,9 @@ export interface SweepResult {
   promoted: PromoteReadyResult;
   counts: SweepCounts;
   total: number;
+  // Names of sub-verbs that raised mid-sweep (best-effort: the macro keeps
+  // sweeping rather than 500-ing, so the others still apply + report).
+  errors?: string[];
   dry_run: boolean;
   message: string;
 }
@@ -1040,7 +1056,7 @@ export interface McOverview {
   raw: string;
 }
 
-export interface McSkill { name: string; category: string; source: string; trust: string; enabled: boolean }
+export interface McSkill { name: string; category: string; description?: string; source: string; trust: string; enabled: boolean }
 export interface SkillsSummary { hub: number; builtin: number; local: number; enabled: number; disabled: number }
 export interface McMcpServer { name: string; transport: string; tools: string; enabled: boolean }
 export interface McPlugin { status: string; source: string; version: string; name: string; enabled: boolean }

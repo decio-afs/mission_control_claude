@@ -19,6 +19,28 @@ const STATUS_COLORS: Record<string, string> = {
   done: '#10b981',
   failed: '#ef4444',
   pending: '#b8b8b8',
+  // Activity-feed display vocabulary: /api/mc/activity emits `created`/`complete`
+  // (distinct from task statuses). Without these keys the signal feed (below)
+  // greys out a completed-task signal instead of showing it green, and a new-task
+  // signal loses its colour — `complete` mirrors `done`, `created` reads as
+  // incoming/queued. (BUGHUNT CF-COLOR)
+  complete: '#10b981',
+  created: '#38bdf8',
+};
+
+// Render an epoch-SECONDS instant as LOCAL wall-clock HH:MM:SS — the same
+// convention the Ghost Network Activity Stream / Chat use for these very same
+// mc-activity events. (The feeds previously used `toISOString().slice(11,19)`,
+// which prints UTC, so War Room showed the same events at a different time than
+// Ghost Network — shifted by the operator's timezone offset — and threw a
+// RangeError, crashing the whole panel, on any non-finite stamp. The topbar
+// clock is intentionally UTC, but it is explicitly labelled ZULU; these
+// unlabelled per-event rows are not.)
+const hms = (sec: number): string => {
+  const d = new Date(sec * 1000);
+  if (Number.isNaN(d.getTime())) return '--:--:--';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 };
 
 export default function WarRoom() {
@@ -75,6 +97,12 @@ export default function WarRoom() {
   const statusBars = useMemo(() => {
     if (!summary) return [];
     return [
+      // Backlog bar. mc_store's canonical backlog status is `todo`; `summarize()`
+      // tallies it into `summary.pending` (incl. the legacy `pending` alias). This
+      // bar was missing entirely, so the whole queued backlog (8/32 tasks on the
+      // live board) was invisible in the status breakdown — the entire START of the
+      // lifecycle dropped off the "watch everything" chart. (BUGHUNT vocabulary lens)
+      { name: 'queued', v: summary.pending, c: STATUS_COLORS.pending },
       { name: 'running', v: summary.running, c: STATUS_COLORS.running },
       { name: 'ready', v: summary.ready, c: STATUS_COLORS.ready },
       { name: 'blocked', v: summary.blocked, c: STATUS_COLORS.blocked },
@@ -99,7 +127,7 @@ export default function WarRoom() {
       .sort((a, b) => (b.started_at ?? b.created_at) - (a.started_at ?? a.created_at))
       .slice(0, 14)
       .map((t) => ({
-        t: new Date((t.started_at ?? t.created_at) * 1000).toISOString().slice(11, 19),
+        t: hms(t.started_at ?? t.created_at),
         tag: (t.assignee || 'unassigned').slice(0, 12),
         color: STATUS_COLORS[t.status] || '#b8b8b8',
         msg: `[${t.status}] ${t.title}`,
@@ -108,16 +136,32 @@ export default function WarRoom() {
   );
 
   // Live agent-activity feed (consolidated from the old Signal Intelligence tab).
+  // Mirror the backend's cap-priority partition (iter #58): a still-stuck
+  // blocked/failed signal carries its OLD blocked/started timestamp, so a naive
+  // newest-N slice can push it off the tail behind a burst of recent routine
+  // events — silently re-dropping the very stuck rows the backend reserved cap
+  // budget to keep, and hiding the "this task needs attention now" signal this
+  // feed exists to surface. Reserve the 40-row budget for every stuck row first,
+  // fill the rest with the most-recent others, then re-sort by time.
   const signalLog = useMemo(
-    () => [...activities]
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, 40)
-      .map((a) => ({
-        t: new Date(a.timestamp * 1000).toISOString().slice(11, 19),
-        tag: (a.agent || 'agent').slice(0, 12),
-        color: STATUS_COLORS[a.status.toLowerCase()] || '#b8b8b8',
-        msg: a.action,
-      })),
+    () => {
+      const CAP = 40;
+      const isStuck = (a: (typeof activities)[number]) => {
+        const s = (a.status || '').toLowerCase();
+        return s === 'blocked' || s === 'failed';
+      };
+      const sorted = [...activities].sort((a, b) => b.timestamp - a.timestamp);
+      const critical = sorted.filter(isStuck);
+      const rest = sorted.filter((a) => !isStuck(a));
+      return [...critical.slice(0, CAP), ...rest.slice(0, Math.max(0, CAP - critical.length))]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .map((a) => ({
+          t: hms(a.timestamp),
+          tag: (a.agent || 'agent').slice(0, 12),
+          color: STATUS_COLORS[(a.status || '').toLowerCase()] || '#b8b8b8',
+          msg: a.action,
+        }));
+    },
     [activities],
   );
 
